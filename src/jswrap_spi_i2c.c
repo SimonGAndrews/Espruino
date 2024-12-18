@@ -587,6 +587,7 @@ Set up this I2C port
 
 If not specified in options, the default pins are used (usually the lowest
 numbered pins on the lowest port that supports this peripheral)
+on ESP32-C3 and ESP32-S3 setting bitrate will round up the freq to the next available clock freq.
  */
 void jswrap_i2c_setup(JsVar *parent, JsVar *options) {
   if (!jsvIsObject(parent)) return;

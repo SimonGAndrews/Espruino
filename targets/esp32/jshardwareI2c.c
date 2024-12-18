@@ -84,7 +84,7 @@ int getI2cFromDevice( IOEventFlags device  ) {
   }
 }
 
-/** Set-up I2C master for ESP32, default pins are SCL:21, SDA:22. Only device I2C1 is supported
+/** Set-up I2C master for ESP32, default pins are target dependent. Only device I2C1 is supported
  *  and only master mode. */
 void jshI2CSetup(IOEventFlags device, JshI2CInfo *info) {
   int i2c_master_port = getI2cFromDevice(device);
@@ -98,9 +98,18 @@ void jshI2CSetup(IOEventFlags device, JshI2CInfo *info) {
   Pin scl;
   Pin sda;
   if ( i2c_master_port == I2C_NUM_0 ) {
-    scl = info->pinSCL != PIN_UNDEFINED ? info->pinSCL : 21;
-    sda = info->pinSDA != PIN_UNDEFINED ? info->pinSDA : 22;
+    #if CONFIG_IDF_TARGET_ESP32C3
+      scl = info->pinSCL != PIN_UNDEFINED ? info->pinSCL : 9;
+      sda = info->pinSDA != PIN_UNDEFINED ? info->pinSDA : 8;
+    #elif CONFIG_IDF_TARGET_ESP32S3
+      scl = info->pinSCL != PIN_UNDEFINED ? info->pinSCL : 11;
+      sda = info->pinSDA != PIN_UNDEFINED ? info->pinSDA : 10;
+    #else  // assume CONFIG_IDF_TARGET_ESP32 for now
+      scl = info->pinSCL != PIN_UNDEFINED ? info->pinSCL : 21;
+      sda = info->pinSDA != PIN_UNDEFINED ? info->pinSDA : 22;
+    #endif
   }
+
 #if ESPR_I2C_COUNT>1
   // Unsure on what to default these pins to?
   if ( i2c_master_port == I2C_NUM_1 ) {
@@ -116,14 +125,30 @@ void jshI2CSetup(IOEventFlags device, JshI2CInfo *info) {
   conf.scl_io_num = pinToESP32Pin(scl);
   conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
   conf.master.clk_speed = info->bitrate;
+
+  #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3) 
+    // issue xxxx in IDF v4 - additional param conf.clk_flags and new clk select logic
+    // fix ref https://docs.espressif.com/projects/esp-idf/en/v4.4/esp32s3/api-reference/peripherals/i2c.html#source-clock-configuration
+    if (info->bitrate <= 1000000) {
+      conf.master.clk_speed = 1000000; 
+      conf.clk_flags = 1;     // hack to force driver to ignore 2MHz clock
+    } else if (info->bitrate <= 2000000) {
+      conf.master.clk_speed = 2000000; 
+      conf.clk_flags = 0;              
+    } else {
+      conf.master.clk_speed = 2000000; // Cap at 2 MHz
+      conf.clk_flags = 0;              
+    }
+  #endif
+                    
   esp_err_t err=i2c_param_config(i2c_master_port, &conf);
   if ( err == ESP_ERR_INVALID_ARG ) {
     jsExceptionHere(JSET_ERROR,"jshI2CSetup: Invalid arguments");
-  return;
+    return;
   }
   err=i2c_driver_install(i2c_master_port, conf.mode, 0, 0, 0);
   if ( err == ESP_OK ) {
-    jsDebug(DBG_INFO, "jshI2CSetup: driver installed, sda: %d scl: %d freq: %d, \n", sda, scl, info->bitrate);
+    jsDebug(DBG_INFO, "jshI2CSetup: driver installed, sda: %d scl: %d freq: %d, \n", sda, scl, conf.master.clk_speed);
     jshSetDeviceInitialised(device, true);
   } else {
     checkError("jshI2CSetup",err);
