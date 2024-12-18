@@ -401,7 +401,7 @@ JsVar *jswrap_pb_audioRead(JsVar *fn) {
   "name" : "audioBuiltin",
   "generate" : "jswrap_pb_audioBuiltin",
   "params" : [
-      ["id","JsVar","OK/NEXT/COLUMN"]
+      ["id","JsVar","OK/OK2/PREV/NEXT/COLUMN/CLICK"]
    ],
    "return" : ["JsVar","The sound as a native string"]
 }
@@ -871,7 +871,7 @@ void jswrap_pb_setDACPower(bool isOn) {
     jswrap_E_unmountSD(); // Close all files and unmount the SD card
 #ifndef LINUX
     SDIO_DeInit(); // Properly shut down the SD interface
-    jshPinSetState(SD_CLK_PIN, JSHPINSTATE_GPIO_IN_PULLDOWN);
+    jshPinSetState(SD_CLK_PIN, JSHPINSTATE_GPIO_IN_PULLDOWN); // SD card pins have external pullup resistors to 3V3D_M, which is turned off when the SD_POWER_PIN is low, so we should pull them down to help discharge 3V3D_M
     jshPinSetState(SD_CMD_PIN, JSHPINSTATE_GPIO_IN_PULLDOWN);
     jshPinSetState(SD_D0_PIN, JSHPINSTATE_GPIO_IN_PULLDOWN);
     jshPinSetState(SD_D1_PIN, JSHPINSTATE_GPIO_IN_PULLDOWN);
@@ -881,9 +881,9 @@ void jswrap_pb_setDACPower(bool isOn) {
     /*** FIXME *** We should actually put the SPI flash chip into "power down" mode
      * ...but for now, just set the SPI flash pins to pulled-up inputs, to ensure that the CS pin isn't left low.
      *
-     * NOTE that this won't work in STANDBY mode, as the pins go high-impedance (and there's currently no external pullups).
+     * NOTE that this won't work in STANDBY mode for PCB v0.6 (or earlier), as the pins go high-impedance (and there's currently no external pullups).
      */
-    jshPinSetState(SPIFLASH_PIN_MOSI, JSHPINSTATE_GPIO_IN_PULLUP);
+    jshPinSetState(SPIFLASH_PIN_MOSI, JSHPINSTATE_GPIO_IN_PULLUP); // From PCB v0.7, SPI flash pins now have external pullup resistors to 3V3D
     jshPinSetState(SPIFLASH_PIN_MISO, JSHPINSTATE_GPIO_IN_PULLUP);
     jshPinSetState(SPIFLASH_PIN_SCK, JSHPINSTATE_GPIO_IN_PULLUP);
     jshPinSetState(SPIFLASH_PIN_CS, JSHPINSTATE_GPIO_IN_PULLUP);
@@ -1026,7 +1026,7 @@ static void jswrap_pb_periph_off() {
   jshPinSetState(DAC_SDA_PIN, JSHPINSTATE_GPIO_IN);
   jshPinSetState(RADIO_SCL_PIN, JSHPINSTATE_ADC_IN);
   jshPinSetState(RADIO_SDA_PIN, JSHPINSTATE_ADC_IN);
-  jshPinSetState(LCD_TEARING, JSHPINSTATE_ADC_IN);
+  jshPinSetState(LCD_TEARING, JSHPINSTATE_GPIO_IN_PULLDOWN);
   STM32_I2S_Kill();
 }
 
@@ -1070,8 +1070,8 @@ void jswrap_pb_sleep() {
 #ifndef LINUX
   jshTransmitClearDevice(DEFAULT_CONSOLE_DEVICE); // let's just remove any waiting characters for now
   jshUSARTUnSetup(DEFAULT_CONSOLE_DEVICE);
-  jshPinSetState(DEFAULT_CONSOLE_TX_PIN, JSHPINSTATE_ADC_IN);
-  jshPinSetState(DEFAULT_CONSOLE_RX_PIN, JSHPINSTATE_ADC_IN);
+  jshPinSetState(DEFAULT_CONSOLE_TX_PIN, JSHPINSTATE_GPIO_IN_PULLUP);
+  jshPinSetState(DEFAULT_CONSOLE_RX_PIN, JSHPINSTATE_GPIO_IN_PULLUP);
 #endif
   jswrap_interface_setDeepSleep(1);
 }
@@ -1274,6 +1274,16 @@ for (var i=0;i<16;i++) {
 Pip.setPalette(pal);
 ```
 */
+static void jswrap_pb_updateTheme() {
+  graphicsTheme.fg = (JsGraphicsThemeColor)palette[0][15];
+  graphicsTheme.bg = (JsGraphicsThemeColor)palette[0][0];
+  graphicsTheme.fg2 = (JsGraphicsThemeColor)palette[2][15];
+  graphicsTheme.bg2 = (JsGraphicsThemeColor)palette[2][0];
+  graphicsTheme.fgH = (JsGraphicsThemeColor)palette[0][0];
+  graphicsTheme.bgH = (JsGraphicsThemeColor)palette[0][15];
+  graphicsTheme.dark = graphicsTheme.bg;
+}
+
 void jswrap_pb_setPalette(JsVar *pal) {
   if (!jsvIsArray(pal)) {
     jsExceptionHere(JSET_ERROR, "Expecting array of arrays");
@@ -1295,6 +1305,7 @@ void jswrap_pb_setPalette(JsVar *pal) {
     jsvIteratorFree(&it);
     jsvUnLock(a);
   }
+  jswrap_pb_updateTheme();
 }
 
 /*JSON{
@@ -1314,12 +1325,13 @@ void jswrap_pb_init() {
     palette[2][i] = i << 7;
     palette[3][i] = (i*3) << 5;
   }
+  jswrap_pb_updateTheme();
   // splash screen
   const unsigned char img_raw[] = {199, 17, 2, 0, 0, 31, 255, 255, 255, 255, 255, 255, 160, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 255, 255, 255, 255, 255, 255, 233, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 240, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 47, 255, 255, 255, 255, 255, 255, 254, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 91, 255, 213, 85, 85, 111, 255, 192, 11, 255, 224, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 86, 255, 249, 85, 85, 85, 255, 252, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 191, 253, 0, 0, 0, 191, 253, 0, 127, 255, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 31, 255, 128, 0, 0, 7, 255, 208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 255, 224, 0, 0, 7, 255, 224, 127, 255, 224, 2, 255, 255, 255, 255, 255, 233, 0, 0, 0, 0, 0, 0, 0, 0, 255, 248, 0, 0, 0, 63, 254, 0, 107, 255, 255, 255, 232, 0, 191, 255, 255, 224, 127, 255, 255, 248, 0, 0, 63, 255, 255, 255, 255, 255, 254, 7, 255, 255, 192, 47, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 15, 255, 255, 255, 255, 255, 255, 224, 127, 255, 255, 255, 255, 253, 91, 255, 255, 255, 131, 255, 255, 255, 224, 0, 3, 255, 255, 255, 255, 255, 255, 224, 26, 255, 252, 0, 107, 255, 250, 170, 170, 255, 248, 0, 170, 170, 170, 170, 168, 0, 191, 255, 255, 255, 255, 255, 248, 7, 255, 250, 170, 171, 255, 255, 255, 255, 255, 252, 47, 255, 255, 254, 0, 0, 47, 255, 191, 255, 255, 234, 80, 0, 7, 255, 192, 0, 47, 255, 0, 0, 11, 255, 192, 11, 255, 255, 255, 255, 224, 11, 255, 234, 170, 170, 171, 255, 240, 63, 253, 0, 0, 31, 255, 255, 253, 191, 255, 0, 127, 255, 208, 0, 0, 2, 255, 244, 0, 0, 0, 0, 0, 0, 127, 253, 0, 1, 255, 244, 0, 0, 191, 252, 0, 21, 85, 85, 85, 85, 0, 127, 254, 0, 0, 0, 31, 255, 67, 255, 224, 0, 0, 255, 245, 85, 64, 255, 253, 31, 255, 244, 0, 0, 0, 31, 255, 128, 0, 0, 0, 0, 0, 3, 255, 208, 0, 31, 255, 64, 0, 7, 255, 208, 0, 0, 0, 0, 0, 0, 7, 255, 224, 0, 0, 0, 255, 248, 47, 255, 0, 0, 15, 255, 128, 0, 1, 255, 255, 255, 248, 0, 0, 0, 85, 255, 248, 0, 0, 0, 0, 0, 0, 127, 254, 81, 20, 255, 249, 64, 5, 127, 255, 213, 64, 0, 0, 0, 0, 17, 127, 255, 64, 0, 5, 95, 255, 130, 255, 245, 85, 85, 255, 248, 0, 0, 2, 255, 255, 254, 0, 0, 0, 15, 255, 255, 192, 0, 0, 0, 0, 1, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 64, 0, 0, 0, 3, 255, 255, 255, 255, 255, 255, 255, 248, 15, 255, 255, 255, 255, 255, 128, 0, 0, 3, 255, 255, 128, 0, 0, 0, 127, 255, 252, 0, 0, 0, 0, 0, 11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 250, 255, 224, 0, 0, 0, 0, 31, 255, 255, 255, 255, 255, 255, 249, 0, 11, 255, 255, 255, 255, 144, 0, 0, 0, 127, 255, 208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 255, 192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 47, 255, 244, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 47, 255, 253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 255, 253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255, 255, 208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 255, 254, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 26, 170, 128, 0, 0, 0, 0, 0, 0};
   JsVar *img = jsvNewNativeString((char*)&img_raw[0], sizeof(img_raw));
   JsVar *g = jsvNewObject(); // fake object for rendering
-  graphicsInternal.data.fgColor = palette[0][15];
-  jsvUnLock(jswrap_graphics_clear(g, 0));
+  jsvUnLock(jswrap_graphics_clear(g, 1));
+  graphicsInternal.data.fgColor = graphicsTheme.fg;
   jsvUnLock(jswrap_graphics_drawImage(g, img, (LCD_WIDTH-200)/2, LCD_HEIGHT/2-16, NULL));
   graphicsInternal.data.fontSize = JSGRAPHICS_FONTSIZE_6X8+1;
   graphicsInternal.data.fontAlignX = 1;
@@ -1340,6 +1352,11 @@ void jswrap_pb_init() {
   jshPinSetState(SPIFLASH_PIN_MISO, JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetState(SPIFLASH_PIN_SCK, JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetState(SPIFLASH_PIN_CS, JSHPINSTATE_GPIO_IN_PULLUP);
+
+  jshPinOutput(JSH_PORTC_OFFSET+7, 0); // PC7 unused
+  jshPinOutput(JSH_PORTC_OFFSET+13, 0); // PC13 unused, right next to clock so tie low
+  jshPinOutput(JSH_PORTD_OFFSET+6, 0); // PD6 unused
+  jshPinOutput(JSH_PORTD_OFFSET+13, 0); // PD13 unused
 #endif
   // turn backlight on after a delay by default
   jsvUnLock(jsiSetTimeout(jswrap_pb_setLCDBacklightOn, 100));
@@ -1361,8 +1378,8 @@ void jswrap_pb_init() {
        JsVar *s = jsvVarPrintf("FW %s", version);
       jsvUnLock2(jswrap_graphics_drawString(g, s, (LCD_WIDTH/2) + 64, 10+LCD_HEIGHT/2, 0), s);
       // Now run some JS code which will check if what's in Storage is that file, and if not will update it
-      jsvUnLock(jspEvaluate(
-"if (require('Storage').read('VERSION')!==VERSION) {"
+      jsvUnLock(jspEvaluate( // We can also force an update by holding power+volume up
+"if (require('Storage').read('VERSION')!==VERSION || (BTN2.read()&&BTN10.read())) {"
 "  B15.set();" // display on
 "  const FILE = 'FW.JS';"
 "  let stat = require('fs').statSync(FILE);"
@@ -1395,7 +1412,7 @@ void jswrap_pb_init() {
     if (res == FR_NO_FILE) msg = jsvNewFromString("NO VERSION FILE");
     else if (res == FR_NOT_ENABLED) msg = jsvNewFromString("NO SD CARD");
     else msg = jsvVarPrintf("SD CARD ERROR %d", res);
-    graphicsInternal.data.fgColor = palette[0][15]; // green
+    graphicsInternal.data.fgColor = graphicsTheme.fg; // green
     graphicsInternal.data.fontSize = JSGRAPHICS_FONTSIZE_6X8+1;
     graphicsInternal.data.fontAlignX = 0;
     jsvUnLock(jswrap_graphics_drawString(g, msg, (LCD_WIDTH/2), LCD_HEIGHT/2+14, 0));
@@ -1413,7 +1430,7 @@ void jswrap_pb_init() {
     jsvUnLock(msg);
   }
   // clear up graphics
-  graphicsInternal.data.fgColor = 65535;
+  graphicsInternal.data.fgColor = graphicsTheme.fg;
   graphicsInternal.data.fontAlignX = -1;
   jsvUnLock(g);
 }
