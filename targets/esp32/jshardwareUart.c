@@ -21,8 +21,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <jsdevices.h>
+#include "jsinteractive.h"  // jsDebug() ??
 
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL)
 #include "driver/usb_serial_jtag.h"
 #endif
 
@@ -86,14 +87,12 @@ void initSerial(IOEventFlags device,JshUSARTInfo *inf){
 }
 
 void initConsole(){
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-  #ifdef USB_CDC
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL)
   /* Configure USB-CDC */
   usb_serial_jtag_driver_config_t usb_serial_config = {.tx_buffer_size = 128,
                                                        .rx_buffer_size = 128};
-
+  jsDebug(DBG_INFO, "initConsole: Installing usb_serial_jtag_driver \n");
   ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_serial_config));
-  #endif
 #endif
 
   uart_config_t uart_config = {
@@ -114,17 +113,14 @@ void initConsole(){
 
 uint8_t rxbuf[256];
 void consoleToEspruino(){
-  TickType_t ticksToWait = 100;
-#if ESP_IDF_VERSION_MAJOR>=4
-  ticksToWait = 50 / portTICK_RATE_MS;
-#endif
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-  #ifdef USB_CDC
-  int len = usb_serial_jtag_read_bytes(rxbuf, sizeof(rxbuf), ticksToWait);
-  #else
-  int len = uart_read_bytes(uart_console, rxbuf, sizeof(rxbuf), ticksToWait);  // Read data from UART
-  #endif
+#if ESP_IDF_VERSION_MAJOR >= 4
+  TickType_t ticksToWait = 50 / portTICK_RATE_MS;
 #else
+  TickType_t ticksToWait = 100;
+#endif
+#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL)
+  int len = usb_serial_jtag_read_bytes(rxbuf, sizeof(rxbuf), ticksToWait);
+#else 
   int len = uart_read_bytes(uart_console, rxbuf, sizeof(rxbuf), ticksToWait);  // Read data from UART
 #endif
   if(len > 0) jshPushIOCharEvents(EV_SERIAL1, rxbuf, len);
