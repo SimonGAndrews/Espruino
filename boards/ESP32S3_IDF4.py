@@ -55,6 +55,7 @@
 #  Alternatively in the case where the USB is wired to an ESP32S3's UART RX and TX pins (usually via a USB to UART conversion chip),
 #    ESP_FORCE_NO_USB_SERIAL_JTAG should be defined to set the console for UART operation.
 # This method is introduced for fix to issue #2609 and replaces the previous method using the 'USB_CDC' identifier.
+# Incorrect configuration may result in no echo in the IDE console after booting the board (no response from board)
 
 
 
@@ -86,7 +87,7 @@ info = {
      'DEFINES+=-DESP_STACK_SIZE=25000',
      'DEFINES+=-DJSVAR_MALLOC', # Allocate space for variables at jsvInit time
      'DEFINES+=-DUSE_FONT_6X8',
-   # 'DEFINES+=-ESP_FORCE_NO_USB_SERIAL_JTAG' # See note above
+     'DEFINES+=-ESP_FORCE_NO_USB_SERIAL_JTAG' # comment out to use USB_SERIAL_JTAG - See note above
      'ESP32_FLASH_MAX=1572864'
    ]
  }
