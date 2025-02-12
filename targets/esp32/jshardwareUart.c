@@ -23,7 +23,7 @@
 #include <jsdevices.h>
 #include "jsinteractive.h"  // jsDebug() ??
 
-#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
+#if TARGET_PROVIDES_USB_SERIAL_JTAG  && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
 #include "driver/usb_serial_jtag.h"
 #endif
 
@@ -87,7 +87,7 @@ void initSerial(IOEventFlags device,JshUSARTInfo *inf){
 }
 
 void initConsole(){
-#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
   /* Configure USB-CDC */
   usb_serial_jtag_driver_config_t usb_serial_config = {.tx_buffer_size = 128,
                                                        .rx_buffer_size = 128};
@@ -118,7 +118,7 @@ void consoleToEspruino(){
 #else
   TickType_t ticksToWait = 100;
 #endif
-#if defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
   int len = usb_serial_jtag_read_bytes(rxbuf, sizeof(rxbuf), ticksToWait);
 #else 
   int len = uart_read_bytes(uart_console, rxbuf, sizeof(rxbuf), ticksToWait);  // Read data from UART
