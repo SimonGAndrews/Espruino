@@ -37,15 +37,21 @@
 
 #include "jsvar.h"
 
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
+  #pragma message ("USB Serial JTAG console is enabled")
+#else
+  #pragma message ("Using UART console")
+#endif
+
 extern void *espruino_stackHighPtr;  //Name spaced because this has to be a global variable.
                                      //Used in jsuGetFreeStack().
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
 #include "hal/usb_serial_jtag_ll.h"
 volatile bool usbUARTIsNotFlushed;
 #endif
 
 void esp32USBUARTWasUsed() {
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
   usbUARTIsNotFlushed = true;
 #endif
 }
@@ -57,7 +63,7 @@ static void uartTask(void *data) {
   while(1) {
     consoleToEspruino();
     serialToEspruino();
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#if TARGET_PROVIDES_USB_SERIAL_JTAG && !defined(ESP_FORCE_NO_USB_SERIAL_JTAG)
     /* The USB CDC UART on the C3 only writes the data to USB after a newline.
     We don't want that, so we call flush in this uart task if any data has been sent. */
     if (usbUARTIsNotFlushed) {

@@ -20,6 +20,13 @@
 #define uart_Serial2 1
 #define uart_Serial3 2
 
+// Define targets that provide USB Serial/JTAG Controller available for Espruino console
+#if (defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3))
+  #define TARGET_PROVIDES_USB_SERIAL_JTAG 1
+#else
+  #define TARGET_PROVIDES_USB_SERIAL_JTAG 0
+#endif
+
 void initConsole();
 void UartReset();
 void initSerial(IOEventFlags device,JshUSARTInfo *inf);
