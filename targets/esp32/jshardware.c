@@ -826,15 +826,27 @@ unsigned int jshSetSystemClock(JsVar *options) {
   return 0;
 }
 
+
 /**
  * Convert an Espruino pin id to a native ESP32 pin id.
  */
 gpio_num_t pinToESP32Pin(Pin pin) {
-  if ( pin < 40 )
-    return pin + GPIO_NUM_0;
-  jsError( "pinToESP32Pin: Unknown pin: %d", pin);
-  return -1;
-}
+  #if ESP_IDF_VERSION_MAJOR >= 4
+    // For ESP32-C3, ESP32-S3 and future builds
+    if (jshIsPinValid(pin)) {
+      return pinInfo[pin].pin + GPIO_NUM_0;
+    }
+    jsError("pinToESP32Pin: Invalid or undefined pin: %d", pin);
+    return -1;
+  #else
+    // For legacy ESP32 targets, retain original logic to avoid relying on potentially incomplete pinInfo[]
+    if (pin < 40)
+      return pin + GPIO_NUM_0;
+      jsError("pinToESP32Pin: Invalid or undefined pin (<40): %d", pin);
+    return -1;
+  #endif
+  }
+  
 
 /// Perform a proper hard-reboot of the device
 void jshReboot() {
