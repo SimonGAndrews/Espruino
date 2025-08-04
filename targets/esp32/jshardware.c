@@ -151,9 +151,10 @@ void jshPinSetStateRange( Pin start, Pin end, JshPinState state ) {
 }
 
 void jshPinDefaultPullup() {
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-
+#if ESP_IDF_VERSION_MAJOR>=4
+  //to do: include safe pins for C3 and S3 variants
 #else
+  // Set safe pins for original ESP32
   // 6-11 are used by Flash chip
   // 32-33 are routed to rtc for xtal
   // 16-17 are used for PSRAM (future use)
