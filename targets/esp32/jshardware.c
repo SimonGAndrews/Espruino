@@ -841,9 +841,10 @@ gpio_num_t pinToESP32Pin(Pin pin) {
     return -1;
   #else
     // For legacy ESP32 targets, retain original logic to avoid relying on potentially incomplete pinInfo[]
-    if (pin < 40)
+    if (pin < 40) {
       return pin + GPIO_NUM_0;
-      jsError("pinToESP32Pin: Invalid or undefined pin (<40): %d", pin);
+    }
+    jsError("pinToESP32Pin: Invalid or undefined pin (fails Pin<40): %d", pin);
     return -1;
   #endif
   }
