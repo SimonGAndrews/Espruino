@@ -822,6 +822,42 @@ NO_INLINE static void _jswrap_array_sort(JsvIterator *head, int n, JsVar *compar
 
   JsvIterator pivot;
   jsvIteratorClone(&pivot, head);
+#ifndef SAVE_ON_FLASH
+  if (n>10) {
+    /* if we have enough elements where using the wrong pivot may be a problem, try a median of 3
+    to find the best pivot - this can be slower as we have to iterate over all the items in the list.
+    16 appears to be the most efficient for # of compares for sorted arrays, but 10 allows us to
+    lower the amount of recursion we do. */
+    int midIndex = n>>1;
+    JsvIterator mid;
+    jsvIteratorClone(&mid, head);
+    for (int i=0; i<midIndex; i++) jsvIteratorNext(&mid);
+    JsvIterator high;
+    jsvIteratorClone(&high, &mid);
+    for (int i=midIndex; i<n-1; i++) jsvIteratorNext(&high);
+
+    JsVar *lowValue = jsvIteratorGetValue(&pivot);
+    JsVar *midValue = jsvIteratorGetValue(&mid);
+    JsVar *highValue = jsvIteratorGetValue(&high);
+
+    // now find the median of these three values
+    JsVarInt lowMid = _jswrap_array_sort_compare(lowValue, midValue, compareFn);
+    JsVarInt midHigh = _jswrap_array_sort_compare(midValue, highValue, compareFn);
+    JsVarInt lowHigh = _jswrap_array_sort_compare(lowValue, highValue, compareFn);
+    if ((lowMid<=0 && midHigh<=0) || (lowHigh<=0 && midHigh>=0)) {
+      // mid is median
+      jsvIteratorSetValue(&pivot, midValue);
+      jsvIteratorSetValue(&mid, lowValue);
+    } else if ((lowMid>=0 && lowHigh<=0) || (midHigh>=0 && lowHigh>=0)) {
+      // high is median
+      jsvIteratorSetValue(&pivot, highValue);
+      jsvIteratorSetValue(&high, lowValue);
+    } // else low is median, do nothing
+    jsvUnLock3(lowValue, midValue, highValue);
+    jsvIteratorFree(&mid);
+    jsvIteratorFree(&high);
+  }
+#endif
   bool pivotLowest = true; // is the pivot the lowest value in here?
   JsVar *pivotValue = jsvIteratorGetValue(&pivot);
   /* We're just going to use the first entry (head) as the pivot...
@@ -830,7 +866,7 @@ NO_INLINE static void _jswrap_array_sort(JsvIterator *head, int n, JsVar *compar
 
   int nlo = 0, nhigh = 0;
   JsvIterator it;
-  jsvIteratorClone(&it, head); //
+  jsvIteratorClone(&it, head);
   jsvIteratorNext(&it);
 
 
@@ -934,9 +970,17 @@ JsVar *jswrap_array_sort (JsVar *array, JsVar *compareFn) {
     n = (int)jsvGetLength(array);
   }
 
+  unsigned char locks = jsvGetLocks(array);
   jsvIteratorNew(&it, array, JSIF_EVERY_ARRAY_ELEMENT);
   _jswrap_array_sort(&it, n, compareFn);
   jsvIteratorFree(&it);
+  /* This is really nasty, but sometimes the amount of recursion the quicksort does on
+  an array might push us past our maximum amount of locks, in which case it
+  stays at a max of JSV_LOCK_MAX and can't be freed even with GC. In this case
+  we detect this and just set the lock count back to what it was before. */
+  if (jsvGetLocks(array) == JSV_LOCK_MAX)
+    array->flags = (array->flags&~JSV_LOCK_MASK) | (locks<<JSV_LOCK_SHIFT);
+
   return jsvLockAgain(array);
 }
 

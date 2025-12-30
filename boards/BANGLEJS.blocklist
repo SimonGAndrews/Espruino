@@ -1,8 +1,8 @@
 [
   {"class":"OneWire","name":"*"},
   {"class":"SPI","name":"send4bit"},
-  {"class":"E","name":"dumpTimers"},
   {"class":"E","name":"enableWatchdog"},
   {"class":"E","name":"getClock"},
-  {"class":"Pin","name":"writeAtTime"}
+  {"class":"E","name":"setBootCode"},
+  {"class":"timer","name":"*"}
 ]

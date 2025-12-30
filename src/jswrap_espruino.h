@@ -19,7 +19,7 @@
 #include "jshardware.h"
 #include "jsflags.h" // for E.get/setFlags
 
-JsVarFloat jswrap_espruino_getTemperature();
+JsVarFloat jswrap_espruino_getTemperature(bool internal);
 JsVar *jswrap_espruino_nativeCall(JsVarInt addr, JsVar *signature, JsVar *data);
 
 JsVarFloat jswrap_espruino_clip(JsVarFloat x, JsVarFloat min, JsVarFloat max);
@@ -51,7 +51,6 @@ void jswrap_espruino_setConsole(JsVar *device, JsVar *options);
 JsVar *jswrap_espruino_getConsole();
 
 int jswrap_espruino_reverseByte(int v);
-void jswrap_espruino_dumpTimers();
 void jswrap_espruino_dumpLockedVars();
 void jswrap_espruino_dumpFreeList();
 void jswrap_e_dumpFragmentation();

@@ -154,6 +154,9 @@ On earlier firmwares this was accessible via `global["\xff"]`
   "class" : "E",
   "name" : "getTemperature",
   "generate" : "jswrap_espruino_getTemperature",
+  "params" : [
+    ["internal","bool","On Puck.js (where there is an external temperature sensor), set to true to use the internal microcontroller temperature sensor, false to use the external sensor. On other devices this parameter is ignored."]
+  ],
   "return" : ["float","The temperature in degrees C"]
 }
 Use the microcontroller's internal thermistor to work out the temperature.
@@ -169,12 +172,12 @@ devices. If so it'll return NaN.
  be reading 10 over degrees C above ambient temperature. When running from
  battery with `setDeepSleep(true)` it is much more accurate though.
 */
-JsVarFloat jswrap_espruino_getTemperature() {
+JsVarFloat jswrap_espruino_getTemperature(bool internal) {
 #ifdef PUCKJS
-  return jswrap_puck_getTemperature();
-#else
-  return jshReadTemperature();
+  if (!internal)
+    return jswrap_puck_getTemperature();
 #endif
+  return jshReadTemperature();
 }
 
 /*JSON{
@@ -1526,20 +1529,6 @@ int jswrap_espruino_reverseByte(int v) {
   return (((b * 0x0802LU & 0x22110LU) | (b * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16) & 0xFF;
 }
 
-
-/*JSON{
-  "type" : "staticmethod",
-  "class" : "E",
-  "name" : "dumpTimers",
-  "ifndef" : "SAVE_ON_FLASH",
-  "generate" : "jswrap_espruino_dumpTimers"
-}
-Output the current list of Utility Timer Tasks - for debugging only
- */
-void jswrap_espruino_dumpTimers() {
-  jstDumpUtilityTimers();
-}
-
 /*JSON{
   "type" : "staticmethod",
   "class" : "E",
@@ -2030,6 +2019,7 @@ Perform a standard 32 bit CRC (Cyclic redundancy check) on the supplied data
 (one byte at a time) and return the result as an unsigned integer.
  */
 JsVar *jswrap_espruino_CRC32(JsVar *data) {
+  if (!jsvIsIterable(data)) return 0; // fix assert(0) if called with nothing in debug build
   JsvIterator it;
   jsvIteratorNew(&it, data, JSIF_EVERY_ARRAY_ELEMENT);
   uint32_t crc = 0xFFFFFFFF;
@@ -2542,7 +2532,7 @@ JsVarInt jswrap_espruino_getBattery() {
 
 /*JSON{
   "type" : "staticmethod",
-  "#if" : "defined(PICO) || defined(ESPRUINOWIFI) || defined(ESPRUINOBOARD)",
+  "#if" : "defined(PICO) || defined(ESPRUINOWIFI) || defined(ESPRUINOBOARD) || defined(PIPBOY)",
   "class" : "E",
   "name" : "setRTCPrescaler",
   "generate" : "jswrap_espruino_setRTCPrescaler",

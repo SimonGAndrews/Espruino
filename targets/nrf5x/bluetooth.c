@@ -1280,7 +1280,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context) {
       case BLE_GAP_EVT_RSSI_CHANGED:  {
         int centralIdx = jsble_get_central_connection_idx(p_ble_evt->evt.gap_evt.conn_handle);
 #if CENTRAL_LINK_COUNT>0
-        if (centralIdx) {
+        if (centralIdx >= 0) {
           jsble_queue_pending(BLEP_RSSI_CENTRAL, (p_ble_evt->evt.gap_evt.params.rssi_changed.rssi&255) | (centralIdx<<8));
         }
 #endif
@@ -1559,15 +1559,16 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context) {
         adv.dlen = p_adv->dlen;
         memcpy(adv.data, p_adv->data, adv.dlen);
 #else
-        adv.dlen = p_adv->data.len;
+        adv.dlen = (p_adv->data.len > sizeof(adv.data)) ? sizeof(adv.data) : p_adv->data.len;
         memcpy(adv.data, p_adv->data.p_data, adv.dlen);
 #endif
-        size_t len = sizeof(BLEAdvReportData) + adv.dlen - BLE_GAP_ADV_MAX_SIZE/*BLEAdvReportData contans uint8_t[BLE_GAP_ADV_MAX_SIZE]*/;
+        // FIXME: We might be getting *more* advertising data than we can push to our event queue, because we're limited by IOEVENT_MAX_LEN - I guess we could add >1 packet and decode it?
+        size_t len = sizeof(BLEAdvReportData) + adv.dlen - sizeof(adv.data)/* We don't want to add all of BLEAdvReportData if there isn't that much data */;
         jsble_queue_pending_buf(BLEP_ADV_REPORT, 0, (char*)&adv, len);
 #if NRF_SD_BLE_API_VERSION>5
         // On new APIs we need to continue scanning
         err_code = sd_ble_gap_scan_start(NULL, &m_scan_buffer);
-        APP_ERROR_CHECK(err_code);
+        APP_ERROR_CHECK_NOT_URGENT(err_code);
 #endif
         break;
         }
@@ -3553,11 +3554,11 @@ void jsble_central_connect(ble_gap_addr_t peer_addr, JsVar *options) {
   memset(&gap_conn_params, 0, sizeof(gap_conn_params));
   BLEFlags flags = jsvGetIntegerAndUnLock(jsvObjectGetChildIfExists(execInfo.hiddenRoot, BLE_NAME_FLAGS));
   if (flags & BLE_FLAGS_LOW_POWER) {
-    gap_conn_params.min_conn_interval = MSEC_TO_UNITS(500, UNIT_1_25_MS);   // Minimum acceptable connection interval (500 ms)
-    gap_conn_params.max_conn_interval = MSEC_TO_UNITS(1000, UNIT_1_25_MS);    // Maximum acceptable connection interval (1000 ms)
+    gap_conn_params.min_conn_interval = MSEC_TO_UNITS(500, UNIT_1_25_MS);    // Minimum acceptable connection interval (500 ms)
+    gap_conn_params.max_conn_interval = MSEC_TO_UNITS(1000, UNIT_1_25_MS);   // Maximum acceptable connection interval (1000 ms)
   } else {
-    gap_conn_params.min_conn_interval = MSEC_TO_UNITS(20, UNIT_1_25_MS);   // Minimum acceptable connection interval (20 ms)
-    gap_conn_params.max_conn_interval = MSEC_TO_UNITS(200, UNIT_1_25_MS);    // Maximum acceptable connection interval (200 ms)
+    gap_conn_params.min_conn_interval = MSEC_TO_UNITS(7.5, UNIT_1_25_MS);    // Minimum acceptable connection interval (7.5 ms)
+    gap_conn_params.max_conn_interval = MSEC_TO_UNITS(1000, UNIT_1_25_MS);    // Maximum acceptable connection interval (1000 ms)
   }
   gap_conn_params.slave_latency     = SLAVE_LATENCY_CENTRAL;
   gap_conn_params.conn_sup_timeout  = CONN_SUP_TIMEOUT;

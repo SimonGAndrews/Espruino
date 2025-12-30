@@ -269,19 +269,20 @@ void jswrap_io_digitalPulse(Pin pin, bool value, JsVar *times) {
   uint32_t timerOffset = jstGetUtilTimerOffset();
   bool hasTimer = jstGetLastPinTimerTask(pin, &task);
   if (!hasTimer) task.time = 0;
+  // set first edge
+  if (!hasTimer)
+    jshPinOutput(pin, value);
   // now start either one or a series of pulses
   if (jsvIsNumeric(times)) {
     JsVarFloat pulseTime = jsvGetFloat(times);
     if (pulseTime<0 || isnan(pulseTime)) {
       jsExceptionHere(JSET_ERROR, "Pulse Time is less than 0 or not a number");
     } else if (pulseTime>0) {
-      if (!hasTimer) jshPinOutput(pin, value);
       task.time += jshGetTimeFromMilliseconds(pulseTime);
       jstPinOutputAtTime(task.time, &timerOffset, &pin, 1, !value);
     } else jstUtilTimerWaitEmpty(); // time==0
   } else if (jsvIsIterable(times)) {
     // iterable, so output a square wave
-    if (!hasTimer) jshPinOutput(pin, value);
     JsvIterator it;
     jsvIteratorNew(&it, times, JSIF_EVERY_ARRAY_ELEMENT);
     while (jsvIteratorHasElement(&it)) {
@@ -854,9 +855,8 @@ JsVar *jswrap_interface_setWatch(
     }
 
 
-    JsVar *watchArrayPtr = jsvLock(watchArray);
-    itemIndex = jsvArrayAddToEnd(watchArrayPtr, watchPtr, 1) - 1;
-    jsvUnLock2(watchArrayPtr, watchPtr);
+    itemIndex = jsvArrayAddToEnd(watchArray, watchPtr, 1) - 1;
+    jsvUnLock(watchPtr);
 
 
   }
@@ -881,9 +881,8 @@ To avoid accidentally deleting all Watches, if a parameter is supplied but is `u
  */
 void jswrap_interface_clearWatch(JsVar *idVarArr) {
   if (jsvIsUndefined(idVarArr) || jsvGetArrayLength(idVarArr)==0) {
-    JsVar *watchArrayPtr = jsvLock(watchArray);
     JsvObjectIterator it;
-    jsvObjectIteratorNew(&it, watchArrayPtr);
+    jsvObjectIteratorNew(&it, watchArray);
     while (jsvObjectIteratorHasValue(&it)) {
       JsVar *watchPtr = jsvObjectIteratorGetValue(&it);
       JsVar *watchPin = jsvObjectGetChildIfExists(watchPtr, "pin");
@@ -895,25 +894,20 @@ void jswrap_interface_clearWatch(JsVar *idVarArr) {
     }
     jsvObjectIteratorFree(&it);
     // remove all items
-    jsvRemoveAllChildren(watchArrayPtr);
-    jsvUnLock(watchArrayPtr);
+    jsvRemoveAllChildren(watchArray);
   } else {
     JsVar *idVar = jsvGetArrayItem(idVarArr, 0);
     if (jsvIsUndefined(idVar)) {
       jsExceptionHere(JSET_ERROR, "clearWatch(undefined) not allowed. Use clearWatch() instead");
       return;
     }
-    JsVar *watchArrayPtr = jsvLock(watchArray);
-    JsVar *watchNamePtr = jsvFindChildFromVar(watchArrayPtr, idVar, false);
-    jsvUnLock(watchArrayPtr);
+    JsVar *watchNamePtr = jsvFindChildFromVar(watchArray, idVar, false);
     if (watchNamePtr) { // child is a 'name'
       JsVar *watchPtr = jsvSkipName(watchNamePtr);
       Pin pin = jshGetPinFromVarAndUnLock(jsvObjectGetChildIfExists(watchPtr, "pin"));
       jsvUnLock(watchPtr);
 
-      JsVar *watchArrayPtr = jsvLock(watchArray);
-      jsvRemoveChildAndUnLock(watchArrayPtr, watchNamePtr);
-      jsvUnLock(watchArrayPtr);
+      jsvRemoveChildAndUnLock(watchArray, watchNamePtr);
 
       // Now check if this pin is still being watched
       if (!jsiIsWatchingPin(pin))

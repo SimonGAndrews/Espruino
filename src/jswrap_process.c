@@ -122,9 +122,17 @@ Returns an Object containing various pre-defined variables.
 * `APP_RAM_BASE` - On nRF5x boards, this is the RAM required by the Softdevice
   *if it doesn't exactly match what was allocated*. You can use this to update
   `LD_APP_RAM_BASE` in the `BOARD.py` file
+* `SOFTDEVICE` - (on nRF5x) the hex version code of the Bluetooth Softdevice that is installed on the device (see below)
 
-For example, to get a list of built-in modules, you can use
-`process.env.MODULES.split(',')`
+To get a list of built-in modules, you can use `process.env.MODULES.split(',')`
+
+The `process.env.SOFTDEVICE` code is likely one of:
+
+| Code         | Chip     | Softdevice            |
+|--------------|----------|-----------------------|
+| 0x0091 / 145 | nRF52832 | S132 v3.1.0 (SDK12)   |
+| 0x00A9 / 169 | nRF52840 | S140 v6.0.0 (SDK15.3) |
+| 0x00B6 / 182 | nRF52840 | S140 v6.1.1 (SDK15)   |
 
 **Note:** `process.env` is not writeable - so as not to waste RAM, the contents
 are generated on demand. If you need to be able to change them, use `process.env=process.env;`
@@ -159,6 +167,8 @@ JsVar *jswrap_process_env() {
   extern uint32_t app_ram_base;
   if (app_ram_base)
     jsvObjectSetChildAndUnLock(obj, "APP_RAM_BASE", jsvNewFromInteger((JsVarInt)app_ram_base));
+  // https://devzone.nordicsemi.com/f/nordic-q-a/1171/how-do-i-access-softdevice-version-string
+  jsvObjectSetChildAndUnLock(obj, "SOFTDEVICE", jsvNewFromInteger(*(uint16_t*)0x0000300C));
 #endif
 #endif
   return obj;

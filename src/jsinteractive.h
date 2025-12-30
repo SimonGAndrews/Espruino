@@ -21,6 +21,7 @@
 #define JSI_TIMERS_NAME "timers"
 #define JSI_DEBUG_HISTORY_NAME "dbghist"
 #define JSI_HISTORY_NAME "history"
+#define JSI_TIMER_RUN_JS_NAME "TMFN"
 #define JSI_INIT_CODE_NAME "init" ///< used to temporarily store initialisation JS code for state in save()
 #define JSI_LOAD_CODE_NAME "load" ///< used to temporarily store the name of a file to load from Storage when load(xyz) is used
 #define JSI_JSFLAGS_NAME "flags"
@@ -190,8 +191,8 @@ void jsiDumpJSON(vcbprintf_callback user_callback, void *user_data, JsVar *data,
 void jsiDumpState(vcbprintf_callback user_callback, void *user_data);
 #define TIMER_MIN_INTERVAL 0.1 // in milliseconds
 #define TIMER_MAX_INTERVAL 31536000001000ULL // in milliseconds
-extern JsVarRef timerArray; // Linked List of timers to check and run
-extern JsVarRef watchArray; // Linked List of input watches to check and run
+extern JsVar *timerArray; // Linked List of timers to check and run
+extern JsVar *watchArray; // Linked List of input watches to check and run
 
 extern JsVarInt jsiTimerAdd(JsVar *timerPtr);
 extern void jsiTimersChanged(); // Flag timers changed so we can skip out of the loop if needed
@@ -200,6 +201,5 @@ extern void jsiTimersChanged(); // Flag timers changed so we can skip out of the
 #ifdef USE_DEBUGGER
 extern void jsiDebuggerLoop(); ///< Enter the debugger loop
 #endif
-
 
 #endif /* JSINTERACTIVE_H_ */

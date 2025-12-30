@@ -405,6 +405,30 @@ NO_INLINE void _jswrap_drawImageLayerNextY(GfxDrawImageLayer *l) {
   }
 }
 
+// Called by _jswrap_drawImageSimple to blit out a row
+NO_INLINE void _jswrap_drawImageSimpleRow(JsGraphics *gfx, int xPos, int y, GfxDrawImageInfo *img, JsvStringIterator *it, JsGraphicsSetPixelFn setPixel, int *_bits, uint32_t *_colData) {
+  int bits = *_bits;
+  uint32_t colData = *_colData;
+  for (int x=xPos;x<xPos+img->width;x++) {
+    // Get the data we need...
+    while (bits < img->bpp) {
+      colData = (colData<<8) | ((unsigned char)jsvStringIteratorGetUTF8CharAndNext(it));
+      bits += 8;
+    }
+    // extract just the bits we want
+    unsigned int col = (colData>>(bits-img->bpp))&img->bitMask;
+    bits -= img->bpp;
+    // Try and write pixel!
+    if (img->transparentCol!=col) {
+      if (img->palettePtr) col = img->palettePtr[col&img->paletteMask];
+      setPixel(gfx, x, y, col);
+    }
+  }
+  *_bits = bits;
+  *_colData = colData;
+}
+
+
 /* Draw an image 1:1 at xPos,yPos. If parseFullImage=true we ensure
 we leave the StringIterator pointing right at the end of the image. If not
 we can optimise if the image is clipped/offscreen. */
@@ -414,39 +438,31 @@ NO_INLINE void _jswrap_drawImageSimple(JsGraphics *gfx, int xPos, int yPos, GfxD
   int x1 = xPos, y1 = yPos, x2 = xPos+img->width-1, y2 = yPos+img->height-1;
   if (!jsvStringIteratorHasChar(it)) return; // no data
 #ifndef SAVE_ON_FLASH
-  graphicsSetModifiedAndClip(gfx,&x1,&y1,&x2,&y2, true); // ensure we clip Y, coords were already rotated
-  /* force a skip forward as many bytes as we need. Ideally we would use
-  jsvStringIteratorGotoUTF8 but we don't have the UTF8 index or
-  source string here. This is still better than trying to render every pixel! */
-  if (y2<y1 || x2<x1) { // offscreen - skip everything and exit
-    if (parseFullImage) {
-      bits = -img->bpp*img->width*img->height;
-      while (bits < 0) {
-        jsvStringIteratorNextUTF8(it);
-        bits += 8;
+  if (!(gfx->data.flags&JSGRAPHICSFLAGS_SWAP_XY)) {
+    /* if we've not swapped X/Y we can so some optimisations
+    to reduce what we draw - but if we swapped XY there's no real point
+    because of the difference in direction we scan out. Also it's hard to get right!
+    see https://github.com/espruino/BangleApps/issues/4053 */
+    graphicsSetModifiedAndClip(gfx,&x1,&y1,&x2,&y2, true); // ensure we clip Y
+    /* force a skip forward as many bytes as we need. Ideally we would use
+    jsvStringIteratorGotoUTF8 but we don't have the UTF8 index or
+    source string here. This is still better than trying to render every pixel! */
+    if (y2<y1 || x2<x1) { // offscreen - skip everything and exit
+      if (parseFullImage) {
+        bits = -img->bpp*img->width*img->height;
+        while (bits < 0) {
+          jsvStringIteratorNextUTF8(it);
+          bits += 8;
+        }
       }
-    }
-    return;
-  } else // onscreen. y1!=yPos if clipped - ensure we skip enough bytes
-    bits = -(y1-yPos)*img->bpp*img->width;
+      return;
+    } else // onscreen. y1!=yPos if clipped - ensure we skip enough bytes
+      bits = -(y1-yPos)*img->bpp*img->width;
+  }
 #endif
   JsGraphicsSetPixelFn setPixel = graphicsGetSetPixelUnclippedFn(gfx, xPos, y1, xPos+img->width-1, y2, true);
   for (int y=y1;y<=y2;y++) {
-    for (int x=xPos;x<xPos+img->width;x++) {
-      // Get the data we need...
-      while (bits < img->bpp) {
-        colData = (colData<<8) | ((unsigned char)jsvStringIteratorGetUTF8CharAndNext(it));
-        bits += 8;
-      }
-      // extract just the bits we want
-      unsigned int col = (colData>>(bits-img->bpp))&img->bitMask;
-      bits -= img->bpp;
-      // Try and write pixel!
-      if (img->transparentCol!=col) {
-        if (img->palettePtr) col = img->palettePtr[col&img->paletteMask];
-        setPixel(gfx, x, y, col);
-      }
-    }
+    _jswrap_drawImageSimpleRow(gfx, xPos, y, img, it, setPixel, &bits, &colData);
   }
 #ifndef SAVE_ON_FLASH
   if (parseFullImage) {
@@ -2487,7 +2503,7 @@ JsVar *jswrap_graphics_wrapString(JsVar *parent, JsVar *str, int maxWidth) {
   while ((jsvStringIteratorHasChar(&it) || endOfText) && !jspIsInterrupted()) {
     int ch = jsvStringIteratorGetUTF8CharAndNext(&it);
     bool canBreakOnCh = endOfText || ch=='\n' || ch==' ';
-    if (canBreakOnCh || canSplitAfter) { // is breakable - newline,space,dash, image before
+    if (canBreakOnCh || canSplitAfter) { // is breakable - newline,space,dash,image before
       size_t currentPos = jsvStringIteratorGetIndex(&it);
       if ((lineWidth + spaceWidth + wordWidth <= maxWidth) &&
           !wasNewLine) {
@@ -2496,7 +2512,7 @@ JsVar *jswrap_graphics_wrapString(JsVar *parent, JsVar *str, int maxWidth) {
           // add the space/etc before (but not a space at the start of a newline)
           jsvAppendCharacter(currentLine, wordBreakCharacter);
           lineWidth += spaceWidth;
-        }
+        } else if (canSplitAfter) wordWidth += _jswrap_graphics_getCharWidth(&info, ch);
         jsvAppendStringVar(currentLine, str, (size_t)wordStartIdx, currentPos-((size_t)wordStartIdx+1));
         lineWidth += wordWidth;
       } else { // doesn't fit on one line - put word on new line
@@ -2622,7 +2638,7 @@ g.findFont("Hello World", {
   h : 100,    // optional: height available (default = screen height)
   min : 10,   // optional: min font height
   max : 30,   // optional: max font height
-  wrap : true // optional: allow word wrap?
+  wrap : true, // optional: allow word wrap?
   trim : true // optional: trim to the specified height, add '...'
 });
 ```
@@ -2674,9 +2690,10 @@ JsVar *jswrap_graphics_findFont(JsVar *parent, JsVar *text, JsVar *options) {
     return 0;
   }
 
-  const int FONTS = 5;
-  JswFindFontFont FONT[5] = {
+
 #ifdef BANGLEJS2
+  const int FONTS = 6;
+  JswFindFontFont FONT[6] = {
     {"28", 28, 1, jswrap_graphics_setFont28},
     {"22", 22, 1, jswrap_graphics_setFont22},
     {"17", 17, 1, jswrap_graphics_setFont17},
@@ -2684,6 +2701,8 @@ JsVar *jswrap_graphics_findFont(JsVar *parent, JsVar *text, JsVar *options) {
     {"6x8", 8, 1, jswrap_graphics_setFont6x8},
     {"4x6", 6, 1, jswrap_graphics_setFont4x6}
 #else  // BANGLEJS1
+  const int FONTS = 4;
+  JswFindFontFont FONT[4] = {
     {"6x8:3", 24, 3, jswrap_graphics_setFont6x8},
     {"6x8:2", 16, 2, jswrap_graphics_setFont6x8},
     {"6x8", 8, 1, jswrap_graphics_setFont6x8},

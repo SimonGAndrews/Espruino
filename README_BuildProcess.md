@@ -152,6 +152,7 @@ This is a partial list of definitions that can be added in a `BOARD.py` file's `
 * `ESPR_FS_MKFS` - Add support for require("fs").mkfs for formatting disks
 * `ESPR_FS_GETFREE` - Add support for require("fs").getFree in the filesystem library
 * `ESPR_TEST_ON_FIRST_RUN` - on Jolt.js/Puck.js, run the self-test the very first time the board boots up (this is not the default since 2v27)
+* `ESPR_FS_PREPEND_PATH=""` - add something to the path when accessing files using 'fs' - eg on a linux build you might add `'sdcard'` to look for files in that directory
 
 
 There are some specifically that are useful for cutting a few bytes out of the build:
@@ -172,6 +173,7 @@ There are some specifically that are useful for cutting a few bytes out of the b
 * `ESPR_LIMIT_DATE_RANGE` - limits the acceptable range for Date years (saves a few hundred bytes)
 * `ESPR_NO_REGEX_OPTIMISE` - strips out some speed optimisations from the regex library
 * On nRF52, `'LDFLAGS += -nostartfiles', 'ASFLAGS += -D__STARTUP_CLEAR_BSS -D__START=main',` can save ~300b by not including CRT startup code
+* `ESPR_NO_DUMP_STATE` - stops `dump()` from trying to reconstruct interpreter state as JS (saves almost 1.5kB)
 
 
 These are set automatically when `SAVE_ON_FLASH` is set (see `jsutils.h`)

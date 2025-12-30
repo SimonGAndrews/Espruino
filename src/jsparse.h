@@ -98,7 +98,7 @@ typedef enum  {
   EXEC_INTERRUPTED = 16, ///< true if execution has been interrupted
   EXEC_EXCEPTION = 32, ///< we had an exception, so don't execute until we hit a try/catch block
   EXEC_ERROR = 64,
-  // 128 is free now
+  EXEC_RUN_INTERRUPT_JS = 128, ///< when set, we should stop our execution to run some JavaScript code (used for immediate timers)
 
   EXEC_FOR_INIT = 256, ///< when in for initialiser parsing - hack to avoid getting confused about multiple use for IN
   EXEC_IN_LOOP = 512, ///< when in a loop, set this - we can then block break/continue outside it
@@ -129,7 +129,7 @@ typedef enum  {
   EXEC_NO_PARSE_MASK = EXEC_INTERRUPTED|EXEC_ERROR, ///< in these cases we should exit as fast as possible - skipping out of parsing
   EXEC_SAVE_RESTORE_MASK = EXEC_YES|EXEC_BREAK|EXEC_CONTINUE|EXEC_RETURN|EXEC_IN_LOOP|EXEC_IN_SWITCH|EXEC_ERROR_MASK, ///< the things JSP_SAVE/RESTORE_EXECUTE should keep track of
   EXEC_CTRL_C_MASK = EXEC_CTRL_C | EXEC_CTRL_C_WAIT, ///< Ctrl-C was pressed at some point
-  EXEC_PERSIST = EXEC_ERROR_MASK|EXEC_CTRL_C_MASK, ///< Things we should keep track of even after executing
+  EXEC_PERSIST = EXEC_ERROR_MASK|EXEC_CTRL_C_MASK|EXEC_RUN_INTERRUPT_JS, ///< Things we should keep track of even after executing
 } JsExecFlags;
 
 /** This structure is used when parsing the JavaScript. It contains

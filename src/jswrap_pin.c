@@ -134,29 +134,6 @@ void jswrap_pin_write(
 /*JSON{
   "type"     : "method",
   "class"    : "Pin",
-  "name"     : "writeAtTime",
-  "ifndef"   : "SAVE_ON_FLASH",
-  "generate" : "jswrap_pin_writeAtTime",
-  "params" : [
-    ["value", "bool", "Whether to set output high (true/1) or low (false/0)"],
-    ["time", "float", "Time at which to write (in seconds)"]
-  ]
-}
-Sets the output state of the pin to the parameter given at the specified time.
-
- **Note:** this **doesn't** change the mode of the pin to an output. To do that,
- you need to use `pin.write(0)` or `pinMode(pin, 'output')` first.
- */
-void jswrap_pin_writeAtTime(JsVar *parent, bool value, JsVarFloat time) {
-  Pin pin = jshGetPinFromVar(parent);
-  JsSysTime sTime = jshGetTimeFromMilliseconds(time*1000) - jshGetSystemTime();
-  jstPinOutputAtTime(sTime, NULL, &pin, 1, value);
-}
-
-
-/*JSON{
-  "type"     : "method",
-  "class"    : "Pin",
   "name"     : "getMode",
   "generate" : "jswrap_pin_getMode",
   "return"   : ["JsVar", "The pin mode, as a string"]
@@ -282,6 +259,7 @@ Get information about this pin and its capabilities. Of the form:
 {
   "port"        : "A",    // the Pin's port on the chip
   "num"         : 12,     // the Pin's number
+  "negated"     : (2v29+) // true if the pin is negated in firmware, field missing if not
   "mode"        : (2v25+) // string: the pin's mode (same as Pin.getMode())
   "output"      : (2v25+) // 0/1: the state of the pin's output register
   "in_addr"     : 0x..., // (if available) the address of the pin's input address in bit-banded memory (can be used with peek)
@@ -309,9 +287,12 @@ JsVar *jswrap_pin_getInfo(
   buf[1] = 0;
   jsvObjectSetChildAndUnLock(obj, "port", jsvNewFromString(buf));
   jsvObjectSetChildAndUnLock(obj, "num", jsvNewFromInteger(inf->pin-JSH_PIN0));
+  if (inf->port&JSH_PIN_NEGATED)
+    jsvObjectSetChildAndUnLock(obj, "negated", jsvNewFromBool(true));
   JshPinState state = jshPinGetState(pin);
   jsvObjectSetChildAndUnLock(obj, "mode", jshGetPinStateString(state));
   jsvObjectSetChildAndUnLock(obj, "output", jsvNewFromInteger((state&JSHPINSTATE_PIN_IS_ON)?1:0));
+
 #ifdef STM32
   volatile uint32_t *addr;
   addr = jshGetPinAddress(pin, JSGPAF_INPUT);

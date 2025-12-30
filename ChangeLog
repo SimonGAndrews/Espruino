@@ -1,4 +1,25 @@
-          : Add `E.internal` as a way to access the 'hidden root' containing Espruino internal variables that previously needed `global["\xff"]`
+          : Array.sort: fix issue where *some* sorts of 10+ items could cause the array not to be GC'd
+            Bangle.js: Updated built-in Layout.js with some minor fixes
+            STM32: Ensure setDeepSleep(1) will only sleep if there are no active PWM outputs
+            Pin.getInfo().negated now set if pin negated in firmware
+            Timers now have unique IDs (#1444)
+            Added `require("timer")` to access timers, removed `E.dumpTimers` and `Pin.writeAtTime` (fix #2586)
+            Added ability to execute JS from an a timer with `require("timer").add({type:"EXEC",...)`
+            Bangle.js: Add Bangle.setOptions({stepCounterDisabled:bool}) to disable the step counter
+            Date: fix parsing of ISO8601 timezones (+HHMM worked, but +HH:MM and +HH added) (fix #2669)
+            Bangle.js1: dump() now doesn't write out interpreter state as JS (saves 1.5kB Flash)
+            Espruino Pico: Removed 'tv' library by default to free up flash storage
+            Fix jshPopIOEventOfType when the event to be popped is right at the start
+            STM32: Tidy up WAKEUP timer handling to ensure the Wakeup is always the first item in the queue
+            E.defrag now defrags with interrupts enabled (also fix potential crash with 2 flat strings end to end)
+            Swap to using locks for watch&timer arrays (uses 4b more RAM, but faster and no defrag issues)
+            Bangle.js2: Remove buzz when going back in a menu using the button (not the widget)
+            Bangle.js2: Ensure overlays don't use the current Graphics colors
+            Bangle.js2: Much faster rendering of overlays
+            Bangle.js2: g.flip(2) will now flip the screen *and* the entire area of the overlay
+            FAT Filesystem files are now left locked when open, meaning E.defrag can't move them and cause instability
+
+     2v28 : Add `E.internal` as a way to access the 'hidden root' containing Espruino internal variables that previously needed `global["\xff"]`
             Bangle.js: Fix back handler not removed when using E.setUI with a back button but without widgets (#2636)
             nRF52: Add 'slaveLatency' option to BluetoothRemoteGATTServer.connect, default changed from 2 to 4
             nRF52: Add 'phy' and 'mtu' events to NRF/BluetoothDevice when these change on a connection
@@ -8,6 +29,28 @@
             Bangle.js2: Add Bangle.setOptions({hrmStaticSampleTime})
             Bangle.js2: Fix issue using touch handler with Bangle.setUI({mode:"updown",...}) (fix #2648)
             Bangle.js2: Menus now buzz when back button pressed or icon tapped (fix #2642)
+            JIT: When referencing a built-in member function of a built-in (Math.*, E.*, PIN_NAME.*, etc) include address rather than looking up (#2398)
+            nRF52 Central: Lower min connection interval from 20->7.5ms, max 200->1000ms (allows some extra devices to be connected to)
+            Bangle.js2: Add optional long press button actions to `showPrompt` (#2656) 
+            nRF52: Fix gatt.setRSSIHandler on the first active connection
+            Added i2cRead/WriteReg for simplified internal I2C code
+            Bangle.js2: Support for new Bangles with MMC36X0 magnetometer (Bangle.dbg() now shows info)
+            nRF5x: Add process.env.SOFTDEVICE for detecting which softdevice version is installed
+            Graphics.wrapString fix issue of line length of the line after a string with multiple dashes in
+            Updated test screen to work better when watch has been idle for a while
+            nRF5x: Fix assertion failure caused by receiving manufacturer data with 0 length
+            Bluetooth: Increase size of max advertising received (now ~120b on high MTU builds)
+            nRF52840: Fix crash if receiving >32b of advertisement data
+            Jolt.js: Fix memory leak in Q0/1/2/3.setPower
+            I2C: Fix readReg to ensure it sends I2C STOP after the read
+            Puck.js: E.getTemperature(true) will now use the uC's internal temp sensor (previously only external was possible)
+            Add fast path to xIntArray.indexOf
+            Add median-of-3 for Array.sort (1/3 of the compares for pre-sorted data)
+            Fix escape characters in strings inside templates inside templated strings `${"\n"}`
+            JIT: Fix floating point constants
+            Linux SDL: Use SDL2, more keys forwarded, allow resizing of gfx window
+            Fix Linux ARM64 build
+            Graphics: fix cropping of images in strings when gfx instance is rotated by 90 degrees
 
      2v27 : nRF5x: Ensure Bluetooth notifications work correctly when two separate connections use the same handle for their characteristics
             nRF5x: Remove handlers from our handlers array when a device is disconnected

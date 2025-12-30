@@ -597,6 +597,17 @@ bool pressureSPL06Enabled = false;
 #define PRESSURE_DEVICE_BMP280_EN pressureBMP280Enabled
 #define PRESSURE_DEVICE_SPL06_007_EN pressureSPL06Enabled // hardware v2.1 is SPL06_001 - we need this as well
 
+bool mag0CEnabled = false;
+bool magMMC36X0Enabled = false;
+#define MAG_DEVICE_MMC36X0 1 // MAG_DEVICE_UNKNOWN_0C already defined
+#define MAG_DEVICE_UNKNOWN_0C_EN mag0CEnabled
+#define MAG_DEVICE_MMC36X0_EN magMMC36X0Enabled // hardware v2.2 is Memsic - we need this as well
+#define MAG_MMC36X0_ADDR 0x30
+#define MAG_0C_ADDR 0x0C
+#undef MAG_ADDR
+#define MAG_ADDR (magMMC36X0Enabled?MAG_MMC36X0_ADDR:MAG_0C_ADDR)
+
+
 IOEventFlags btn1EventFlags; // for JSBF_BTN_LOW_RESISTANCE_FIX
 #endif // EMULATED
 
@@ -899,6 +910,8 @@ int twistTimeout = 1000;
 
 /// Current steps since reset
 uint32_t stepCounter;
+/// Set if steps from the step counter should be ignored
+bool stepCounterDisabled = false;
 /// What state was the touchscreen last in
 typedef enum {
   TS_NONE = 0,
@@ -1105,8 +1118,13 @@ void graphicsInternalFlip() {
 }
 
 /// Flip buffer contents with the screen.
-void lcd_flip(JsVar *parent, bool all) {
+void lcd_flip(JsVar *parent, int all) {
 #ifdef LCD_WIDTH
+#ifdef LCD_CONTROLLER_LPM013M126
+  if (all==2) {
+    lcdMemLCD_setOverlayModified(&graphicsInternal);
+  } else
+#endif
   if (all) {
     graphicsInternal.data.modMinX = 0;
     graphicsInternal.data.modMinY = 0;
@@ -1343,9 +1361,7 @@ void peripheralPollHandler() {
 
     bool newReading = false;
 #ifdef MAG_DEVICE_GMC303
-    buf[0]=0x10;
-    jsi2cWrite(MAG_I2C, MAG_ADDR, 1, buf, false);
-    jsi2cRead(MAG_I2C, MAG_ADDR, 7, buf, true);
+    jsi2cReadReg(MAG_I2C, MAG_ADDR, 0x10, 7, buf);
     if (buf[0]&1) { // then we have data
       int16_t magRaw[3];
       magRaw[0] = buf[1] | (buf[2]<<8);
@@ -1370,21 +1386,43 @@ void peripheralPollHandler() {
     }
 #endif
 #ifdef MAG_DEVICE_UNKNOWN_0C
-    buf[0]=0x4E;
-    jsi2cWrite(MAG_I2C, MAG_ADDR, 1, buf, false);
-    jsi2cRead(MAG_I2C, MAG_ADDR, 7, buf, true);
-    if (!(buf[0]&16)) { // then we have data that wasn't read before
-      // &2 seems always set
-      // &16 seems set if we read twice
-      // &32 might be reading in progress
-      mag.y = buf[2] | (buf[1]<<8);
-      mag.x = buf[4] | (buf[3]<<8);
-      mag.z = buf[6] | (buf[5]<<8);
-      // Now read 0x3E which should kick off a new reading
-      buf[0]=0x3E;
-      jsi2cWrite(MAG_I2C, MAG_ADDR, 1, buf, false);
-      jsi2cRead(MAG_I2C, MAG_ADDR, 1, buf, true);
-      newReading = true;
+    if (MAG_DEVICE_UNKNOWN_0C_EN) {
+      buf[0]=0x4E;
+      jsi2cReadReg(MAG_I2C, MAG_0C_ADDR, 0x4E, 7, buf);
+      if (!(buf[0]&16)) { // then we have data that wasn't read before
+        // &2 seems always set
+        // &16 seems set if we read twice
+        // &32 might be reading in progress
+        mag.y = buf[2] | (buf[1]<<8);
+        mag.x = buf[4] | (buf[3]<<8);
+        mag.z = buf[6] | (buf[5]<<8);
+        // Now read 0x3E which should kick off a new reading
+        jsi2cReadReg(MAG_I2C, MAG_0C_ADDR, 0x3E, 1, buf);
+        newReading = true;
+      }
+    }
+#endif
+#ifdef MAG_DEVICE_MMC36X0
+    if (MAG_DEVICE_MMC36X0_EN) {
+      /* Read register 0x07, check Meas_M_Done bit */
+      jsi2cReadReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x07/*MMC36X0_REG_STATUS*/, 1, buf);
+      if ((buf[0]&1)==1) { // then we have data
+        jsi2cReadReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x00/*MMC36X0_REG_DATA*/, 6, buf);
+        uint16_t data_temp[3];
+        data_temp[0] = buf[0] | (buf[1]<<8);
+        data_temp[1] = buf[2] | (buf[3]<<8);
+        data_temp[2] = buf[4] | (buf[5]<<8);
+        // adjust range to be in uTesla (0.8 scaling according to datasheet)
+        // NOTE: it is possible to read calibration values from OTP and apply those but maybe we don't care
+        mag.x = ((32768 - data_temp[0]) * 205) >> 8; // * 0.8
+        mag.y = ((data_temp[2] - data_temp[1]) * 205) >> 8; // * 0.8
+        mag.z = ((65536 - (data_temp[1] + data_temp[2])) * 276) >> 8; // * 1.35 * 0.8 (Z axis is scaled differently)
+        // TODO: there are calibration registers
+        newReading = true;
+        // TODO: should we call SET every so often to keep the sensor happy? example code does.
+        /* Write 0x01 to register 0x08, set TM_M bit high - kick off new reading */
+        jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x08/*MMC36X0_REG_CTRL0*/, 0x01/*MMC36X0_CMD_TM_M*/);
+      }
     }
 #endif
     if (newReading) {
@@ -1436,9 +1474,7 @@ void peripheralPollHandler() {
 #ifdef ACCEL_DEVICE_KX023
   // poll KX023 accelerometer (no other way as IRQ line seems disconnected!)
   // read interrupt source data
-  buf[0]=0x12; // INS1
-  jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
-  jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 2, buf, true);
+  jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, 0x12/*INS1*/, 2, buf);
   // 0 -> 0x12 INS1 - tap event
   // 1 -> 0x13 INS2 - what kind of event
   bool hasAccelData = (buf[1]&16)!=0; // DRDY
@@ -1461,23 +1497,17 @@ void peripheralPollHandler() {
     jshHadEvent();
 
     // clear the IRQ flags
-    buf[0]=0x17;
-    jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
-    jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 1, buf, true);
+    jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, 0x17, 1, buf);
   }
 #endif
 #ifdef ACCEL_DEVICE_KXTJ3_1057
   // read interrupt source data
-  buf[0]=0x16; // INT_SOURCE1
-  jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
-  jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 1, buf, true);
+  jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, 0x16/*INT_SOURCE1*/, 1, buf);
   bool hasAccelData = (buf[0]&16)!=0; // DRDY
 #endif
 #ifdef ACCEL_DEVICE_KX126
   // read interrupt source data (INS1 and INS2 registers)
-  buf[0]=KX126_INS1;
-  jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
-  jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 2, buf, true);
+  jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, KX126_INS1, 2, buf);
   // 0 -> INS1 - step counter & tap events
   // 1 -> INS2 - what kind of event
   bool hasAccelData = (buf[1] & KX126_INS2_DRDY)!=0; // Is new data ready?
@@ -1497,19 +1527,15 @@ void peripheralPollHandler() {
     jshHadEvent();
   }
   // clear the IRQ flags
-  buf[0]=KX126_INT_REL;
-  jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
-  jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 1, buf, true);
+  jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, KX126_INT_REL, 1, buf);
 #endif
   if (hasAccelData) {
 #ifdef ACCEL_DEVICE_KX126
-    buf[0]=KX126_XOUT_L;
-    jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
+    jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, KX126_XOUT_L, 6, buf);
 #else
-    buf[0]=6;
-    jsi2cWrite(ACCEL_I2C, ACCEL_ADDR, 1, buf, false);
+    jsi2cReadReg(ACCEL_I2C, ACCEL_ADDR, 6, 6, buf);
 #endif
-    jsi2cRead(ACCEL_I2C, ACCEL_ADDR, 6, buf, true);
+
     // work out current reading in 16 bit
     short newx = (buf[1]<<8)|buf[0];
     short newy = (buf[3]<<8)|buf[2];
@@ -1631,7 +1657,7 @@ void peripheralPollHandler() {
       // we've come out of powersave, reset the algorithm
       stepcount_init();
     }
-    if (powerSaveTimer < POWER_SAVE_TIMEOUT) {
+    if ((powerSaveTimer < POWER_SAVE_TIMEOUT) && !stepCounterDisabled) {
       // only do step counting if power save is off (otherwise accel interval is too low - also wastes power)
       int newSteps = stepcount_new(accMagSquared);
       if (newSteps>0) {
@@ -2024,9 +2050,7 @@ void touchHandler(bool state, IOEventFlags flags) {
   if (state) return; // only interested in when low
   // Ok, now get touch info
   unsigned char buf[6];
-  buf[0]=1;
-  jsi2cWrite(TOUCH_I2C, TOUCH_ADDR, 1, buf, false);
-  jsi2cRead(TOUCH_I2C, TOUCH_ADDR, 6, buf, true);
+  jsi2cReadReg(TOUCH_I2C, TOUCH_ADDR, 1, 6, buf);
 
   // 0: Gesture type
   // 1: touch pts (0 or 1)
@@ -2547,16 +2571,16 @@ void jswrap_banglejs_setLCDOverlay(JsVar *imgVar, JsVar *xv, int y, JsVar *optio
   // Send the command to the LCD
 #ifdef LCD_CONTROLLER_LPM013M126
   lcdMemLCD_setOverlay(imgVar, x, y);
+  // lcdMemLCD_setOverlay sets the modified area
 #endif
 #if defined(LCD_CONTROLLER_ST7789V) || defined(LCD_CONTROLLER_ST7735) || defined(LCD_CONTROLLER_GC9A01)
   lcdSetOverlay_SPILCD(imgVar, x, y);
-#endif
   // set all as modified
-  // TODO: Could look at old vs new overlay state and update only lines that had changed?
   graphicsInternal.data.modMinX = 0;
   graphicsInternal.data.modMinY = 0;
   graphicsInternal.data.modMaxX = LCD_WIDTH-1;
   graphicsInternal.data.modMaxY = LCD_HEIGHT-1;
+#endif
 }
 
 /*JSON{
@@ -2725,6 +2749,7 @@ call `E.kickWatchdog()` from your code or the watch will reset after ~5 seconds.
 * `seaLevelPressure` (Bangle.js 2) Default 1013.25 millibars - this is used when calculating altitude from pressure sensor values from `Bangle.getPressure`/`pressure` events.
 * `lcdBufferPtr` (Bangle.js 2 2v21+) Return a pointer to the first pixel of the 3 bit graphics buffer used by Bangle.js for the screen (stride = 178 bytes)
 * `lcdDoubleRefresh` (Bangle.js 2 2v22+) If enabled, pulses EXTCOMIN twice per poll interval (avoids off-axis flicker)
+* `stepCounterDisabled` (Bangle.js 2v29+) If set, this stops steps from being counted
 
 Where accelerations are used they are in internal units, where `8192 = 1g`
 
@@ -2783,6 +2808,7 @@ JsVar * _jswrap_banglejs_setOptions(JsVar *options, bool createObject) {
       {"gestureMinLength", JSV_INTEGER, &accelGestureMinLength},
       {"stepCounterThresholdLow", JSV_INTEGER, &stepCounterThresholdLow},
       {"stepCounterThresholdHigh", JSV_INTEGER, &stepCounterThresholdHigh},
+      {"stepCounterDisabled", JSV_BOOLEAN, &stepCounterDisabled},
       {"twistThreshold", JSV_INTEGER, &twistThreshold},
       {"twistTimeout", JSV_INTEGER, &twistTimeout},
       {"twistMaxY", JSV_INTEGER, &twistMaxY},
@@ -2921,10 +2947,7 @@ touchscreen work or not)
 void _jswrap_banglejs_setLocked(bool isLocked, const char *reason) {
 #if defined(TOUCH_I2C)
   if (isLocked) {
-    unsigned char buf[2];
-    buf[0]=0xE5;
-    buf[1]=0x03;
-    jsi2cWrite(TOUCH_I2C, TOUCH_ADDR, 2, buf, true);
+    jsi2cWriteReg(TOUCH_I2C, TOUCH_ADDR, 0xE5, 0x03);
   } else { // best way to wake up is to reset
     jshPinOutput(TOUCH_PIN_RST, 0);
     jshDelayMicroseconds(1000);
@@ -3253,13 +3276,36 @@ bool jswrap_banglejs_setCompassPower(bool isOn, JsVar *appId) {
 #ifdef MAG_DEVICE_GMC303
       jswrap_banglejs_compassWr(0x31,4); // continuous measurement mode, 20Hz
       // Get magnetometer calibration values
-      magCalib[0] = 0x60;
-      jsi2cWrite(MAG_I2C, MAG_ADDR, 1, magCalib, false);
-      jsi2cRead(MAG_I2C, MAG_ADDR, 3, magCalib, true);
+      jsi2cReadReg(MAG_I2C, MAG_ADDR, 0x60, 3, magCalib);
 #endif
 #ifdef MAG_DEVICE_UNKNOWN_0C
-      // Read 0x3E to enable compass readings
-      jsvUnLock(jswrap_banglejs_compassRd(0x3E,0));
+      if (MAG_DEVICE_UNKNOWN_0C_EN) {
+        // Read 0x3E to enable compass readings
+        jsvUnLock(jswrap_banglejs_compassRd(0x3E,0));
+      }
+#endif
+#ifdef MAG_DEVICE_MMC36X0
+      if (MAG_DEVICE_MMC36X0_EN) {
+        // NOTE: What follows is based on MMC36X0 example code but *isn't*in the datasheet
+        /* Change the SET/RESET pulse width  */
+        /* Write 0x00 to register 0x0A, set ULP_SEL bit low */
+        //jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x0A/*MMC36X0_REG_CTRL2*/, 0x00/*MMC36X0_CMD_OTP_NACT*/);
+        /* Write 0xE1 to register 0x0F, write password */
+        //jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x0F/*MMC36X0_REG_PASSWORD*/, 0xE1/*MMC36X0_CMD_PASSWORD*/);
+        /* Read and write register 0x20, set SR_PW<1:0> = 00 = 1us */
+        //unsigned char reg;
+        //jsi2cReadReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x20/*MMC36X0_REG_SR_PWIDTH*/, 1, &reg);
+        //reg = reg & 0xE7;
+        //jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x20/*MMC36X0_REG_SR_PWIDTH*/, reg);
+
+        /* SET operation when using dual supply  - Write 0x08 to register 0x08, set SET bit high */
+        jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x08/*MMC36X0_REG_CTRL0*/, 0x08/*MMC36X0_CMD_SET*/);
+        /* Set highest accuracy mode, Write register 0x09, Set BW<1:0> = 0x00, 0x01, 0x02, or 0x03 */
+      	jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x09/*MMC36X0_REG_CTRL1*/, 0/*MMC36X0_CMD_100HZ*/ );
+        /* Enable sensor when from pown down mode to normal mode, Write 0x01 to register 0x08, set TM_M bit high to kick off a reading */
+        jsi2cWriteReg(MAG_I2C, MAG_MMC36X0_ADDR, 0x08/*MMC36X0_REG_CTRL0*/, 1/*MMC36X0_CMD_TM_M*/);
+        nrf_delay_ms(10);
+      }
 #endif
     }
   } else { // !isOn -> turn off
@@ -3352,8 +3398,7 @@ bool jswrap_banglejs_setBarometerPower(bool isOn, JsVar *appId) {
           do {
             // we can't poll every ms because initially the top bits are still set in MEAS_CFG
             jshDelayMicroseconds(10000);
-            buf[0] = SPL06_MEASCFG; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-            jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true);
+            jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, SPL06_MEASCFG, 1, buf);
           } while (((buf[0]&0xC0) != 0xC0) && timeout--);
           // set up the sensor
           jswrap_banglejs_barometerWr(SPL06_CFGREG, 0); // No FIFO or IRQ (should be default but has been nonzero when read!
@@ -3361,8 +3406,7 @@ bool jswrap_banglejs_setBarometerPower(bool isOn, JsVar *appId) {
           jswrap_banglejs_barometerWr(SPL06_TMPCFG, 0xB3); // temperature oversample by 8x, 8 measurements per second, external sensor
           jswrap_banglejs_barometerWr(SPL06_MEASCFG, 7); // continuous temperature and pressure measurement
           // read calibration data
-          buf[0] = SPL06_COEF_START; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-          jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, SPL06_COEF_NUM, buf, true);
+          jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, SPL06_COEF_START, SPL06_COEF_NUM, buf);
           barometer_c0 = twosComplement(((unsigned short)buf[0] << 4) | (((unsigned short)buf[1] >> 4) & 0x0F), 12);
           barometer_c1 = twosComplement((((unsigned short)buf[1] & 0x0F) << 8) | buf[2], 12);
           barometer_c00 = twosComplement(((unsigned int)buf[3] << 12) | ((unsigned int)buf[4] << 4) | (((unsigned int)buf[5] >> 4) & 0x0F), 20);
@@ -3380,8 +3424,7 @@ bool jswrap_banglejs_setBarometerPower(bool isOn, JsVar *appId) {
           jswrap_banglejs_barometerWr(0xF5, 0xA0); // config_reg - 1s standby, no filter, I2C
           // read calibration data
           unsigned char buf[24];
-          buf[0] = 0x88; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-          jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 24, buf, true);
+          jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0x88, 24, buf);
           int i;
           barometerDT[0] = ((int)buf[1] << 8) | (int)buf[0];  //first coeff is unsigned
           for (i=1;i<3;i++)
@@ -3727,18 +3770,22 @@ NO_INLINE void jswrap_banglejs_hwinit() {
   jswrap_banglejs_pwrHRM(false); // HRM off
   jswrap_banglejs_pwrGPS(false); // GPS off
 
-  // Check pressure sensor
   unsigned char buf[2];
+  // Check pressure sensor
   // Check BMP280 ID
-  buf[0] = 0xD0; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false); // ID
-  jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true);
+  jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0xD0, 1, buf);
   pressureBMP280Enabled = buf[0]==0x58;
-//    jsiConsolePrintf("BMP280 %d %d\n", buf[0], pressureBMP280Enabled);
   // Check SPL07_001 ID
-  buf[0] = 0x0D; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false); // ID
-  jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true);
+  jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0x0D, 1, buf);
   pressureSPL06Enabled = buf[0]==0x10;
-//    jsiConsolePrintf("SPL06 %d %d\n", buf[0], pressureSPL06Enabled);
+
+  // Check magnetometer
+// Check magnetometer ID
+  jsi2cReadReg(MAG_I2C, 0x0C, 0, 1, buf);
+  mag0CEnabled = buf[0]!=255;
+  // Check MMC3630KJ ID
+  jsi2cReadReg(MAG_I2C, 0x30, 0x2F, 1, buf);
+  magMMC36X0Enabled = buf[0]==0x0A;
 #endif
 #ifdef BANGLEJS_F18
   jshDelayMicroseconds(10000);
@@ -3949,7 +3996,7 @@ NO_INLINE void jswrap_banglejs_init() {
   graphicsInternal.graphicsVar = graphics;
 
   // Create 'flip' fn
-  JsVar *fn = jsvNewNativeFunction((void (*)(void))lcd_flip, JSWAT_VOID|JSWAT_THIS_ARG|(JSWAT_BOOL << (JSWAT_BITS*1)));
+  JsVar *fn = jsvNewNativeFunction((void (*)(void))lcd_flip, JSWAT_VOID|JSWAT_THIS_ARG|(JSWAT_INT32 << (JSWAT_BITS*1)));
   jsvObjectSetChildAndUnLock(graphics,"flip",fn);
 
   if (!firstRun) {
@@ -4075,8 +4122,7 @@ NO_INLINE void jswrap_banglejs_init() {
     // KX023-1025 accelerometer init
     jswrap_banglejs_accelWr(0x18,0x0a); // CNTL1 Off (top bit)
     jswrap_banglejs_accelWr(0x19,0x80); // CNTL2 Software reset
-    buf[0] = 0x19; buf[1] = 0x80; // Second I2C address for software reset (issue #1972)
-    jsi2cWrite(ACCEL_I2C, ACCEL_ADDR-2, 2, buf, true);
+    jsi2cWriteReg(ACCEL_I2C, ACCEL_ADDR-2, 0x19, 0x80); // Second I2C address for software reset (issue #1972)
     jshDelayMicroseconds(2000);
     jswrap_banglejs_accelWr(0x1a,0b10011000); // CNTL3 12.5Hz tilt, 400Hz tap, 0.781Hz motion detection
     //jswrap_banglejs_accelWr(0x1b,0b00000001); // ODCNTL - 25Hz acceleration output data rate, filtering low-pass ODR/9
@@ -4145,14 +4191,12 @@ NO_INLINE void jswrap_banglejs_init() {
 #ifdef PRESSURE_DEVICE_SPL06_007_EN
     if (PRESSURE_DEVICE_SPL06_007_EN) {
       // pressure init
-      buf[0]=SPL06_RESET; buf[1]=0x89;
-      jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true); // SOFT_RST
+      jsi2cWriteReg(PRESSURE_I2C, PRESSURE_ADDR, SPL06_RESET, 0x89); // SOFT_RST
     }
 #endif
 #ifdef PRESSURE_DEVICE_BMP280_EN
     if (PRESSURE_DEVICE_BMP280_EN) {
-      buf[0]=0xE0; buf[1]=0xB6;
-      jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true); // reset
+      jsi2cWriteReg(PRESSURE_I2C, PRESSURE_ADDR, 0xE0, 0xB6); // reset
     }
 #endif
     bangleFlags &= ~JSBF_BAROMETER_ON;
@@ -4866,16 +4910,19 @@ JsVar *jswrap_banglejs_dbg() {
   jsvObjectSetChildAndUnLock(o,"hrmSportActivity",jsvNewFromInteger(hrmSportActivity)); // Sport activity running average
   jsvObjectSetChildAndUnLock(o,"hrmSportMode",jsvNewFromInteger(hrmInfo.sportMode)); // The sport mode the HRM is currently in (different to getOptions().hrmSportMode which is what we're requesting)
 #endif
+#if defined(BANGLEJS_Q3) && !defined(EMULATED)
+  jsvObjectSetChildAndUnLock(o,"SPL06", jsvNewFromBool(pressureSPL06Enabled));
+  jsvObjectSetChildAndUnLock(o,"BMP280", jsvNewFromBool(pressureBMP280Enabled));
+  jsvObjectSetChildAndUnLock(o,"MAG0C", jsvNewFromBool(mag0CEnabled));
+  jsvObjectSetChildAndUnLock(o,"MMC36X0", jsvNewFromBool(magMMC36X0Enabled));
+#endif
   return o;
 }
 
 #ifndef EMULATED
 void _jswrap_banglejs_i2cWr(JshI2CInfo *i2c, int i2cAddr, JsVarInt reg, JsVarInt data) {
-  unsigned char buf[2];
-  buf[0] = (unsigned char)reg;
-  buf[1] = (unsigned char)data;
   i2cBusy = true;
-  jsi2cWrite(i2c, i2cAddr, 2, buf, true);
+  jsi2cWriteReg(i2c, i2cAddr, reg, data);
   i2cBusy = false;
 }
 
@@ -4885,8 +4932,7 @@ JsVar *_jswrap_banglejs_i2cRd(JshI2CInfo *i2c, int i2cAddr, JsVarInt reg, JsVarI
   if (cnt>(int)sizeof(buf)) cnt=sizeof(buf);
   buf[0] = (unsigned char)reg;
   i2cBusy = true;
-  jsi2cWrite(i2c, i2cAddr, 1, buf, false);
-  jsi2cRead(i2c, i2cAddr, (cnt==0)?1:cnt, buf, true);
+  jsi2cReadReg(i2c, i2cAddr, reg, (cnt==0)?1:cnt, buf);
   i2cBusy = false;
   if (cnt) {
     JsVar *ab = jsvNewArrayBufferWithData(cnt, buf);
@@ -5219,16 +5265,13 @@ if (PRESSURE_DEVICE_SPL06_007_EN)
     // wait 100ms
     jshDelayMicroseconds(100*1000); // we should really have a callback
     // READ_PT
-    buf[0] = 0x10; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-    jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 6, buf, true);
+    jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0x10, 6, buf);
     int temperature = (buf[0]<<16)|(buf[1]<<8)|buf[2];
     if (temperature&0x800000) temperature-=0x1000000;
     int pressure = (buf[3]<<16)|(buf[4]<<8)|buf[5];
     barometerTemperature = temperature/100.0;
     barometerPressure = pressure/100.0;
-
-    buf[0] = 0x31; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false); // READ_A
-    jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 3, buf, true);
+    jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0x31, 3, buf); // READ_A
     int altitude = (buf[0]<<16)|(buf[1]<<8)|buf[2];
     if (altitude&0x800000) altitude-=0x1000000;
     barometerAltitude = altitude/100.0;
@@ -5241,8 +5284,7 @@ if (PRESSURE_DEVICE_SPL06_007_EN)
     unsigned char buf[6];
 
     // status values
-    buf[0] = SPL06_MEASCFG; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-    jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, true);
+    jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, SPL06_MEASCFG, 1, buf);
     int status = buf[0];
     if ((status & 0b00110000) != 0b00110000) {
       // data hasn't arrived yet
@@ -5250,8 +5292,7 @@ if (PRESSURE_DEVICE_SPL06_007_EN)
     }
 
     // raw values
-    buf[0] = SPL06_PRSB2; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false);
-    jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 6, buf, true);
+    jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, SPL06_PRSB2, 6, buf);
     int praw = (buf[0]<<16)|(buf[1]<<8)|buf[2];
     praw = twosComplement(praw, 24);
     int traw = (buf[3]<<16)|(buf[4]<<8)|buf[5];
@@ -5272,8 +5313,7 @@ if (PRESSURE_DEVICE_SPL06_007_EN)
 #ifdef PRESSURE_DEVICE_BMP280_EN
   if (PRESSURE_DEVICE_BMP280_EN) {
     unsigned char buf[8];
-    buf[0] = 0xF7; jsi2cWrite(PRESSURE_I2C, PRESSURE_ADDR, 1, buf, false); // READ_A
-    jsi2cRead(PRESSURE_I2C, PRESSURE_ADDR, 6, buf, true);
+    jsi2cReadReg(PRESSURE_I2C, PRESSURE_ADDR, 0xF7, 6, buf); // READ_A
     int uncomp_pres = (buf[0] << 12) | (buf[1] << 4) | (buf[2] >> 4);
     int uncomp_temp = (buf[3] << 12) | (buf[4] << 4) | (buf[5] >> 4);
     double var1, var2;
@@ -5320,8 +5360,6 @@ JsVar *jswrap_banglejs_getBarometerObject() {
     jsvObjectSetChildAndUnLock(o,"temperature", jsvNewFromFloat(barometerTemperature));
     jsvObjectSetChildAndUnLock(o,"pressure", jsvNewFromFloat(barometerPressure));
     jsvObjectSetChildAndUnLock(o,"altitude", jsvNewFromFloat(barometerAltitude));
-//    jsvObjectSetChildAndUnLock(o,"SPL06", jsvNewFromBool(pressureSPL06Enabled));
-//    jsvObjectSetChildAndUnLock(o,"BMP280", jsvNewFromBool(pressureBMP280Enabled));
   }
   return o;
 }
@@ -6073,7 +6111,7 @@ E.showMessage("Lots of text will wrap automatically",{
     "return" : ["JsVar","A promise that is resolved when 'Ok' is pressed"],
     "ifdef" : "BANGLEJS",
     "typescript" : [
-      "showPrompt<T = boolean>(message: string, options?: { title?: string, buttons?: { [key: string]: T }, buttonHeight?: number, image?: string, remove?: () => void }): Promise<T>;",
+      "showPrompt<T = boolean>(message: string, options?: { title?: string, buttons?: { [key: string]: T }, buttonsLong?: { [key: string]: T }, buttonHeight?: number, image?: string, remove?: () => void }): Promise<T>;",
       "showPrompt(): void;"
     ]
 }
@@ -6113,6 +6151,7 @@ The second `options` argument can contain:
 {
   title: "Hello",                       // optional Title
   buttons : {"Ok":true,"Cancel":false}, // optional list of button text & return value
+  buttonsLong : {"Ok":2,"Cancel":"Cancel"}, // Bangle.js2: optional subset of buttons that should also have a specific long press action
   img: "image_string"                   // optional image string to draw
   remove: function() { }                // Bangle.js: optional function to be called when the prompt is removed#
   buttonHeight : 30,                    // Bangle.js2: optional height to force the buttons to be
@@ -6342,18 +6381,19 @@ Bangle.setUI("updown", function (dir) {
 ```
 
 The first argument can also be an object, in which case more options can be
-specified with `mode:"custom"`:
+specified`:
 
 ```
 Bangle.setUI({
-  mode : "custom",
+  mode : "custom", // can also be set to one of the other modes presented above in order to extend them.
   back : function() {}, // optional - add a 'back' icon in top-left widget area and call this function when it is pressed , also call it when the hardware button is clicked (does not override btn if defined)
   remove : function() {}, // optional - add a handler for when the UI should be removed (eg stop any intervals/timers here)
   redraw : function() {}, // optional - add a handler to redraw the UI. Not needed but it can allow widgets/etc to provide other functionality that requires the screen to be redrawn
-  touch : function(n,e) {}, // optional - (mode:custom only) handler for 'touch' events
-  swipe : function(dir) {}, // optional - (mode:custom only) handler for 'swipe' events
-  drag : function(e) {}, // optional - (mode:custom only) handler for 'drag' events (Bangle.js 2 only)
-  btn : function(n) {}, // optional - (mode:custom only) handler for 'button' events (n==1 on Bangle.js 2, n==1/2/3 depending on button for Bangle.js 1)
+  touch : function(n,e) {}, // optional - handler for 'touch' events
+  swipe : function(dir) {}, // optional - handler for 'swipe' events
+  drag : function(e) {}, // optional - (mode:updown/leftright incompatible) handler for 'drag' events (Bangle.js 2 only)
+  btn : function(n) {}, // optional - handler for 'button' events (n==1 on Bangle.js 2, n==1/2/3 depending on button for Bangle.js 1)
+  btnRelease : function(n) {}, // optional - same as btn but react on release instead of press down.
   clock : 0 // optional - if set the behavior of 'clock' mode is added (does not override btn if defined)
 });
 ```

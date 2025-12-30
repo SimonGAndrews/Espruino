@@ -1274,11 +1274,11 @@ long when converted to a String.
 
 On NRF52833/NRF52840 based devices you can specify `phy` (the physical connection type used) as:
 
-* `1mbps` - the default Bluetooth phy (compatible with everything)
-* `2mbps` - a faster Bluetooth connection
-* `coded` - a slower connection with error correction (much longer range)
-* `coded,1mbps` - both long range and normal, but advertisements sent on the `coded` phy
-* `1mbps,coded` - both long range and normal, but advertisements sent on the `1mbps` phy - this allows for long range connections while also being compatible with everything
+* `phy:"1mbps""` - the default Bluetooth phy (compatible with everything)
+* `phy:"2mbps"` - a faster Bluetooth connection
+* `phy:"coded"` - a slower connection with error correction (much longer range)
+* `phy:"coded,1mbps"` - both long range and normal, but advertisements sent on the `coded` phy
+* `phy:"1mbps,coded"` - both long range and normal, but advertisements sent on the `1mbps` phy - this allows for long range connections while also being compatible with everything
 
 If you wish to have the best of both world (long range advertising and compatiblity) then
 Nordic suggest changing advertising between `coded,1mbps` and `1mbps,coded` every 500ms
@@ -2518,8 +2518,8 @@ void jswrap_ble_findDevices(JsVar *callback, JsVar *options) {
     ]
 }
 
-Start/stop listening for RSSI values on the currently active connection (where
-This device is a peripheral and is being connected to by a 'central' device)
+Start/stop listening for RSSI values on the currently active peripheral connection (eg when
+this device is being connected to by a 'central' device)
 
 ```
 // Start scanning
@@ -2553,7 +2553,7 @@ void jswrap_ble_setRSSIHandler(JsVar *callback) {
       ["power","int","Transmit power. Accepted values are -40(nRF52 only), -30(nRF51 only), -20, -16, -12, -8, -4, 0, and 4 dBm. On nRF52840 (eg Bangle.js 2) 5/6/7/8 dBm are available too. Others will give an error code."]
     ]
 }
-Set the BLE radio transmit power. The default TX power is 0 dBm, and
+Set the BLE radio transmit power. The default TX power is 0 dBm (or 4dBm for Bangle.js 2).
 */
 void jswrap_ble_setTxPower(JsVarInt pwr) {
   jsble_set_tx_power(pwr);
@@ -2994,8 +2994,9 @@ void jswrap_nfc_send(JsVar *payload) {
     ],
     "typescript" : "sendHIDReport(data: number[], callback?: () => void): void"
 }
-Send a USB HID report. HID must first be enabled with `NRF.setServices({}, {hid:
-hid_report})`
+Send a USB HID report. HID must first be enabled with `NRF.setServices({}, {hid: hid_report})`
+
+See https://www.espruino.com/BLE+Keyboard for some libraries that use `NRF.sendHIDReport` internally.
 */
 void jswrap_ble_sendHIDReport(JsVar *data, JsVar *callback) {
 #if BLE_HIDS_ENABLED
