@@ -492,6 +492,7 @@ bool jsvIsEqual(JsVar *a, JsVar *b);
 const char *jsvGetConstString(const JsVar *v); ///< Get a const string representing this variable - if we can. Otherwise return 0
 const char *jsvGetTypeOf(const JsVar *v); ///< Return the 'type' of the JS variable (eg. JS's typeof operator)
 JsVar *jsvGetValueOf(JsVar *v); ///< Return the JsVar, or if it's an object and has a valueOf function, call that
+JsVar *jsvGetValueOfAndUnLock(JsVar *v); ///< Return the JsVar, or if it's an object and has a valueOf function, call that
 
 /** Save this var as a string to the given buffer with a null terminator, and return how long it was (excluding terminating 0)
 If the buffer length is exceeded, string it cropped and terminating 0 is still added */
@@ -529,7 +530,11 @@ bool jsvIsStringEqualOrStartsWith(JsVar *var, const char *str, bool isStartsWith
 bool jsvIsStringEqual(JsVar *var, const char *str); ///< is string equal. see jsvIsStringEqualOrStartsWith
 bool jsvIsStringIEqual(JsVar *var, const char *str); ///< is string equal (ignoring case). see jsvIsStringEqualOrStartsWithOffset
 bool jsvIsStringIEqualAndUnLock(JsVar *var, const char *str); ///< is string equal (ignoring case). see jsvIsStringEqualOrStartsWithOffset
-int jsvCompareString(JsVar *va, JsVar *vb, size_t starta, size_t startb, bool equalAtEndOfString); ///< Compare 2 strings, starting from the given character positions
+/** Compare 2 strings, starting from the given character positions. equalAtEndOfString means that
+ * if one of the strings ends (even if the other hasn't), we treat them as equal.
+ * For a basic strcmp, do: jsvCompareString(a,b,0,0,false)
+ *  */
+int jsvCompareString(JsVar *va, JsVar *vb, size_t starta, size_t startb, bool equalAtEndOfString);
 /// Return a new string containing just the characters that are shared between two strings.
 JsVar *jsvGetCommonCharacters(JsVar *va, JsVar *vb);
 int jsvCompareInteger(JsVar *va, JsVar *vb); ///< Compare 2 integers, >0 if va>vb,  <0 if va<vb. If compared with a non-integer, that gets put later

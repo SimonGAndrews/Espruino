@@ -1488,6 +1488,13 @@ JsVar *jsvGetValueOf(JsVar *v) {
   return v;
 }
 
+/// Return the JsVar, or if it's an object and has a valueOf function, call that
+JsVar *jsvGetValueOfAndUnLock(JsVar *v) {
+  JsVar *value = jsvGetValueOf(v);
+  jsvUnLock(v);
+  return value;
+}
+
 /** Save this var as a string to the given buffer with a null terminator, and return how long it was (excluding terminating 0)
 If the buffer length is exceeded, string it cropped and terminating 0 is still added */
 size_t jsvGetString(const JsVar *v, char *str, size_t len) {
@@ -2690,33 +2697,16 @@ bool jsvIsStringIEqual(JsVar *var, const char *str) {
   return jsvIsStringEqualOrStartsWithOffset(var, str, false, 0, true);
 }
 
-
 /** Compare 2 strings, starting from the given character positions. equalAtEndOfString means that
  * if one of the strings ends (even if the other hasn't), we treat them as equal.
  * For a basic strcmp, do: jsvCompareString(a,b,0,0,false)
  *  */
 int jsvCompareString(JsVar *va, JsVar *vb, size_t starta, size_t startb, bool equalAtEndOfString) {
-  JsvStringIterator ita, itb;
+  JsvStringIterator ita;
   jsvStringIteratorNewUTF8(&ita, va, starta);
-  jsvStringIteratorNewUTF8(&itb, vb, startb);
-  // step to first positions
-  while (true) {
-    int ca = jsvStringIteratorGetUTF8CharAndNext(&ita);
-    int cb = jsvStringIteratorGetUTF8CharAndNext(&itb);
-    if (ca != cb) {
-      jsvStringIteratorFree(&ita);
-      jsvStringIteratorFree(&itb);
-      if ((ca<0 || cb<0) && equalAtEndOfString) return 0;
-      return ca - cb;
-    }
-    if (ca < 0) { // both equal, but end of string
-      jsvStringIteratorFree(&ita);
-      jsvStringIteratorFree(&itb);
-      return 0;
-    }
-  }
-  // never get here, but the compiler warns...
-  return true;
+  int r = jsvCompareStringIt(&ita, vb, startb, equalAtEndOfString);
+  jsvStringIteratorFree(&ita);
+  return r;
 }
 
 /** Return a new string containing just the characters that are
@@ -3806,9 +3796,8 @@ void jsvArrayInsertBefore(JsVar *arr, JsVar *beforeIndex, JsVar *element) {
 JsVar *jsvMathsOpSkipNames(JsVar *a, JsVar *b, int op) {
   JsVar *pa = jsvSkipName(a);
   JsVar *pb = jsvSkipName(b);
-  JsVar *oa = jsvGetValueOf(pa);
-  JsVar *ob = jsvGetValueOf(pb);
-  jsvUnLock2(pa, pb);
+  JsVar *oa = jsvGetValueOfAndUnLock(pa);
+  JsVar *ob = jsvGetValueOfAndUnLock(pb);
   JsVar *res = jsvMathsOp(oa,ob,op);
   jsvUnLock2(oa, ob);
   return res;
