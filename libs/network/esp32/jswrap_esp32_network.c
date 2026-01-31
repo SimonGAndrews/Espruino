@@ -42,6 +42,7 @@
 #endif
 
 #include "lwip/dns.h"
+#include "lwip/err.h"
 
 #include "jsinteractive.h"
 #include "network.h"
@@ -1732,7 +1733,12 @@ static void dnsFoundCallback(
     if (ipAddr == NULL) {
       params[0] = jsvNewNull();
     } else {
-      params[0] = networkGetAddressAsString((uint8_t *)&ipAddr, 4, 10, '.');
+      if (IP_IS_V4(ipAddr)) {
+        ip4_addr_t *ip4 = ip_2_ip4(ipAddr);
+        params[0] = networkGetAddressAsString((uint8_t *)&ip4->addr, 4, 10, '.');
+      } else {
+        params[0] = jsvNewNull();
+      }
     }
     jsiQueueEvents(NULL, g_jsHostByNameCallback, params, 1);
     jsvUnLock(params[0]);
@@ -1765,10 +1771,12 @@ void jswrap_wifi_getHostByName(
 
   jsvGetString(jsHostname, hostname, sizeof(hostname));
   jsDebug(DBG_INFO, "Wifi.getHostByName: %s\n", hostname);
-  esp_err_t err = dns_gethostbyname(hostname, &ipAddr, dnsFoundCallback, NULL);
-  if (err == ESP_OK) {
+  err_t err = dns_gethostbyname(hostname, &ipAddr, dnsFoundCallback, NULL);
+  if (err == ERR_OK) {
     jsDebug(DBG_INFO, "Already resolved\n");
     dnsFoundCallback(hostname, &ipAddr, NULL);
+  } else if (err == ERR_INPROGRESS) {
+    jsDebug(DBG_INFO, "Resolution in progress\n");
   } else {
     jsDebug(DBG_INFO, "Error: %d from dns_gethostbyname\n", err);
     dnsFoundCallback(hostname, NULL, NULL);
