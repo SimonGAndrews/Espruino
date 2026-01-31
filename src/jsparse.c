@@ -775,7 +775,7 @@ NO_INLINE JsVar *jspeFunctionCall(JsVar *function, JsVar *functionName, JsVar *t
           /* we just want to execute the block, but something could
            * have messed up and left us with the wrong Lexer, so
            * we want to be careful here... */
-          if (functionCode) {
+          if (jsvIsString(functionCode)) {
 #ifdef USE_DEBUGGER
             bool hadDebuggerNextLineOnly = false;
             if (execInfo.execute&EXEC_DEBUGGER_STEP_INTO) {
@@ -859,7 +859,9 @@ NO_INLINE JsVar *jspeFunctionCall(JsVar *function, JsVar *functionName, JsVar *t
             if (hasError)
               execInfo.execute |= hasError; // propogate error
           }
-
+          else if (!jsvIsUndefined(functionCode)) {
+             jsExceptionHere(JSET_ERROR, "Function code is %t, not a string", functionCode);
+          }
           /* Return to old 'this' var. No need to unlock as we never locked before */
           if (execInfo.thisVar) jsvUnRef(execInfo.thisVar);
           execInfo.thisVar = oldThisVar;
@@ -876,7 +878,9 @@ NO_INLINE JsVar *jspeFunctionCall(JsVar *function, JsVar *functionName, JsVar *t
       }
       jsvUnLock2(functionCode, functionRoot);
     }
-
+    // If we called something and it deleted a var our lexer depends on, assume we're at the end of input (#2681)
+    if (lex && jsvIsNull(lex->it.var))
+      lex->tk = LEX_EOF;
     jsvUnLock(thisVar);
     /* It's possible that this call or a subcall may have compacted the filesystem
     which changed the address the var in the iterator pointed to. If so we need to

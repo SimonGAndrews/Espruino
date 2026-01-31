@@ -353,7 +353,7 @@ Called when heart rate sensor data is available - see `Bangle.setHRMPower(1)`.
   "class" : "Bangle",
   "name" : "HRM-env",
   "params" : [["env","JsVar","An integer containing current environment reading (light level)"]],
-  "ifdef" : "BANGLEJS2"
+  "ifdef" : "BANGLEJS_Q3"
 }
 Called when an environment sample heart rate sensor data is available (this is the amount of light received by the HRM sensor from the environment when its LED is off). On the newest VC31B based watches this is only 4 bit (0..15).
 
@@ -4018,36 +4018,7 @@ NO_INLINE void jswrap_banglejs_init() {
     showSplashScreen = false;
 #ifndef ESPR_NO_LOADING_SCREEN
     if (!firstRun && !recoveryMode) {
-      // Display a loading screen
-      // Check for a '.loading' file
-      JsVar *img = jsfReadFile(jsfNameFromString(".loading"),0,0);
-      if (jsvIsString(img)) {
-        if (jsvGetStringLength(img)>3) {
-          // if it exists and is big enough to store an image, render the image in the middle of the screen
-          int w,h;
-          w = (int)(unsigned char)jsvGetCharInString(img, 0);
-          h = (int)(unsigned char)jsvGetCharInString(img, 1);
-          jsvUnLock2(jswrap_graphics_drawImage(graphics,img,(LCD_WIDTH-w)/2,(LCD_HEIGHT-h)/2,NULL),img);
-          graphicsInternalFlip();
-        }
-        // else if <3 bytes we don't render anything
-      } else {
-        // otherwise render the standard 'Loading...' box
-        int x = LCD_WIDTH/2;
-        int y = LCD_HEIGHT/2;
-        graphicsFillRect(&graphicsInternal, x-49, y-19, x+49, y+19, graphicsTheme.bg);
-        graphicsInternal.data.fgColor = graphicsTheme.fg;
-        graphicsDrawRect(&graphicsInternal, x-50, y-20, x+50, y+20);
-        y -= 4;
-        x -= 4*6;
-        const char *s = "Loading...";
-        while (*s) {
-          graphicsDrawChar6x8(&graphicsInternal, x, y, *s, 1, 1, false);
-          x+=6;
-          s++;
-        }
-        graphicsInternalFlip();
-      }
+      jswrap_banglejs_showLoadingScreen();// Display a loading screen
     }
 #endif
   }
@@ -4952,7 +4923,7 @@ JsVar *_jswrap_banglejs_i2cRd(JshI2CInfo *i2c, int i2cAddr, JsVarInt reg, JsVarI
       ["reg","int",""],
       ["data","int",""]
     ],
-    "ifdef" : "BANGLEJS"
+    "ifdef" : "BANGLEJS_Q3"
 }
 Writes a register on the touch controller
 */
@@ -4972,7 +4943,7 @@ void jswrap_banglejs_touchWr(JsVarInt reg, JsVarInt data) {
       ["cnt","int","If specified, returns an array of the given length (max 128). If not (or 0) it returns a number"]
     ],
     "return" : ["JsVar",""],
-    "ifdef" : "BANGLEJS2",
+    "ifdef" : "BANGLEJS_Q3",
     "typescript" : [
       "touchRd(reg: number, cnt?: 0): number;",
       "touchRd(reg: number, cnt: number): number[];"
@@ -5005,7 +4976,7 @@ JsVar *jswrap_banglejs_touchRd(JsVarInt reg, JsVarInt cnt) {
       ["reg","int","Register number to write"],
       ["data","int","An integer value to write to the register"]
     ],
-    "ifdef" : "BANGLEJS2"
+    "ifdef" : "BANGLEJS_Q3"
 }
 Writes a register on the accelerometer
 */
@@ -5167,7 +5138,7 @@ void jswrap_banglejs_hrmWr(JsVarInt reg, JsVarInt data) {
       ["cnt","int","If specified, returns an array of the given length (max 128). If not (or 0) it returns a number"]
     ],
     "return" : ["JsVar",""],
-    "ifdef" : "BANGLEJS",
+    "ifdef" : "BANGLEJS_Q3",
     "typescript" : [
       "hrmRd(reg: number, cnt?: 0): number;",
       "hrmRd(reg: number, cnt: number): number[];"
@@ -5491,6 +5462,9 @@ JsVar *jswrap_banglejs_beep(int time, int freq) {
   if (freq>60000) freq=60000;
   if (time<=0) time=200;
   if (time>5000) time=5000;
+#ifdef EMULATED
+  return jswrap_promise_resolve(NULL);
+#else
   if (promiseBeep) {
     JsVar *fn = jsvNewNativeFunction((void (*)(void))jswrap_banglejs_beep, JSWAT_JSVAR|(JSWAT_INT32<<JSWAT_BITS)|(JSWAT_INT32<<(JSWAT_BITS*2)));
     JsVar *v;
@@ -5515,6 +5489,7 @@ JsVar *jswrap_banglejs_beep(int time, int freq) {
   }
   jstExecuteFn(jswrap_banglejs_beep_callback, NULL, jshGetTimeFromMilliseconds(time), 0, NULL);
   return jsvLockAgain(promiseBeep);
+#endif
 }
 
 /*JSON{
@@ -5543,6 +5518,9 @@ JsVar *jswrap_banglejs_buzz(int time, JsVarFloat amt) {
   if (amt<0) amt=0;
   if (time<=0) time=200;
   if (time>5000) time=5000;
+#ifdef EMULATED
+  return jswrap_promise_resolve(NULL);
+#else
   if (promiseBuzz) {
     JsVar *fn = jsvNewNativeFunction((void (*)(void))jswrap_banglejs_buzz, JSWAT_JSVAR|(JSWAT_INT32<<JSWAT_BITS)|(JSWAT_JSVARFLOAT<<(JSWAT_BITS*2)));
     JsVar *v;
@@ -5565,6 +5543,7 @@ JsVar *jswrap_banglejs_buzz(int time, JsVarFloat amt) {
     buzzAmt = 0;
 
   return jsvLockAgain(promiseBuzz);
+#endif
 }
 
 static void jswrap_banglejs_periph_off() {
@@ -5932,7 +5911,7 @@ You can also enter this menu by restarting your Bangle while holding down the bu
     "class" : "Bangle",
     "name" : "showTestScreen",
     "generate_js" : "libs/js/banglejs/Bangle_showTestScreen.min.js",
-    "ifdef" : "BANGLEJS2"
+    "ifdef" : "BANGLEJS_Q3"
 }
 (2v20 and later) Show a test screen that lights green when each sensor on the Bangle
 works and reports within range.
@@ -6449,6 +6428,47 @@ extern void ble_app_error_handler(uint32_t error_code, uint32_t line_num, const 
 void jswrap_banglejs_factoryReset(bool noReboot) {
   jsfResetStorage();
   if (!noReboot) jsiStatus |= JSIS_TODO_FLASH_LOAD;
+}
+
+/*JSON{
+    "type" : "staticmethod",
+    "class" : "Bangle",
+    "name" : "showLoadingScreen",
+    "generate" : "jswrap_banglejs_showLoadingScreen",
+    "ifdef" : "BANGLEJS"
+}
+This displays the loading screen on Bangle.js. It is called automatically
+when an app is loaded with `load()` or `Bangle.load()`, but can be called manually
+*/
+void jswrap_banglejs_showLoadingScreen() {
+  // Check for a '.loading' file
+  JsVar *img = jsfReadFile(jsfNameFromString(".loading"),0,0);
+  if (jsvIsString(img)) {
+    if (jsvGetStringLength(img)>3) {
+      // if it exists and is big enough to store an image, render the image in the middle of the screen
+      int w,h;
+      w = (int)(unsigned char)jsvGetCharInString(img, 0);
+      h = (int)(unsigned char)jsvGetCharInString(img, 1);
+      jsvUnLock2(jswrap_graphics_drawImage(graphicsInternal.graphicsVar,img,(LCD_WIDTH-w)/2,(LCD_HEIGHT-h)/2,NULL),img);
+    }
+    // else if <3 bytes we don't render anything
+  } else {
+    // otherwise render the standard 'Loading...' box
+    int x = LCD_WIDTH/2;
+    int y = LCD_HEIGHT/2;
+    graphicsFillRect(&graphicsInternal, x-49, y-19, x+49, y+19, graphicsTheme.bg);
+    graphicsInternal.data.fgColor = graphicsTheme.fg;
+    graphicsDrawRect(&graphicsInternal, x-50, y-20, x+50, y+20);
+    y -= 4;
+    x -= 4*6;
+    const char *s = "Loading...";
+    while (*s) {
+      graphicsDrawChar6x8(&graphicsInternal, x, y, *s, 1, 1, false);
+      x+=6;
+      s++;
+    }
+  }
+  graphicsInternalFlip(); // update screen straight away
 }
 
 /*JSON{

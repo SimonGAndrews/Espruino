@@ -290,26 +290,13 @@ static JsVar *_jswrap_array_iterate_with_callback(
         jsvIteratorNext(&it); // go to next
         cb_result = jspeFunctionCall(funcVar, 0, thisVar, false, 3, args);
         jsvUnLock(args[1]);
-        if (cb_result) {
-          bool matched;
-          if (isBoolCallback)
-            matched = (jsvGetBool(cb_result) == expectedValue);
-          if (returnType == RETURN_ARRAY) {
-            if (isBoolCallback) { // filter
-              if (matched) {
-                jsvArrayPush(result, value);
-              }
-            } else { // map
-              JsVar *name = jsvNewFromInteger(idxValue);
-              if (name) { // out of memory?
-                name = jsvMakeIntoVariableName(name, cb_result);
-                jsvAddName(result, name);
-                jsvUnLock(name);
-              }
-            }
-          } else if (isBoolCallback) {
-            if (returnType == RETURN_ARRAY_ELEMENT ||
-                returnType == RETURN_ARRAY_INDEX) {
+        if (isBoolCallback) {
+          bool matched = (jsvGetBool(cb_result) == expectedValue);
+          if (returnType == RETURN_ARRAY) { // filter
+            if (matched)
+              jsvArrayPush(result, value);
+          } else {
+            if (returnType == RETURN_ARRAY_ELEMENT || returnType == RETURN_ARRAY_INDEX) {
               if (matched) {
                 result = (returnType == RETURN_ARRAY_ELEMENT) ?
                     jsvLockAgain(value) :
@@ -319,9 +306,17 @@ static JsVar *_jswrap_array_iterate_with_callback(
             } else if (!matched) // eg for .some
               isDone = true;
           }
-          jsvUnLock(cb_result);
+        } else { // !isBoolCallback
+          if (returnType == RETURN_ARRAY) { // map
+            JsVar *name = jsvNewFromInteger(idxValue);
+            if (name) { // out of memory?
+              name = jsvMakeIntoVariableName(name, cb_result);
+              jsvAddName(result, name);
+              jsvUnLock(name);
+            }
+          } // forEach - we don't care about the result
         }
-        jsvUnLock(value);
+        jsvUnLock2(cb_result, value);
       } else {
         // just skip forward anyway
         jsvIteratorNext(&it);
@@ -948,30 +943,29 @@ JsVar *jswrap_array_sort (JsVar *array, JsVar *compareFn) {
     return 0;
   }
   JsvIterator it;
-
-  /* Arrays can be sparse and the iterators don't handle this
-    (we're not going to mess with indices) so we have to count
-     up the number of elements manually.
-
-     FIXME: sort is broken for sparse arrays anyway (it basically
-     ignores all the 'undefined' entries). I wonder whether just
-     compacting the array down to start from 0 before we start would
-     fix this?
+  /* Arrays can be sparse and the iterators don't handle this. JS spec says
+     that when we sort we should move all defined elements to the start of the array,
+     so that's what we'll do here by just renumbering all the elements.
    */
   int n=0;
   if (jsvIsArray(array) || jsvIsObject(array)) {
-    jsvIteratorNew(&it, array, JSIF_EVERY_ARRAY_ELEMENT);
+    jsvIteratorNew(&it, array, JSIF_DEFINED_ARRAY_ElEMENTS);
     while (jsvIteratorHasElement(&it)) {
-      n++;
+      JsVar *key = jsvIteratorGetKey(&it);
+      if (jsvIsInt(key)) {
+        jsvSetInteger(key, n);
+        n++;
+      }
+      jsvUnLock(key);
       jsvIteratorNext(&it);
-    }
+    } // n is now the number of defined elements with integer indices
     jsvIteratorFree(&it);
   } else {
     n = (int)jsvGetLength(array);
   }
 
   unsigned char locks = jsvGetLocks(array);
-  jsvIteratorNew(&it, array, JSIF_EVERY_ARRAY_ELEMENT);
+  jsvIteratorNew(&it, array, JSIF_DEFINED_ARRAY_ElEMENTS);
   _jswrap_array_sort(&it, n, compareFn);
   jsvIteratorFree(&it);
   /* This is really nasty, but sometimes the amount of recursion the quicksort does on
