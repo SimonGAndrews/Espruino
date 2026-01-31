@@ -621,7 +621,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     // 12345678901234567_8
     // xx:xx:xx:xx:xx:xx\0
     char temp[18];
-    sprintf(temp, MACSTR, MAC2STR(&event->event_info.sta_connected.mac));
+    sprintf(temp, MACSTR, MAC2STR(event->event_info.sta_connected.mac));
     jsvObjectSetChildAndUnLock(jsDetails, "mac", jsvNewFromString(temp));
     sendWifiEvent(event->event_id, jsDetails);
     return ESP_OK;
@@ -638,7 +638,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     // 12345678901234567_8
     // xx:xx:xx:xx:xx:xx\0
     char temp[18];
-    sprintf(temp, MACSTR, MAC2STR(&event->event_info.sta_disconnected.mac));
+    sprintf(temp, MACSTR, MAC2STR(event->event_info.sta_disconnected.mac));
     jsvObjectSetChildAndUnLock(jsDetails, "mac", jsvNewFromString(temp));
     sendWifiEvent(event->event_id, jsDetails);
     return ESP_OK;
