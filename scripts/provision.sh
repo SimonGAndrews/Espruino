@@ -34,6 +34,7 @@ if [ "$BOARDNAME" = "ALL" ]; then
   echo "Installing dev tools for all boards"
   PROVISION_ESP32=1
   PROVISION_ESP32_IDF4=1
+  PROVISION_ESP32_IDF5=1
   PROVISION_ESP8266=1
   PROVISION_LINUX=1
   PROVISION_NRF52=1
@@ -125,6 +126,20 @@ if [ "$PROVISION_ESP32_IDF4" = "1" ]; then
         cd ..
     fi
     source esp-idf-4/esp-idf/export.sh
+fi
+#--------------------------------------------------------------------------------
+if [ "$PROVISION_ESP32_IDF5" = "1" ]; then
+    echo "===== ESP32 IDF5"
+    # SDK
+    if [ ! -d "esp-idf-5" ]; then
+        echo installing esp-idf folder
+        mkdir esp-idf-5
+        cd esp-idf-5 || exit
+        git clone -b v5.5.3 --recursive https://github.com/espressif/esp-idf.git
+        esp-idf/install.sh			# RIC if not specifying the target, it installs all of them for now, selected targets are: esp32c3, esp32, esp32s2, esp32h2, esp32s3
+        cd ..
+    fi
+    source esp-idf-5/esp-idf/export.sh
 fi
 #--------------------------------------------------------------------------------
 if [ "$PROVISION_ESP8266" = "1" ]; then

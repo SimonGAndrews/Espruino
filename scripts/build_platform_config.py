@@ -239,6 +239,9 @@ elif board.chip["family"]=="ESP8266":
 elif board.chip["family"]=="ESP32" or board.chip["family"]=="ESP32_IDF4":
   board.chip["class"]="ESP32"
   exti_count = 40
+elif board.chip["family"]=="ESP32" or board.chip["family"]=="ESP32_IDF5":
+  board.chip["class"]="ESP32"
+  exti_count = 40
 elif board.chip["family"]=="SAMD":
   board.chip["class"]="SAMD"
   codeOut('#include "targetlibs/samd/include/due_sam3x.init.h"')
