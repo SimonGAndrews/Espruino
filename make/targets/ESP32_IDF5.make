@@ -27,7 +27,6 @@ endif
 $(CMAKEFILE):
 	@mkdir -p $(BINDIR)/main
 	@echo "MAKE CMAKEFILE"
-
 	@echo "idf_component_register(" > $(CMAKEFILE)
 	@echo "    SRCS" >> $(CMAKEFILE)
 	@for s in $(SOURCES); do \
@@ -41,11 +40,37 @@ $(CMAKEFILE):
 		path=$${path%;}; \
 		echo "        $$path" >> $(CMAKEFILE); \
 	done
+
+	@echo "    PRIV_REQUIRES" >> $(CMAKEFILE)
+	@for d in freertos \
+		esp_common \
+		esp_system \
+		esp_hw_support \
+		spi_flash \
+		esp_event \
+		esp_netif \
+		esp_wifi \
+		lwip \
+		nvs_flash \
+		bt \
+		app_update \
+		esp_driver_gpio \
+		esp_driver_uart \
+		esp_driver_spi \
+		esp_driver_i2c \
+		esp_driver_ledc \
+		esp_driver_rmt \
+		esp_adc; do \
+		echo "        $$d" >> $(CMAKEFILE); \
+	done
+
 	@echo ")" >> $(CMAKEFILE)
 
+	#@echo "idf_build_set_property(MINIMAL_BUILD ON)" >> $(CMAKEFILE)
+	
 	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC -DESP_IDF_VERSION_MAJOR=5)" >> $(CMAKEFILE)
 	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC $(DEFINES))" >> $(CMAKEFILE)
-	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC -Og -fno-strict-aliasing -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -fgnu89-inline -nostdlib -MMD -MP -Wno-enum-compare)" >> $(CMAKEFILE)
+	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC -Og -fno-strict-aliasing -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -fgnu89-inline -MMD -MP -Wno-enum-compare)" >> $(CMAKEFILE)
 
 	@echo "target_compile_options(\$${COMPONENT_LIB} PRIVATE -Wno-pointer-sign)" >> $(CMAKEFILE)
 	@echo "target_compile_options(\$${COMPONENT_LIB} PRIVATE -Wno-implicit-int)" >> $(CMAKEFILE)

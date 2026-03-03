@@ -59,14 +59,14 @@ info = {
    'optimizeflags' : '-Og',
    'libraries' : [
      'ESP32',
-     'NET',
-     'GRAPHICS',
-     'CRYPTO','SHA256','SHA512',
+#     'NET',
+      'GRAPHICS',
+#     'CRYPTO','SHA256','SHA512',
 #     'TLS',
 #     'TELNET',
-     'NEOPIXEL',
+#     'NEOPIXEL',
 #     'FILESYSTEM',
-     'BLUETOOTH'
+#     'BLUETOOTH'
    ],
    'makefile' : [
      'DEFINES+=-DESP_PLATFORM -DESP32=1',
@@ -87,7 +87,7 @@ chip = {
   'speed'   : 240,
   'usart'   : 3,
   'spi'     : 2,
-  'i2c'     : 2,
+  'i2c'     : 0, #2,
   'adc'     : 2,
   'dac'     : 0,
   'saved_code' : {

@@ -466,14 +466,20 @@ void jshSetOutputValue(JshPinFunction func, int value) {
 
 void jshEnableWatchDog(JsVarFloat timeout) {
   wdt_enabled = true;
-  esp_task_wdt_init((int)(timeout+0.5)
-#if !(ESP_IDF_VERSION_MAJOR>=5)
-   , true
-#endif
-  ); //enable panic so ESP32 restarts
-  esp_task_wdt_add(NULL); //add current thread to WDT watch
-}
 
+#if ESP_IDF_VERSION_MAJOR >= 5
+  // ESP-IDF 5 uses a config struct
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = (int)(timeout * 1000 + 0.5), // convert seconds to milliseconds
+  };
+  esp_task_wdt_init(&wdt_config);
+#else
+  // ESP-IDF 4 compatibility
+  esp_task_wdt_init((int)(timeout + 0.5), true);
+#endif
+
+  esp_task_wdt_add(NULL); // add current thread to WDT watch
+}
 // Kick the watchdog
 void jshKickWatchDog() {
 #ifdef ESPR_DISABLE_KICKWATCHDOG_PIN // if this pin is asserted, don't kick the watchdog
@@ -729,14 +735,14 @@ void jshFlashRead(
   if(len == 1){ // Can't read a single byte using the API, so read 4 and select the byte requested
     uint word;
 #if ESP_IDF_VERSION_MAJOR>=5
-    esp_flash_read(NULL, addr & 0xfffffffc,&word,4);
+    esp_flash_read(NULL, &word, addr & 0xfffffffc,4);
 #else
     spi_flash_read(addr & 0xfffffffc,&word,4);
 #endif
     *(uint8_t *)buf = (word >> ((addr & 3) << 3 )) & 255;
   } else {
 #if ESP_IDF_VERSION_MAJOR>=5
-    esp_flash_read(NULL, addr, buf, len);
+    esp_flash_read(NULL, buf, addr, len);
 #else
     spi_flash_read(addr, buf, len);
 #endif
@@ -756,7 +762,7 @@ void jshFlashWrite(
     uint32_t len   //!< Length of data to write
   ) {
 #if ESP_IDF_VERSION_MAJOR>=5
-  esp_flash_write(NULL, addr, buf, len);
+  esp_flash_write(NULL, buf, addr, len);
 #else
   spi_flash_write(addr, buf, len);
 #endif

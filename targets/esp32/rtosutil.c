@@ -72,12 +72,12 @@ void queue_list(){
   printf("queue %s : %d\n",RTOSqueues[i].name,RTOSqueues[i].handle);
   }
 }
-char *queue_read(int idx){
+int queue_read(int idx){
   char data;
   if(xQueueReceive(RTOSqueues[idx].handle,&data,0)){
     return data;
   }
-  return NULL;
+  return -1;
 }
 void queue_writeChar(int idx,char c){
   if(!xQueueSend(RTOSqueues[idx].handle,&c,1)){
@@ -106,7 +106,7 @@ TaskHandle_t task_handleByName(char *taskName){
   idx = task_indexByName(taskName);
   return RTOStasks[idx].handle;
 }
-int *task_getCurrentIndex(){
+int task_getCurrentIndex(){
   int i;TaskHandle_t handle;
   handle = xTaskGetCurrentTaskHandle();
   for(i = 0; i < taskMax; i++){
@@ -114,7 +114,7 @@ int *task_getCurrentIndex(){
     return i;
   }
   }
-  return NULL;
+  return 0;
 }
 char *task_getCurrentName(){
   int i;TaskHandle_t handle;
