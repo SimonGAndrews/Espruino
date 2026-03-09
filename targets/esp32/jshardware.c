@@ -31,23 +31,29 @@
 #include "jshardwareAnalog.h"
 #include "jshardwarePWM.h"
 #include "jshardwarePulse.h"
+#if ESP_IDF_VERSION_MAJOR>=5
+#include "rtosutil_idf5.h"
+#include "driver/gptimer.h"
+#else
 #include "rtosutil.h"
 #include "driver/timer.h"
-
+#endif
 #ifdef BLUETOOTH
 #include "BLE/esp32_gap_func.h"
 #include "BLE/esp32_gattc_func.h"
 #include "BLE/esp32_gatts_func.h"
 #endif
-#include "jshardwareESP32.h"
 
+#include "jshardwareESP32.h"
 #include "jsutils.h"
 #include "jstimer.h"
 #include "jsparse.h"
 #include "jsinteractive.h"
 #include "jspininfo.h"
 
+#ifdef NET
 #include "jswrap_esp32_network.h"
+#endif
 
 #if ESP_IDF_VERSION_MAJOR>=4
 #include "soc/uart_reg.h"
@@ -158,12 +164,14 @@ void jshPinDefaultPullup() {
   // 6-11 are used by Flash chip
   // 32-33 are routed to rtc for xtal
   // 16-17 are used for PSRAM (future use)
+#ifndef QEMU_BUILD
   jshPinSetStateRange(0,0,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(12,15,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(18,19,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(21,22,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(25,27,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(34,39,JSHPINSTATE_GPIO_IN_PULLUP);
+#endif
 #endif
 }
 
@@ -174,7 +182,9 @@ void jshInit() {
 #ifdef CONFIG_ESP_TASK_WDT
   ESP_LOGW("Espruino", "ESP-IDF task watchdog enabled in sdkconfig; E.enableWatchdog may behave inconsistently");
 #endif
+#ifdef NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) esp32_wifi_init();
+#endif
 #ifdef BLUETOOTH
   if(ESP32_Get_NVS_Status(ESP_NETWORK_BLE)) gattc_init();
 #endif
@@ -198,10 +208,13 @@ void jshReset() {
   jshResetDevices();
   jshPinDefaultPullup() ;
 //  UartReset();
+#if ESP_IDF_VERSION_MAJOR>=5
+#else
   RMTReset();
   ADCReset();
-  SPIReset();
   I2CReset();
+#endif
+  SPIReset();
 #ifdef BLUETOOTH
   if(ESP32_Get_NVS_Status(ESP_NETWORK_BLE)) gatts_reset(false);
 #endif
@@ -211,7 +224,9 @@ void jshReset() {
  * Re-init the ESP32 after a soft-reset
  */
 void jshSoftInit() {
+  #ifdef NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_esp32_wifi_soft_init();
+  #endif
 }
 
 /**
@@ -371,7 +386,7 @@ void jshPinSetValue(
   if (pinInfo[pin].port & JSH_PIN_NEGATED) value=!value;
   gpio_num_t gpioNum = pinToESP32Pin(pin);
 #if ESP_IDF_VERSION_MAJOR>=5
-  gpio_iomux_out(gpioNum,SIG_GPIO_OUT_IDX,0);  // reset pin to be GPIO in case it was used as rmt or something else
+  gpio_iomux_out(gpioNum, SIG_GPIO_OUT_IDX, 0); // reset pin to be GPIO in case it was used as rmt or something else
 #else
   gpio_matrix_out(gpioNum,SIG_GPIO_OUT_IDX,0,0);  // reset pin to be GPIO in case it was used as rmt or something else
 #endif
@@ -394,20 +409,30 @@ bool CALLED_FROM_INTERRUPT jshPinGetValue( // can be called at interrupt time
 
 
 JsVarFloat jshPinAnalog(Pin pin) {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  jsError("jshPinAnalog(Pin pin) is not implemented yet");
+  return NAN;
+#else
   if (pinInfo[pin].analog == JSH_ANALOG_NONE)
     return NAN;
   JsVarFloat v = (JsVarFloat) readADC(pin) / 4096;
   if (pinInfo[pin].port & JSH_PIN_NEGATED) v=1-v;
   return v;
+#endif
 }
 
 
 int jshPinAnalogFast(Pin pin) {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  jsError("jshPinAnalogFast(Pin pin) is not implemented yet");
+  return NAN;
+#else
   if (pinInfo[pin].analog == JSH_ANALOG_NONE)
     return 0;
   int v = readADC(pin) << 4;
   if (pinInfo[pin].port & JSH_PIN_NEGATED) v=65535-v;
   return v;
+#endif
 }
 
 
@@ -418,6 +443,9 @@ JshPinFunction jshPinAnalogOutput(Pin pin,
     JsVarFloat value,
     JsVarFloat freq,
     JshAnalogOutputFlags flags) { // if freq<=0, the default is used
+#if ESP_IDF_VERSION_MAJOR >= 5
+    jsError("writeDAC() is not implemented yes");
+#else
   UNUSED(flags);
   if (pinInfo[pin].port & JSH_PIN_NEGATED) value=1-value;
   if (value<0) value=0;
@@ -440,6 +468,7 @@ JshPinFunction jshPinAnalogOutput(Pin pin,
     }
     else writePWM(pin,( uint16_t)(value * PWMTimerRange),(int) freq);
   }
+#endif
   return 0;
 }
 
@@ -448,6 +477,9 @@ JshPinFunction jshPinAnalogOutput(Pin pin,
  *
  */
 void jshSetOutputValue(JshPinFunction func, int value) {
+#if ESP_IDF_VERSION_MAJOR >= 5
+    jsError("writeDAC() is not implemented yes");
+#else
   int pin;
   if (JSH_PINFUNCTION_IS_DAC(func)) {
     uint8_t val = (uint8_t)(value >> 8);
@@ -462,11 +494,13 @@ void jshSetOutputValue(JshPinFunction func, int value) {
     value=value >> (16 - PWMTimerBit);
     setPWM( (Pin)pin, (uint16_t)value);
   }
+#endif
 }
 
 void jshEnableWatchDog(JsVarFloat timeout) {
+#ifdef QEMU_BUILD
+#else
   wdt_enabled = true;
-
 #if ESP_IDF_VERSION_MAJOR >= 5
   // ESP-IDF 5 uses a config struct
   esp_task_wdt_config_t wdt_config = {
@@ -477,8 +511,8 @@ void jshEnableWatchDog(JsVarFloat timeout) {
   // ESP-IDF 4 compatibility
   esp_task_wdt_init((int)(timeout + 0.5), true);
 #endif
-
   esp_task_wdt_add(NULL); // add current thread to WDT watch
+#endif
 }
 // Kick the watchdog
 void jshKickWatchDog() {
@@ -660,21 +694,26 @@ void jshSetSystemTime(JsSysTime newTime) {
   tz.tz_dsttime=0;
   settimeofday(&tm, &tz);
 }
+#if ESP_IDF_VERSION_MAJOR>=5
+  void jshUtilTimerDisable() {}
+  void jshUtilTimerStart(JsSysTime period) {}
+  void jshUtilTimerReschedule(JsSysTime period) {}
+#else
+  void jshUtilTimerDisable() {
+    timer_pause(TIMER_GROUP_0, 0);
+    timer_disable_intr(TIMER_GROUP_0, 0);
+  }
 
-void jshUtilTimerDisable() {
-  timer_pause(TIMER_GROUP_0, 0);
-  timer_disable_intr(TIMER_GROUP_0, 0);
-}
+  void jshUtilTimerStart(JsSysTime period) {
+    if(period <= 30){period = 30;}
+    timer_Start(0, period);
+  }
 
-void jshUtilTimerStart(JsSysTime period) {
-  if(period <= 30){period = 30;}
-  timer_Start(0, period);
-}
-
-void jshUtilTimerReschedule(JsSysTime period) {
-  if(period <= 30){period = 30;}
-  timer_Reschedule(0,(uint64_t)period);
-}
+  void jshUtilTimerReschedule(JsSysTime period) {
+    if(period <= 30){period = 30;}
+    timer_Reschedule(0,(uint64_t)period);
+  }
+#endif
 
 //===== Miscellaneous =====
 

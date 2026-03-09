@@ -20,6 +20,7 @@
 #include "driver/rmt.h"
 
 #include <stdio.h>
+RMTChannel RMTChannels[RMTChannelMax];
 
 #define RMTPinEmpty 111
 

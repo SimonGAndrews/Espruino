@@ -52,7 +52,7 @@ info = {
  'espruino_page_link'       : 'ESP32',
  'default_console'          : "EV_SERIAL1",
  'default_console_baudrate' : "115200",
- 'variables'                : 16383, # See note above
+ 'variables'                : 8181, # 16383, # See note above
  'io_buffer_size'           : 4096, # How big is the input buffer (in bytes). Default on nRF52 is 1024
  'binary_name'              : 'espruino_%v_esp32.bin',
  'build' : {

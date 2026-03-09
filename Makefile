@@ -129,6 +129,11 @@ ifneq ($(COMMITS_SINCE_RELEASE),0)
 DEFINES += -DBUILDNUMBER=\"$(COMMITS_SINCE_RELEASE)\"
 endif
 
+ifdef QEMU_BUILD
+# force no asserts to be compiled in
+DEFINES += -DQEMU_BUILD
+endif
+
 else
 # Alternate release labeling, which works nicely in travis and allows other developers to put their
 # initials into the build number.
@@ -927,6 +932,7 @@ clean:
 	$(Q)rm -f $(BINDIR)/espruino_embedded.c
 	$(Q)rm -f $(BINDIR)/jstypes.h
 	$(Q)rm -f $(ROOT)/targetlibs/nrf5x_*/components/toolchain/gcc/gcc_startup_nrf5*.o $(ROOT)/targetlibs/nrf5x_*/modules/nrfx/mdk/gcc_startup_nrf5*.o $(ROOT)/targetlibs/stm32f4/lib/startup_stm32f4*.o $(ROOT)/targetlibs/stm32f1/lib/startup_stm32f10x_*.o
+	$(Q)rm -f $(BINDIR)/sdkconfig* $(BINDIR)/partitions.csv $(BINDIR)/CMakeLists.txt
 
 wrappersources:
 	$(info WRAPPERSOURCES=$(WRAPPERSOURCES))

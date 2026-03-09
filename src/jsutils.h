@@ -31,6 +31,14 @@
 #else
 #define JS_VERSION "2v28." BUILDNUMBER
 #endif
+
+#ifndef JSUTILS_H
+  #define JSUTILS_H
+  #ifdef ESP32
+    extern uintptr_t espruino_stackHighPtr;
+  #endif
+#endif
+
 /*
   In code:
   TODO - should be fixed
@@ -632,10 +640,6 @@ void reverseBytes(char *data, int len);
 
 /** get the amount of free stack we have, in bytes */
 size_t jsuGetFreeStack();
-
-#ifdef ESP32
-  void *espruino_stackHighPtr;  //Used by jsuGetFreeStack
-#endif
 
 typedef struct {
   short x,y,z;

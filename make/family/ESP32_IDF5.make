@@ -8,6 +8,9 @@ DEFINES += -DESP32
 DEFINES += -DESPR_DEFINES_ON_COMMANDLINE
 
 SOURCES += targets/esp32/main.c \
+targets/esp32/rtosutil_idf5.c \
+targets/esp32/jshardwareUart.c \
+targets/esp32/jshardwareSpi.c \
 targets/esp32/jshardware.c \
 targets/esp32/jshardwareESP32.c 
 

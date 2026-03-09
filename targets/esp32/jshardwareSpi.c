@@ -44,6 +44,8 @@
   #define SPICHANNEL1_HOST VSPI_HOST
 #endif
 
+SPIChannel SPIChannels[SPIMax];   // <-- THE ONLY definition
+
 int getSPIChannelPnt(IOEventFlags device){
   return device - EV_SPI1;
 }
@@ -234,7 +236,18 @@ void jshSPIWait(IOEventFlags device) {
   int channelPnt = getSPIChannelPnt(device);
   if(!spi_Sending)return;
   esp_err_t ret;
-  ret=spi_device_get_trans_result(SPIChannels[channelPnt].spi, &spi_trans, portMAX_DELAY);
+  
+  #if ESP_IDF_VERSION_MAJOR>=5
+  spi_transaction_t *ret_trans;
+  ret = spi_device_get_trans_result(
+        SPIChannels[channelPnt].spi,
+        &ret_trans,
+        portMAX_DELAY);
+  #else
+  ret = spi_device_get_trans_result(SPIChannels[channelPnt].spi, (spi_transaction_t **)&spi_trans, portMAX_DELAY);
+  #endif
+
+
   if (ret != ESP_OK) {
     jsExceptionHere(JSET_INTERNALERROR, "SPI Send Error %d", ret);
   }

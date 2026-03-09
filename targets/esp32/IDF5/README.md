@@ -1,52 +1,87 @@
 ESP32 IDF5 builds
 =================
 
-First install the 5.5.3 IDF and have it on your path: https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/get-started/index.html
+## Prepare your Espruino build environment
+
+### IDF
+Only [Step 1. Install Prerequisites](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/get-started/linux-macos-setup.html) is required.
+
+
+### Repo Espruino - for now
 
 ```
+git clone -b esp32_5 https://github.com/MaBecker/Espruino.git
+```
+
+now you have a folder named Espruino
+
+### Provisoning IDF 5.5.3 for ESP32 devices
+
+```
+cd Espruino
+source scripts/provision.sh ESP32_IDF5
+```
+I prefer 
+```
+cd esp-idf-5
+source esp-idf/export.sh
+cd ..
+```
+
+## Build Espruino for ESP32 with IDF5
+
+### Source IDF environment - if you start a new shell
+
+```
+cd Espruino
+source scripts/provision.sh ESP32_IDF5
+```
+
+### Call make
+
+```
+cd Espruino
 BOARD=ESP32_IDF5 RELEASE=1 make
 ```
 
-## STATUS 
+this create bin/build and copies required files from targets/esp32/IDF5 and saves firmaware in release specific folder like `espruino_2v28.2_esp32`
 
-Work in progress
+## Migration status - last update 09-March-2026
 
-- added IDF5 files and repo
+### Changes required because of newer GCC version
+
 - fixed make issues
 - working on ESP32 warning turned to error
 
-Next steps
+---
+### Get Espruino up and running in QEMU and allow debugging
 
-- update to IDF5 api
-
-updated 03-01-2026
-
-
-## How it works
-
-To enable, in `BOARD.py` set `family` to `ESP32_IDF5`. 
-
-* `make/family/ESP32_IDF5.make` is then called, and creates a `build` folder in `bin/build`
-* `make/targets/ESP32_IDF5.make` creates a CMakeFile and calls `idf.py` to do the build
-
-## Setup
-
-So far we need:
+- reduce libraries
+- used #ifdef to exclude NET and BLUETOOTH
+- new rtosutil_idf5 using 5.5.3 GPTimer version - for now 
+- include QEMU_BUILD to make command and source code
+- reduce variables
 
 ```
-idf.py set-target esp32
-
-idf.py menuconfig
-# then
-# Component - > FreeRTOS -> Kernel -> FREERTOS_ENABLE_BACKWARD_COMPATIBILITY must be enabled
+BOARD=ESP32_IDF5 QEMU_BUILD=1 RELEASE=1 make
 ```
+
 ---
 
-# Some AI generated content about headers and their components
+### Next steps
 
-## Core System Components
+- include devices by using legacy driver - for now
+- migrate WIFI
+- migrate BLE
+- chack make for other ESP devices like  ESP32, ESP32_IDF4 ......
 
-### 🔹 `esp_system`
+---
+
+## Some AI generated content about headers and their components
+
+### Core System Components
+
+#### `esp_system`
 
 **Headers**
 
@@ -67,7 +102,7 @@ esp_cpu.h
 
 ---
 
-## 🔹 `esp_hw_support`
+### `esp_hw_support`
 
 **Headers**
 
@@ -84,7 +119,7 @@ esp_chip_info.h
 
 ---
 
-## 🔹 `efuse`
+### `efuse`
 
 **Headers**
 
@@ -100,7 +135,7 @@ esp_efuse_table.h
 
 ---
 
-## 🔹 `freertos`
+### `freertos`
 
 **Headers**
 
@@ -121,7 +156,7 @@ freertos/event_groups.h
 
 ---
 
-## 🔹 `esp_timer`
+### `esp_timer`
 
 **Headers**
 
@@ -136,9 +171,9 @@ esp_timer.h
 
 ---
 
-# Driver Layer
+## Driver Layer
 
-## 🔹 `driver`
+### `driver`
 
 **Headers**
 
@@ -165,9 +200,9 @@ driver/timer.h
 
 ---
 
-# Networking
+## Networking
 
-## 🔹 `esp_event`
+### `esp_event`
 
 **Headers**
 
@@ -182,7 +217,7 @@ esp_event.h
 
 ---
 
-## 🔹 `esp_netif`
+### `esp_netif`
 
 **Headers**
 
@@ -197,7 +232,7 @@ esp_netif.h
 
 ---
 
-## 🔹 `esp_wifi`
+### `esp_wifi`
 
 **Headers**
 
@@ -216,7 +251,7 @@ esp_wifi_default.h
 
 ---
 
-## 🔹 `lwip`
+### `lwip`
 
 **Headers**
 
@@ -236,7 +271,7 @@ lwip/apps/sntp.h
 
 ---
 
-## 🔹 `mdns` (External in IDF 5)
+### `mdns` (External in IDF 5)
 
 **Headers**
 
@@ -253,9 +288,9 @@ mdns.h
 
 ---
 
-# Bluetooth
+## Bluetooth
 
-## 🔹 `bt`
+### `bt`
 
 **Headers**
 
@@ -272,7 +307,7 @@ esp_bt_defs.h
 
 ---
 
-## 🔹 `esp_bt`
+### `esp_bt`
 
 **Headers**
 
@@ -291,9 +326,9 @@ esp_spp_api.h
 
 ---
 
-# Storage / OTA
+## Storage / OTA
 
-## 🔹 `nvs_flash`
+### `nvs_flash`
 
 **Headers**
 
@@ -310,7 +345,7 @@ nvs.h
 
 ---
 
-## 🔹 `app_update`
+### `app_update`
 
 **Headers**
 
@@ -326,9 +361,9 @@ esp_partition.h
 
 ---
 
-# Flash / Partitions
+## Flash / Partitions
 
-## 🔹 `esp_partition` (usually pulled automatically)
+### `esp_partition` (usually pulled automatically)
 
 **Headers**
 
@@ -341,14 +376,13 @@ esp_partition.h
 * Partition read/write
 * Partition lookup
 
-
 ---
 
 Below is the correct **IDF 5 breakdown of what used to live in `driver`**.
 
-# ESP-IDF 5 Driver Component Breakdown
+## ESP-IDF 5 Driver Component Breakdown
 
-## 🔹 GPIO
+### GPIO
 
 **Component**
 
@@ -364,7 +398,7 @@ driver/gpio.h
 
 ---
 
-## 🔹 UART
+### UART
 
 **Component**
 
@@ -380,7 +414,7 @@ driver/uart.h
 
 ---
 
-## 🔹 SPI (Master/Slave)
+### SPI (Master/Slave)
 
 **Component**
 
@@ -397,7 +431,7 @@ driver/spi_slave.h
 
 ---
 
-## 🔹 I2C
+### I2C
 
 **Component**
 
@@ -413,7 +447,7 @@ driver/i2c.h
 
 ---
 
-## 🔹 ADC
+### ADC
 
 **Component**
 
@@ -433,7 +467,7 @@ ADC was significantly refactored in IDF 5.
 
 ---
 
-## 🔹 LEDC (PWM)
+### LEDC (PWM)
 
 **Component**
 
@@ -449,7 +483,7 @@ driver/ledc.h
 
 ---
 
-## 🔹 RMT (Neopixel!)
+### RMT (Neopixel!)
 
 **Component**
 
@@ -467,7 +501,7 @@ RMT was heavily redesigned in IDF 5.
 
 ---
 
-## 🔹 Timer
+### Timer
 
 **Component**
 
@@ -483,7 +517,7 @@ driver/timer.h
 
 ---
 
-## 🔹 PCNT (Pulse Counter)
+### PCNT (Pulse Counter)
 
 **Component**
 
@@ -499,7 +533,7 @@ driver/pulse_cnt.h
 
 ---
 
-## 🔹 MCPWM
+### MCPWM
 
 **Component**
 
@@ -515,7 +549,7 @@ driver/mcpwm.h
 
 ---
 
-# Important
+## Important
 
 In **IDF 5**, the old `driver` component still exists for backward compatibility in some configurations, but:
 
@@ -527,7 +561,7 @@ You should depend on specific subcomponents instead.
 
 ---
 
-# For Espruino ESP32
+## For Espruino ESP32
 
 Based on typical Espruino usage, you likely need:
 
@@ -543,7 +577,7 @@ esp_adc
 ```
 ---
 
-# If You See These Errors
+## If You See These Errors
 
 | Error         | Missing Component |
 | ------------- | ----------------- |

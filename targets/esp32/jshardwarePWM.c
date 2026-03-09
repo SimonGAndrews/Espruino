@@ -25,6 +25,9 @@
 #define PWMPinEmpty 111
 #define PWMTimerDefault 3
 
+struct PWMChannel PWMChannels[PWMMax];
+struct PWMFreqChannel PWMFreqChannels[PWMFreqMax];
+
 int getTimerIndex(Pin pin,int freq){
   int i;
   for(i = 0; i < PWMFreqMax; i++){

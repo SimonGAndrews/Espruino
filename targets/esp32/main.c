@@ -9,7 +9,11 @@
 
 #include <jsdevices.h>
 #include <jsinteractive.h>
+#if ESP_IDF_VERSION_MAJOR>=5
+  #include "rtosutil_idf5.h"
+#else
 #include "rtosutil.h"
+#endif
 #include "jstimer.h"
 #include "jshardwareUart.h"
 #include "jshardwareAnalog.h"
@@ -17,9 +21,12 @@
 #include "jshardwarePulse.h"
 #include "jshardwareSpi.h"
 #include "jshardwareESP32.h"
+#ifdef NET 
 #include "jswrap_wifi.h" // jswrap_wifi_restore
+#endif
 #include "jswrapper.h"
 
+uintptr_t espruino_stackHighPtr = 0;
 
 #ifdef BLUETOOTH
 #include "libs/bluetooth/bluetooth.h"
@@ -44,8 +51,6 @@
   #pragma message ("Using UART console")
 #endif
 
-extern void *espruino_stackHighPtr;  //Name spaced because this has to be a global variable.
-                                     //Used in jsuGetFreeStack().
 #ifdef ESPR_USE_USB_SERIAL_JTAG
 #include "hal/usb_serial_jtag_ll.h"
 volatile bool usbUARTIsNotFlushed;
@@ -77,15 +82,16 @@ static void uartTask(void *data) {
 
 static void espruinoTask(void *data) {
   int heapVars;
-
-  espruino_stackHighPtr = &heapVars;  //Ignore the name, 'heapVars' is on the stack!
+  espruino_stackHighPtr = (uintptr_t)&heapVars; //Ignore the name, 'heapVars' is on the stack!
                         //I didn't use another variable becaue this function never ends so
                         //all variables declared here consume stack space that is never freed.
-
+  #if ESP_IDF_VERSION_MAJOR>=5
+  #else
   PWMInit();
   RMTInit();
-  SPIChannelsInit();
   initADC(1);
+  #endif
+  SPIChannelsInit();
   jshInit();     // Initialize the hardware
   jswHWInit();
 
@@ -107,7 +113,9 @@ static void espruinoTask(void *data) {
   // not sure why this delay is needed?
   vTaskDelay(200 / portTICK_PERIOD_MS);
   jsiInit(true); // Initialize the interactive subsystem
+#ifdef NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_wifi_restore();
+#endif
 #ifdef BLUETOOTH
   bluetooth_initDeviceName();
 #endif

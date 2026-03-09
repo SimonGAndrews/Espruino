@@ -19,8 +19,10 @@
 
 #define RMTChannelMax 8 //maximum RMT channel
 
-struct RMTChannel{Pin pin;}; //will be extended once we know more about RMT functions for Espruino on ESP32
-struct RMTChannel RMTChannels[RMTChannelMax];
+typedef struct {  //will be extended once we know more about RMT functions for Espruino on ESP32
+  Pin pin;
+} RMTChannel;
+extern RMTChannel RMTChannels[RMTChannelMax];
 
 void RMTInit();
 void RMTReset();
