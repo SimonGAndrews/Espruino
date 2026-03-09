@@ -28,6 +28,18 @@ source esp-idf/export.sh
 cd ..
 ```
 
+### Install QEMU emulator
+
+Execute the [prerequisites](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/api-guides/tools/qemu.html#prerequisites) for your build systen.
+
+add qemu for xtensa and riscv32
+```
+python $IDF_PATH/tools/idf_tools.py install qemu-xtensa qemu-riscv32
+cd esp-idf-5
+source esp-idf/export.sh
+cd ..
+```
+
 ## Build Espruino for ESP32 with IDF5
 
 ### Source IDF environment - if you start a new shell

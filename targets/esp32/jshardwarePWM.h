@@ -19,6 +19,7 @@
 
 #define PWMMax 5     //maximum PWM channel for Analog output (freq = 50000)
 #define PWMFreqMax 3 //maximum PWM channel with free frequency
+#define PWMTimerBit 10 //10 bit for value
 #define PWMTimerRange 1024
 
 struct PWMChannel { Pin pin; }; //will be extended once we know more about PWM for Espruino on ESP32
