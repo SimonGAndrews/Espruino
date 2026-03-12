@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -8,15 +9,20 @@
 #include "jsinteractive.h"
 
 #include "pico/bootrom.h"
-#include "pico/stdio.h"
-#include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "pico/unique_id.h"
 
+#include "bsp/board_api.h"
+
 #include "hardware/gpio.h"
 #include "hardware/sync.h"
+#include "hardware/uart.h"
 #include "hardware/watchdog.h"
+
+#ifdef USB
+#include "tusb.h"
+#endif
 
 #define RP2040_FLASH_PAGE_SIZE 4096u
 #define RP2040_XIP_BASE 0x10000000u
@@ -24,6 +30,10 @@
 static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
 static int64_t rpSystemTimeOffsetUs = 0;
+static bool rpDebugLedEnabled = false;
+static bool rpDebugLedState = false;
+static bool rpUsbInitSeen = false;
+static bool rpDebugUartInitialised = false;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
@@ -88,13 +98,81 @@ static uint32_t rpFlashOffset(uint32_t addr) {
   return addr - FLASH_START;
 }
 
+static void rpDebugLedWrite(bool on) {
+#ifdef PICO_DEFAULT_LED_PIN
+  if (!rpDebugLedEnabled) return;
+  gpio_put(PICO_DEFAULT_LED_PIN, on ? 1 : 0);
+  rpDebugLedState = on;
+#else
+  NOT_USED(on);
+#endif
+}
+
+static void rpDebugLedToggle(void) {
+  rpDebugLedWrite(!rpDebugLedState);
+}
+
+static void rpDebugUartWrite(const char *msg) {
+  if (!rpDebugUartInitialised || !msg) return;
+  uart_puts(uart0, msg);
+}
+
+void rp2040DebugStage(int stage) {
+#ifdef PICO_DEFAULT_LED_PIN
+  if (!rpDebugLedEnabled) return;
+  if (stage < 1) stage = 1;
+  if (stage > 6) stage = 6;
+  char msg[32];
+  snprintf(msg, sizeof(msg), "RP2040 stage %d\r\n", stage);
+  rpDebugUartWrite(msg);
+  for (int i = 0; i < stage; i++) {
+    rpDebugLedWrite(true);
+    sleep_ms(120);
+    rpDebugLedWrite(false);
+    sleep_ms(120);
+  }
+  sleep_ms(250);
+#else
+  NOT_USED(stage);
+#endif
+}
+
+void rp2040UsbInitNow(void) {
+#ifdef USB
+  if (!rpUsbInitialised) {
+    rpDebugUartWrite("RP2040 USB init now\r\n");
+    tusb_init();
+    tud_connect();
+    rpUsbInitialised = true;
+    rpUsbInitSeen = true;
+    rpDebugLedWrite(true);
+  }
+#endif
+}
+
 void jshInit() {
-  stdio_init_all();
+#ifdef USB
+  board_init();
+  rpUsbInitialised = false;
+#endif
+  uart_init(uart0, 115200);
+  gpio_set_function(0, GPIO_FUNC_UART);
+  gpio_set_function(1, GPIO_FUNC_UART);
+  uart_set_hw_flow(uart0, false, false);
+  uart_set_format(uart0, 8, 1, UART_PARITY_NONE);
+  rpDebugUartInitialised = true;
+  rpDebugUartWrite("RP2040 jshInit\r\n");
+#ifdef PICO_DEFAULT_LED_PIN
+  gpio_init(PICO_DEFAULT_LED_PIN);
+  gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+  rpDebugLedEnabled = true;
+#endif
+  rpDebugLedWrite(false);
+  rpUsbInitSeen = false;
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
   for (int i = 0; i < ESPR_EXTI_COUNT; i++) rpWatchPins[i] = PIN_UNDEFINED;
   rpSystemTimeOffsetUs = 0;
   rpFirstIdle = true;
-  rpUsbInitialised = true;
   jshInitDevices();
 }
 
@@ -106,15 +184,16 @@ void jshReset() {
 
 void jshIdle() {
 #ifdef USB
-  char rxbuf[64];
-  size_t len = 0;
-  while (len < sizeof(rxbuf)) {
-    int ch = getchar_timeout_us(0);
-    if (ch == PICO_ERROR_TIMEOUT) break;
-    rxbuf[len++] = (char)ch;
-  }
-  if (len) {
-    jshPushIOCharEvents(EV_USBSERIAL, rxbuf, len);
+  tud_task();
+  rpDebugLedWrite(tud_mounted() || rpUsbInitSeen);
+  if (tud_cdc_available()) {
+    char rxbuf[64];
+    while (tud_cdc_available()) {
+      uint32_t len = tud_cdc_read(rxbuf, sizeof(rxbuf));
+      if (!len) break;
+      rpDebugLedToggle();
+      jshPushIOCharEvents(EV_USBSERIAL, rxbuf, len);
+    }
   }
 #endif
   if (rpFirstIdle) {
@@ -150,7 +229,8 @@ int jshGetSerialNumber(unsigned char *data, int maxChars) {
 
 bool jshIsUSBSERIALConnected() {
 #ifdef USB
-  return stdio_usb_connected();
+  tud_task();
+  return tud_mounted();
 #else
   return false;
 #endif
@@ -292,13 +372,17 @@ void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
 void jshUSARTKick(IOEventFlags device) {
 #ifdef USB
   if (device == EV_USBSERIAL) {
-    if (!stdio_usb_connected()) return;
-    while (true) {
+    tud_task();
+    if (!tud_ready()) return;
+    bool transmitted = false;
+    while (tud_cdc_write_available()) {
       int c = jshGetCharToTransmit(EV_USBSERIAL);
       if (c < 0) break;
-      putchar_raw(c);
+      tud_cdc_write_char((char)c);
+      transmitted = true;
     }
-    stdio_flush();
+    tud_cdc_write_flush();
+    if (transmitted) rpDebugLedToggle();
   }
 #else
   NOT_USED(device);
