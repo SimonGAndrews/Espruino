@@ -8,6 +8,8 @@
 #include "jsinteractive.h"
 
 #include "pico/bootrom.h"
+#include "pico/stdio.h"
+#include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "pico/unique_id.h"
@@ -15,10 +17,6 @@
 #include "hardware/gpio.h"
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
-
-#ifdef USB
-#include "tusb.h"
-#endif
 
 #define RP2040_FLASH_PAGE_SIZE 4096u
 #define RP2040_XIP_BASE 0x10000000u
@@ -108,14 +106,15 @@ void jshReset() {
 
 void jshIdle() {
 #ifdef USB
-  tud_task();
-  if (tud_cdc_connected()) {
-    char rxbuf[64];
-    while (tud_cdc_available()) {
-      uint32_t len = tud_cdc_read(rxbuf, sizeof(rxbuf));
-      if (!len) break;
-      jshPushIOCharEvents(EV_USBSERIAL, rxbuf, len);
-    }
+  char rxbuf[64];
+  size_t len = 0;
+  while (len < sizeof(rxbuf)) {
+    int ch = getchar_timeout_us(0);
+    if (ch == PICO_ERROR_TIMEOUT) break;
+    rxbuf[len++] = (char)ch;
+  }
+  if (len) {
+    jshPushIOCharEvents(EV_USBSERIAL, rxbuf, len);
   }
 #endif
   if (rpFirstIdle) {
@@ -151,8 +150,7 @@ int jshGetSerialNumber(unsigned char *data, int maxChars) {
 
 bool jshIsUSBSERIALConnected() {
 #ifdef USB
-  tud_task();
-  return tud_cdc_connected();
+  return stdio_usb_connected();
 #else
   return false;
 #endif
@@ -294,14 +292,13 @@ void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
 void jshUSARTKick(IOEventFlags device) {
 #ifdef USB
   if (device == EV_USBSERIAL) {
-    tud_task();
-    if (!tud_cdc_connected()) return;
-    while (tud_cdc_write_available()) {
+    if (!stdio_usb_connected()) return;
+    while (true) {
       int c = jshGetCharToTransmit(EV_USBSERIAL);
       if (c < 0) break;
-      tud_cdc_write_char((char)c);
+      putchar_raw(c);
     }
-    tud_cdc_write_flush();
+    stdio_flush();
   }
 #else
   NOT_USED(device);

@@ -973,7 +973,7 @@ void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
 void jsiInit(bool autoLoad) {
   jsiStatus = JSIS_COMPLETELY_RESET | JSIS_FIRST_BOOT;
 
-#if defined(LINUX) || !defined(USB)
+#if defined(LINUX) || !defined(USB) || defined(RP2040)
   consoleDevice = jsiGetPreferredConsoleDevice();
 #else
   consoleDevice = EV_LIMBO;
@@ -3035,5 +3035,4 @@ void jsiDebuggerLine(JsVar *line) {
   jslSetLex(oldLex);
 }
 #endif // USE_DEBUGGER
-
 
