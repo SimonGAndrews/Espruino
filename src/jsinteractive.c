@@ -28,6 +28,9 @@
 #include "jswrap_timer.h" // jstOnRunInterruptJSEvent
 #include "jsnative.h" // jsnSanityTest
 #include "jswrap_storage.h" // for Packet Transfer IO
+#ifdef RP2040
+void rp2040DebugStage(int stage);
+#endif
 #ifdef USE_FILESYSTEM
 #include "jswrap_file.h" // for Packet Transfer IO
 #endif
@@ -842,8 +845,14 @@ void jsiSoftKill() {
  * loadedFilename is set if we're loading a file, and we can use that for setting the __FILE__ variable
  */
 void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
+#ifdef RP2040
+  rp2040DebugStage(1);
+#endif
   // Set up execInfo.root/etc
   jspInit();
+#ifdef RP2040
+  rp2040DebugStage(2);
+#endif
   // Set defaults
   jsiStatus &= JSIS_SOFTINIT_MASK;
 #ifndef SAVE_ON_FLASH
@@ -882,6 +891,9 @@ void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
 
   /* If flash contains any code, then we should
      Try and load from it... */
+#ifdef RP2040
+  rp2040DebugStage(3);
+#endif
   bool loadFlash = autoLoad && jsfFlashContainsCode();
   if (loadFlash) {
     jsiStatus &= ~JSIS_COMPLETELY_RESET; // loading code, remove this flag
@@ -901,6 +913,9 @@ void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
 #endif
 
   // Softinit may run initialisation code that will overwrite defaults
+#ifdef RP2040
+  rp2040DebugStage(4);
+#endif
   jsiSoftInit(!autoLoad);
 
 #ifdef ESP8266
@@ -910,6 +925,9 @@ void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
   jshSoftInit();
 #endif
 
+#ifdef RP2040
+  rp2040DebugStage(5);
+#endif
   if (jsiEcho()) { // intentionally not using jsiShowInputLine()
     if (!loadFlash) {
 #ifdef USE_TERMINAL
@@ -967,24 +985,39 @@ void jsiSemiInit(bool autoLoad, JsfFileName *loadedFilename) {
   if (recoveryMode) // start recovery menu at end of init
     jsvUnLock(jspEvaluate("setTimeout(Bangle.showRecoveryMenu,100)",true));
 #endif
+#ifdef RP2040
+  rp2040DebugStage(6);
+#endif
 }
 
 // The 'proper' init function - this should be called only once at bootup
 void jsiInit(bool autoLoad) {
+#ifdef RP2040
+  rp2040DebugStage(1);
+#endif
   jsiStatus = JSIS_COMPLETELY_RESET | JSIS_FIRST_BOOT;
 
-#if defined(LINUX) || !defined(USB) || defined(RP2040)
+#if defined(LINUX) || !defined(USB)
   consoleDevice = jsiGetPreferredConsoleDevice();
 #else
   consoleDevice = EV_LIMBO;
 #endif
 
-#ifndef RELEASE
+#ifdef RP2040
+  rp2040DebugStage(2);
+#endif
+#if !defined(RELEASE) && !defined(RP2040)
   jsnSanityTest();
 #endif
 
+#ifdef RP2040
+  rp2040DebugStage(3);
+#endif
   jsiSemiInit(autoLoad, NULL/* no filename */);
   // just in case, update the busy indicator
+#ifdef RP2040
+  rp2040DebugStage(6);
+#endif
   jsiSetBusy(BUSY_INTERACTIVE, false);
 }
 
@@ -3035,4 +3068,3 @@ void jsiDebuggerLine(JsVar *line) {
   jslSetLex(oldLex);
 }
 #endif // USE_DEBUGGER
-
