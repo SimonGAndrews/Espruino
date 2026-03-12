@@ -24,6 +24,9 @@
 #ifndef ESPR_NO_REGEX
 #include "jswrap_regexp.h" // for jswrap_regexp_constructor
 #endif
+#ifdef RP2040
+void rp2040DebugStage(int stage);
+#endif
 #ifdef ESPR_JIT
 #include "jsjit.h"
 #endif
@@ -3186,9 +3189,18 @@ JsVar *jspGetConstructor(JsVar *object) {
 // -----------------------------------------------------------------------------
 
 void jspSoftInit() {
+#ifdef RP2040
+  rp2040DebugStage(1);
+#endif
   execInfo.root = jsvFindOrCreateRoot();
+#ifdef RP2040
+  rp2040DebugStage(2);
+#endif
   // Root now has a lock and a ref
   execInfo.hiddenRoot = jsvObjectGetChild(execInfo.root, JS_HIDDEN_CHAR_STR, JSV_OBJECT);
+#ifdef RP2040
+  rp2040DebugStage(3);
+#endif
   execInfo.execute = EXEC_YES;
   execInfo.scopesVar = 0;
 #ifndef ESPR_NO_LET_SCOPING
