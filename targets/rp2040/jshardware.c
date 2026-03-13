@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,13 +28,16 @@
 #define RP2040_FLASH_PAGE_SIZE 4096u
 #define RP2040_XIP_BASE 0x10000000u
 
+#if !defined(RELEASE) && defined(RP2040_DEBUG_EARLY_BOOT)
+#define RP2040_EARLY_LOG_ENABLED 1
+#else
+#define RP2040_EARLY_LOG_ENABLED 0
+#endif
+
 static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
 static int64_t rpSystemTimeOffsetUs = 0;
-static bool rpDebugLedEnabled = false;
-static bool rpDebugLedState = false;
-static bool rpUsbInitSeen = false;
-static bool rpDebugUartInitialised = false;
+static bool rpEarlyLogInitialised = false;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
@@ -98,54 +102,48 @@ static uint32_t rpFlashOffset(uint32_t addr) {
   return addr - FLASH_START;
 }
 
-static void rpDebugLedWrite(bool on) {
-#ifdef PICO_DEFAULT_LED_PIN
-  if (!rpDebugLedEnabled) return;
-  gpio_put(PICO_DEFAULT_LED_PIN, on ? 1 : 0);
-  rpDebugLedState = on;
-#else
-  NOT_USED(on);
+static void rpEarlyLogInit(void) {
+#if RP2040_EARLY_LOG_ENABLED
+  if (rpEarlyLogInitialised) return;
+  uart_init(uart0, 115200);
+  gpio_set_function(0, GPIO_FUNC_UART);
+  gpio_set_function(1, GPIO_FUNC_UART);
+  uart_set_hw_flow(uart0, false, false);
+  uart_set_format(uart0, 8, 1, UART_PARITY_NONE);
+  rpEarlyLogInitialised = true;
 #endif
 }
 
-static void rpDebugLedToggle(void) {
-  rpDebugLedWrite(!rpDebugLedState);
-}
-
-static void rpDebugUartWrite(const char *msg) {
-  if (!rpDebugUartInitialised || !msg) return;
+void rp2040EarlyLog(const char *msg) {
+#if RP2040_EARLY_LOG_ENABLED
+  if (!rpEarlyLogInitialised || !msg) return;
   uart_puts(uart0, msg);
+#else
+  NOT_USED(msg);
+#endif
 }
 
-void rp2040DebugStage(int stage) {
-#ifdef PICO_DEFAULT_LED_PIN
-  if (!rpDebugLedEnabled) return;
-  if (stage < 1) stage = 1;
-  if (stage > 6) stage = 6;
-  char msg[32];
-  snprintf(msg, sizeof(msg), "RP2040 stage %d\r\n", stage);
-  rpDebugUartWrite(msg);
-  for (int i = 0; i < stage; i++) {
-    rpDebugLedWrite(true);
-    sleep_ms(120);
-    rpDebugLedWrite(false);
-    sleep_ms(120);
-  }
-  sleep_ms(250);
+void rp2040EarlyLogf(const char *fmt, ...) {
+#if RP2040_EARLY_LOG_ENABLED
+  if (!rpEarlyLogInitialised || !fmt) return;
+  char msg[96];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, ap);
+  va_end(ap);
+  rp2040EarlyLog(msg);
 #else
-  NOT_USED(stage);
+  NOT_USED(fmt);
 #endif
 }
 
 void rp2040UsbInitNow(void) {
 #ifdef USB
   if (!rpUsbInitialised) {
-    rpDebugUartWrite("RP2040 USB init now\r\n");
+    rp2040EarlyLog("RP2040 usb: init start\r\n");
     tusb_init();
     tud_connect();
     rpUsbInitialised = true;
-    rpUsbInitSeen = true;
-    rpDebugLedWrite(true);
   }
 #endif
 }
@@ -155,20 +153,8 @@ void jshInit() {
   board_init();
   rpUsbInitialised = false;
 #endif
-  uart_init(uart0, 115200);
-  gpio_set_function(0, GPIO_FUNC_UART);
-  gpio_set_function(1, GPIO_FUNC_UART);
-  uart_set_hw_flow(uart0, false, false);
-  uart_set_format(uart0, 8, 1, UART_PARITY_NONE);
-  rpDebugUartInitialised = true;
-  rpDebugUartWrite("RP2040 jshInit\r\n");
-#ifdef PICO_DEFAULT_LED_PIN
-  gpio_init(PICO_DEFAULT_LED_PIN);
-  gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-  rpDebugLedEnabled = true;
-#endif
-  rpDebugLedWrite(false);
-  rpUsbInitSeen = false;
+  rpEarlyLogInit();
+  rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
   for (int i = 0; i < ESPR_EXTI_COUNT; i++) rpWatchPins[i] = PIN_UNDEFINED;
   rpSystemTimeOffsetUs = 0;
@@ -185,13 +171,11 @@ void jshReset() {
 void jshIdle() {
 #ifdef USB
   tud_task();
-  rpDebugLedWrite(tud_mounted() || rpUsbInitSeen);
   if (tud_cdc_available()) {
     char rxbuf[64];
     while (tud_cdc_available()) {
       uint32_t len = tud_cdc_read(rxbuf, sizeof(rxbuf));
       if (!len) break;
-      rpDebugLedToggle();
       jshPushIOCharEvents(EV_USBSERIAL, rxbuf, len);
     }
   }
@@ -382,7 +366,7 @@ void jshUSARTKick(IOEventFlags device) {
       transmitted = true;
     }
     tud_cdc_write_flush();
-    if (transmitted) rpDebugLedToggle();
+    NOT_USED(transmitted);
   }
 #else
   NOT_USED(device);
