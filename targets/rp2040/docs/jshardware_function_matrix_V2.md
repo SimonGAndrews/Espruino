@@ -127,15 +127,15 @@ Generated from `src/jshardware.h`.
 | `jshPinAnalog` | 15 | yes | yes | yes | stubbed | M2 | `analogRead` | No | not wired yet |
 | `jshPinAnalogFast` | 9 | yes | yes | yes | stubbed | M2 | `?analogRead` | No | not wired yet |
 | `jshPinAnalogOutput` | 13 | yes | yes | yes | stubbed | M2 | `analogWrite` | No | not wired yet |
-| `jshCanWatch` | 9 | yes | yes | yes | implemented | M1 | `setWatch` | No | bookkeeping only |
-| `jshPinWatch` | 15 | yes | yes | yes | implemented | M1 | `setWatch` | No | bookkeeping only |
+| `jshCanWatch` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | RP2040 GPIO IRQ path; currently permissive, no RP2040-specific conflict filtering yet |
+| `jshPinWatch` | 15 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot map + GPIO edge IRQ enable; `JshPinWatchFlags` not yet differentiated on RP2040; normal watch use proven, burst-edge stress still TBD |
 | `jshGetCurrentPinFunction` | 9 | yes | yes | yes | stubbed | M2 | `?analogWrite / SPI.setup` | No | always JSH_NOTHING |
 | `jshSetOutputValue` | 9 | yes | yes | yes | stubbed | M2 | `?analogWrite` | No | no output backend |
 | `jshEnableWatchDog` | 10 | yes | yes | yes | partial | TBD | `E.enableWatchdog` | No | no-op placeholder |
 | `jshKickWatchDog` | 16 | yes | yes | yes | partial | TBD | `E.kickWatchdog` | No | no-op placeholder |
 | `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
-| `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M1 | `setWatch` | No | bookkeeping only |
-| `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M1 | `setWatch` | No | bookkeeping only |
+| `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
+| `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
 | `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | No | USB only |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
 | `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | No | USB path only |
