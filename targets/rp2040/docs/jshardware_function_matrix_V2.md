@@ -41,6 +41,7 @@ Already implemented or partly implemented for that stage:
 - basic GPIO value/state handling
 - first-pass ADC read on RP2040 ADC-capable pins
 - first-pass PWM / analog output on RP2040 GPIO pins
+- first-pass hardware I2C master setup/read/write
 - watch slot bookkeeping and pin/event association helpers
 - basic flash page lookup, flash read, and memory-map address translation
 - simple watchdog, random number, and clock-reporting placeholders
@@ -51,7 +52,7 @@ Still stubbed, minimal, or not yet proven on hardware:
 - hardware validation of `jshPinAnalogFast`
 - full analog-output coverage beyond first-pass PWM on `D10`
 - SPI
-- I2C
+- wider I2C coverage beyond the first harness device
 - non-USB UART support
 - flash erase/write
 - `save()` and Espruino `Storage`
@@ -62,9 +63,9 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 ## Next Hardware Validation Targets
 
-- RP2040 I2C backend using the `MCP23008` harness device
 - RP2040 SPI backend proper, independent of any software SPI fallback
 - wider ADC/PWM coverage beyond the current `D10` / `D26` harness proof
+- wider I2C coverage using the `MCP23008` interrupt / feedback wiring
 - flash layout and write safety before persistence work
 
 ## How To Use The RP2040 Tracking Columns
@@ -139,7 +140,7 @@ Generated from `src/jshardware.h`.
 | `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
 | `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
 | `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
-| `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | No | USB only |
+| `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus RP2040 I2C device state |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
 | `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | No | USB path only |
 | `jshUSARTUnSetup` | 6 | yes | yes |  | partial | M1 | `?Serial.unsetup` | No | weak default |
@@ -152,10 +153,10 @@ Generated from `src/jshardware.h`.
 | `jshSPISetReceive` | 12 | yes | yes | yes | stubbed | M2 | `?SPI.send` | No | backend not wired |
 | `jshSPIWait` | 14 | yes | yes | yes | stubbed | M2 | `SPI.send` | No | backend not wired |
 | `jshI2CInitInfo` | 7 |  |  |  | implemented (common) | M2 | `I2C.setup` | No | common helper |
-| `jshI2CSetup` | 12 | yes | yes | yes | stubbed | M2 | `I2C.setup` | No | backend not wired |
+| `jshI2CSetup` | 12 | yes | yes | yes | implemented | M2 | `I2C.setup` | Yes | RP2040 hardware I2C master setup implemented and validated on `I2C1` with the `MCP23008` harness device |
 | `jshI2CUnSetup` | 4 | yes |  |  | partial | M2 | `?I2C.unsetup` | No | weak default |
-| `jshI2CWrite` | 12 | yes | yes | yes | stubbed | M2 | `I2C.writeTo` | No | backend not wired |
-| `jshI2CRead` | 12 | yes | yes | yes | stubbed | M2 | `I2C.readFrom` | No | fills zeros only |
+| `jshI2CWrite` | 12 | yes | yes | yes | implemented | M2 | `I2C.writeTo` | Yes | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` |
+| `jshI2CRead` | 12 | yes | yes | yes | implemented | M2 | `I2C.readFrom` | Yes | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` |
 | `jshFlashGetPage` | 11 | yes | yes | yes | implemented | M1 | `Flash.getPage` | No | 4 KiB page model |
 | `jshFlashGetFree` | 10 | yes | yes | yes | partial | M2 | `Flash.getFree` | No | placeholder empty array |
 | `jshFlashErasePage` | 13 | yes | yes | yes | stubbed | M2 | `Flash.erasePage` | No | no erase backend |
