@@ -17,6 +17,7 @@
 #include "bsp/board_api.h"
 
 #include "hardware/gpio.h"
+#include "hardware/irq.h"
 #include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
@@ -38,9 +39,11 @@ static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
+static bool rpWatchIrqHandlerInstalled = false;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
+static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
 
 static uint32_t rpIrqStateStack[8];
 static uint8_t rpIrqStateStackLen = 0;
@@ -58,6 +61,42 @@ static bool rpPinIsValid(Pin pin) {
 
 static uint rpPinToGpio(Pin pin) {
   return (uint)pinInfo[pin].pin;
+}
+
+static int rpWatchSlotForPin(Pin pin) {
+  for (int i = 0; i < ESPR_EXTI_COUNT; i++)
+    if (rpWatchPins[i] == pin) return i;
+  return -1;
+}
+
+static void rpWatchDisablePinIrq(Pin pin) {
+  if (!rpPinIsValid(pin)) return;
+  gpio_set_irq_enabled(rpPinToGpio(pin), GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, false);
+}
+
+static void rpWatchResetAll(void) {
+  uint32_t irqState = save_and_disable_interrupts();
+  for (int i = 0; i < ESPR_EXTI_COUNT; i++) {
+    Pin pin = rpWatchPins[i];
+    rpWatchPins[i] = PIN_UNDEFINED;
+    rpWatchLastState[i] = false;
+    if (rpPinIsValid(pin))
+      rpWatchDisablePinIrq(pin);
+  }
+  restore_interrupts(irqState);
+}
+
+static void CALLED_FROM_INTERRUPT rpWatchBank0Irq(void) {
+  for (int slot = 0; slot < ESPR_EXTI_COUNT; slot++) {
+    Pin pin = rpWatchPins[slot];
+    if (!rpPinIsValid(pin)) continue;
+    uint gpio = rpPinToGpio(pin);
+    uint32_t events = gpio_get_irq_event_mask(gpio) & (GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL);
+    if (!events) continue;
+    gpio_acknowledge_irq(gpio, events);
+    rpWatchLastState[slot] = jshPinGetValue(pin);
+    jshPushIOWatchEvent((IOEventFlags)(EV_EXTI0 + slot));
+  }
 }
 
 static void rpPinApplyState(Pin pin, JshPinState state) {
@@ -155,8 +194,16 @@ void jshInit() {
 #endif
   rpEarlyLogInit();
   rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
+  if (!rpWatchIrqHandlerInstalled) {
+    irq_add_shared_handler(IO_IRQ_BANK0, rpWatchBank0Irq, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+    irq_set_enabled(IO_IRQ_BANK0, true);
+    rpWatchIrqHandlerInstalled = true;
+  }
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
-  for (int i = 0; i < ESPR_EXTI_COUNT; i++) rpWatchPins[i] = PIN_UNDEFINED;
+  for (int i = 0; i < ESPR_EXTI_COUNT; i++) {
+    rpWatchPins[i] = PIN_UNDEFINED;
+    rpWatchLastState[i] = false;
+  }
   rpSystemTimeOffsetUs = 0;
   rpFirstIdle = true;
   jshInitDevices();
@@ -165,7 +212,7 @@ void jshInit() {
 void jshReset() {
   jshResetDevices();
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
-  for (int i = 0; i < ESPR_EXTI_COUNT; i++) rpWatchPins[i] = PIN_UNDEFINED;
+  rpWatchResetAll();
 }
 
 void jshIdle() {
@@ -300,27 +347,46 @@ JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, Js
 }
 
 bool jshCanWatch(Pin pin) {
+  // Current RP2040 policy is intentionally permissive. If later target-specific
+  // pin conflicts appear, this is the place to exclude them.
   return rpPinIsValid(pin);
 }
 
 IOEventFlags jshPinWatch(Pin pin, bool shouldWatch, JshPinWatchFlags flags) {
+  // RP2040 currently uses one IRQ-backed watch path for all watch modes.
+  // `flags` is reserved for later refinement if Espruino watch-speed/accuracy
+  // distinctions need target-specific handling here.
   NOT_USED(flags);
   if (!rpPinIsValid(pin)) return EV_NONE;
   if (shouldWatch) {
-    for (int i = 0; i < ESPR_EXTI_COUNT; i++) {
-      if (rpWatchPins[i] == PIN_UNDEFINED) {
-        rpWatchPins[i] = pin;
-        return (IOEventFlags)(EV_EXTI0 + i);
-      }
-      if (rpWatchPins[i] == pin) return (IOEventFlags)(EV_EXTI0 + i);
-    }
-  } else {
+    uint32_t irqState = save_and_disable_interrupts();
     for (int i = 0; i < ESPR_EXTI_COUNT; i++) {
       if (rpWatchPins[i] == pin) {
-        rpWatchPins[i] = PIN_UNDEFINED;
-        return EV_NONE;
+        rpWatchLastState[i] = jshPinGetValue(pin);
+        restore_interrupts(irqState);
+        return (IOEventFlags)(EV_EXTI0 + i);
+      }
+      if (rpWatchPins[i] == PIN_UNDEFINED) {
+        rpWatchPins[i] = pin;
+        rpWatchLastState[i] = jshPinGetValue(pin);
+        restore_interrupts(irqState);
+        uint gpio = rpPinToGpio(pin);
+        gpio_set_irq_enabled(gpio, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
+        return (IOEventFlags)(EV_EXTI0 + i);
       }
     }
+    restore_interrupts(irqState);
+  } else {
+    uint32_t irqState = save_and_disable_interrupts();
+    int slot = rpWatchSlotForPin(pin);
+    if (slot >= 0) {
+      rpWatchPins[slot] = PIN_UNDEFINED;
+      rpWatchLastState[slot] = false;
+      restore_interrupts(irqState);
+      rpWatchDisablePinIrq(pin);
+      return EV_NONE;
+    }
+    restore_interrupts(irqState);
   }
   return EV_NONE;
 }
@@ -328,9 +394,7 @@ IOEventFlags jshPinWatch(Pin pin, bool shouldWatch, JshPinWatchFlags flags) {
 bool jshGetWatchedPinState(IOEventFlags device) {
   int i = (int)IOEVENTFLAGS_GETTYPE(device) - (int)EV_EXTI0;
   if (i < 0 || i >= ESPR_EXTI_COUNT) return false;
-  Pin pin = rpWatchPins[i];
-  if (!rpPinIsValid(pin)) return false;
-  return jshPinGetValue(pin);
+  return rpWatchLastState[i];
 }
 
 bool jshIsEventForPin(IOEventFlags eventFlags, Pin pin) {
