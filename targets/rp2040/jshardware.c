@@ -8,6 +8,7 @@
 #include "jshardware.h"
 #include "jsdevices.h"
 #include "jsinteractive.h"
+#include "jstimer.h"
 
 #include "pico/bootrom.h"
 #include "pico/stdlib.h"
@@ -16,8 +17,11 @@
 
 #include "bsp/board_api.h"
 
+#include "hardware/adc.h"
+#include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
+#include "hardware/pwm.h"
 #include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
@@ -40,10 +44,12 @@ static bool rpUsbInitialised = false;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
+static bool rpAdcInitialised = false;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
+BITFIELD_DECL(jshPinSoftPWM, JSH_PIN_COUNT);
 
 static uint32_t rpIrqStateStack[8];
 static uint8_t rpIrqStateStackLen = 0;
@@ -61,6 +67,60 @@ static bool rpPinIsValid(Pin pin) {
 
 static uint rpPinToGpio(Pin pin) {
   return (uint)pinInfo[pin].pin;
+}
+
+static bool rpPinHasAdc(Pin pin) {
+  return rpPinIsValid(pin) && pinInfo[pin].analog != JSH_ANALOG_NONE;
+}
+
+static uint rpPinToAdcChannel(Pin pin) {
+  return (uint)(pinInfo[pin].analog & JSH_MASK_ANALOG_CH);
+}
+
+static void rpAdcEnsureInitialised(void) {
+  if (rpAdcInitialised) return;
+  adc_init();
+  rpAdcInitialised = true;
+}
+
+static uint32_t rpPwmGetSliceHz(uint32_t offset, uint32_t div16) {
+  uint32_t source_hz = clock_get_hz(clk_sys);
+  if (source_hz + offset / 16 > 268000000) {
+    return (16 * (uint64_t)source_hz + offset) / div16;
+  } else {
+    return (16 * source_hz + offset) / div16;
+  }
+}
+
+static uint32_t rpPwmGetSliceHzRound(uint32_t div16) {
+  return rpPwmGetSliceHz(div16 / 2, div16);
+}
+
+static uint32_t rpPwmGetSliceHzCeil(uint32_t div16) {
+  return rpPwmGetSliceHz(div16 - 1, div16);
+}
+
+static bool rpPwmConfigure(uint slice, JsVarFloat freq) {
+  const uint32_t top_max = 65534;
+  uint32_t source_hz = clock_get_hz(clk_sys);
+  if (!isfinite(freq) || freq <= 0) freq = 1000;
+  uint32_t target_hz = (uint32_t)freq;
+  if (target_hz < 1) target_hz = 1;
+
+  uint32_t div16;
+  uint32_t top;
+  if ((source_hz + target_hz / 2) / target_hz < top_max) {
+    div16 = 16;
+    top = (source_hz + target_hz / 2) / target_hz - 1;
+  } else {
+    div16 = rpPwmGetSliceHzCeil(top_max * target_hz);
+    top = rpPwmGetSliceHzRound(div16 * target_hz) - 1;
+  }
+
+  if (div16 < 16 || div16 >= 256 * 16) return false;
+  pwm_set_clkdiv_int_frac(slice, div16 / 16, div16 & 0xF);
+  pwm_set_wrap(slice, top);
+  return true;
 }
 
 static int rpWatchSlotForPin(Pin pin) {
@@ -124,6 +184,14 @@ static void rpPinApplyState(Pin pin, JshPinState state) {
     case JSHPINSTATE_GPIO_IN_PULLDOWN:
       gpio_set_dir(gpio, GPIO_IN);
       gpio_pull_down(gpio);
+      break;
+    case JSHPINSTATE_ADC_IN:
+      if (rpPinHasAdc(pin)) {
+        rpAdcEnsureInitialised();
+        adc_gpio_init(gpio);
+      } else {
+        gpio_set_dir(gpio, GPIO_IN);
+      }
       break;
     default:
       gpio_set_dir(gpio, GPIO_IN);
@@ -204,6 +272,7 @@ void jshInit() {
     rpWatchPins[i] = PIN_UNDEFINED;
     rpWatchLastState[i] = false;
   }
+  BITFIELD_CLEAR(jshPinSoftPWM);
   rpSystemTimeOffsetUs = 0;
   rpFirstIdle = true;
   jshInitDevices();
@@ -212,6 +281,7 @@ void jshInit() {
 void jshReset() {
   jshResetDevices();
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
+  BITFIELD_CLEAR(jshPinSoftPWM);
   rpWatchResetAll();
 }
 
@@ -319,6 +389,10 @@ bool jshPinGetValue(Pin pin) {
 
 void jshPinSetState(Pin pin, JshPinState state) {
   if (!rpPinIsValid(pin)) return;
+  if (BITFIELD_GET(jshPinSoftPWM, pin)) {
+    BITFIELD_SET(jshPinSoftPWM, pin, 0);
+    jstPinPWM(0, 0, pin);
+  }
   rpPinState[pin] = state;
   rpPinApplyState(pin, state);
 }
@@ -329,20 +403,70 @@ JshPinState jshPinGetState(Pin pin) {
 }
 
 JsVarFloat jshPinAnalog(Pin pin) {
-  NOT_USED(pin);
-  return 0;
+  if (!rpPinHasAdc(pin)) return NAN;
+  if (!jshGetPinStateIsManual(pin))
+    jshPinSetState(pin, JSHPINSTATE_ADC_IN);
+  rpAdcEnsureInitialised();
+  adc_select_input(rpPinToAdcChannel(pin));
+  uint16_t raw = adc_read();
+  JsVarFloat value = (JsVarFloat)raw / 4096.0;
+  if (pinInfo[pin].port & JSH_PIN_NEGATED) value = 1.0 - value;
+  return value;
 }
 
 int jshPinAnalogFast(Pin pin) {
-  NOT_USED(pin);
-  return 0;
+  if (!rpPinHasAdc(pin)) return 0;
+  if (!jshGetPinStateIsManual(pin))
+    jshPinSetState(pin, JSHPINSTATE_ADC_IN);
+  rpAdcEnsureInitialised();
+  adc_select_input(rpPinToAdcChannel(pin));
+  int value = adc_read() << 4;
+  if (pinInfo[pin].port & JSH_PIN_NEGATED) value = 65535 - value;
+  return value;
 }
 
 JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, JshAnalogOutputFlags flags) {
-  NOT_USED(pin);
-  NOT_USED(value);
-  NOT_USED(freq);
-  NOT_USED(flags);
+  if (!rpPinIsValid(pin)) return JSH_NOTHING;
+  if (value < 0) value = 0;
+  if (value > 1) value = 1;
+  if (pinInfo[pin].port & JSH_PIN_NEGATED) value = 1.0 - value;
+
+  if (flags & JSAOF_FORCE_SOFTWARE) {
+    if (!jshGetPinStateIsManual(pin)) {
+      BITFIELD_SET(jshPinSoftPWM, pin, 0);
+      jshPinSetState(pin, JSHPINSTATE_GPIO_OUT);
+    }
+    BITFIELD_SET(jshPinSoftPWM, pin, 1);
+    if (freq <= 0 || !isfinite(freq)) freq = 50;
+    jstPinPWM(freq, value, pin);
+    return JSH_NOTHING;
+  }
+
+  uint gpio = rpPinToGpio(pin);
+  uint slice = pwm_gpio_to_slice_num(gpio);
+  uint channel = pwm_gpio_to_channel(gpio);
+  if (!rpPwmConfigure(slice, freq)) {
+    if (flags & JSAOF_ALLOW_SOFTWARE) {
+      if (!jshGetPinStateIsManual(pin)) {
+        BITFIELD_SET(jshPinSoftPWM, pin, 0);
+        jshPinSetState(pin, JSHPINSTATE_GPIO_OUT);
+      }
+      BITFIELD_SET(jshPinSoftPWM, pin, 1);
+      if (freq <= 0 || !isfinite(freq)) freq = 50;
+      jstPinPWM(freq, value, pin);
+      return JSH_NOTHING;
+    }
+    return JSH_NOTHING;
+  }
+
+  if (!jshGetPinStateIsManual(pin))
+    jshPinSetState(pin, JSHPINSTATE_AF_OUT);
+  gpio_set_function(gpio, GPIO_FUNC_PWM);
+  uint32_t top = pwm_hw->slice[slice].top;
+  uint32_t cc = (uint32_t)((value * (JsVarFloat)(top + 1)) + 0.5);
+  if (cc > top + 1) cc = top + 1;
+  pwm_set_chan_level(slice, channel, cc);
+  pwm_set_enabled(slice, true);
   return JSH_NOTHING;
 }
 

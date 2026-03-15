@@ -39,14 +39,17 @@ Already implemented or partly implemented for that stage:
 - system time helpers and microsecond delay
 - interrupt off/on handling
 - basic GPIO value/state handling
+- first-pass ADC read on RP2040 ADC-capable pins
+- first-pass PWM / analog output on RP2040 GPIO pins
 - watch slot bookkeeping and pin/event association helpers
 - basic flash page lookup, flash read, and memory-map address translation
 - simple watchdog, random number, and clock-reporting placeholders
 
 Still stubbed, minimal, or not yet proven on hardware:
 
-- ADC and fast analog read
-- PWM / analog output
+- full ADC coverage beyond first-pass `analogRead`
+- hardware validation of `jshPinAnalogFast`
+- full analog-output coverage beyond first-pass PWM on `D10`
 - SPI
 - I2C
 - non-USB UART support
@@ -59,9 +62,9 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 ## Next Hardware Validation Targets
 
-- USB CDC enumeration and Espruino Web IDE REPL
-- `digitalWrite`, `digitalRead`, and `pinMode`
-- basic `setWatch` behaviour once GPIO events are wired beyond bookkeeping
+- RP2040 I2C backend using the `MCP23008` harness device
+- RP2040 SPI backend proper, independent of any software SPI fallback
+- wider ADC/PWM coverage beyond the current `D10` / `D26` harness proof
 - flash layout and write safety before persistence work
 
 ## How To Use The RP2040 Tracking Columns
@@ -124,9 +127,9 @@ Generated from `src/jshardware.h`.
 | `jshPinSetState` | 29 | yes | yes | yes | implemented | M1 | `pinMode` | No | basic pin modes only |
 | `jshPinGetState` | 13 | yes | yes | yes | implemented | M1 | `pinMode` | No | tracked in software |
 | `jshIsPinStateDefault` | 5 |  |  | yes | implemented (common) | TBD | `?pinMode` | No | common helper |
-| `jshPinAnalog` | 15 | yes | yes | yes | stubbed | M2 | `analogRead` | No | not wired yet |
-| `jshPinAnalogFast` | 9 | yes | yes | yes | stubbed | M2 | `?analogRead` | No | not wired yet |
-| `jshPinAnalogOutput` | 13 | yes | yes | yes | stubbed | M2 | `analogWrite` | No | not wired yet |
+| `jshPinAnalog` | 15 | yes | yes | yes | implemented | M2 | `analogRead` | Yes | RP2040 ADC path implemented for ADC-capable pins; hardware validated on `D26` via harness feedback node |
+| `jshPinAnalogFast` | 9 | yes | yes | yes | implemented | M2 | `?analogRead` | No | uses same RP2040 ADC path as `jshPinAnalog`; direct API-level hardware proof still pending |
+| `jshPinAnalogOutput` | 13 | yes | yes | yes | partial | M2 | `analogWrite` | Yes | first-pass PWM output implemented; hardware PWM validated on `D10`; software PWM fallback exists but is not yet characterised |
 | `jshCanWatch` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | RP2040 GPIO IRQ path; currently permissive, no RP2040-specific conflict filtering yet |
 | `jshPinWatch` | 15 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot map + GPIO edge IRQ enable; `JshPinWatchFlags` not yet differentiated on RP2040; normal watch use proven, burst-edge stress still TBD |
 | `jshGetCurrentPinFunction` | 9 | yes | yes | yes | stubbed | M2 | `?analogWrite / SPI.setup` | No | always JSH_NOTHING |
