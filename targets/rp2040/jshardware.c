@@ -20,6 +20,7 @@
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "hardware/i2c.h"
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
@@ -45,10 +46,13 @@ static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
 static bool rpAdcInitialised = false;
+static bool rpI2cInitialised[2] = { false, false };
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
+static Pin rpI2cPinScl[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static Pin rpI2cPinSda[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 BITFIELD_DECL(jshPinSoftPWM, JSH_PIN_COUNT);
 
 static uint32_t rpIrqStateStack[8];
@@ -121,6 +125,122 @@ static bool rpPwmConfigure(uint slice, JsVarFloat freq) {
   pwm_set_clkdiv_int_frac(slice, div16 / 16, div16 & 0xF);
   pwm_set_wrap(slice, top);
   return true;
+}
+
+static int rpI2cIndexFromDevice(IOEventFlags device) {
+  if (device == EV_I2C1) return 0;
+  if (device == EV_I2C2) return 1;
+  return -1;
+}
+
+static i2c_inst_t *rpI2cFromIndex(int idx) {
+  if (idx == 0) return i2c0;
+  if (idx == 1) return i2c1;
+  return NULL;
+}
+
+static bool rpI2cPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction info) {
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  JshPinFunction func = jshGetPinFunctionForPin(pin, funcType);
+  return func && ((func & JSH_MASK_INFO) == info);
+}
+
+static void rpI2cMarkPins(int idx, Pin pinScl, Pin pinSda) {
+  if (rpPinIsValid(pinScl)) rpPinState[pinScl] = JSHPINSTATE_AF_OUT_OPENDRAIN;
+  if (rpPinIsValid(pinSda)) rpPinState[pinSda] = JSHPINSTATE_AF_OUT_OPENDRAIN;
+  rpI2cPinScl[idx] = pinScl;
+  rpI2cPinSda[idx] = pinSda;
+}
+
+static void rpI2cReleasePins(int idx) {
+  Pin pinScl = rpI2cPinScl[idx];
+  Pin pinSda = rpI2cPinSda[idx];
+  rpI2cPinScl[idx] = PIN_UNDEFINED;
+  rpI2cPinSda[idx] = PIN_UNDEFINED;
+  if (rpPinIsValid(pinScl)) {
+    gpio_set_function(rpPinToGpio(pinScl), GPIO_FUNC_SIO);
+    jshPinSetState(pinScl, JSHPINSTATE_GPIO_IN_PULLUP);
+  }
+  if (rpPinIsValid(pinSda)) {
+    gpio_set_function(rpPinToGpio(pinSda), GPIO_FUNC_SIO);
+    jshPinSetState(pinSda, JSHPINSTATE_GPIO_IN_PULLUP);
+  }
+}
+
+static void rpI2cUnsetupIdx(int idx) {
+  i2c_inst_t *inst = rpI2cFromIndex(idx);
+  if (!inst) return;
+  if (rpI2cInitialised[idx]) {
+    i2c_deinit(inst);
+    rpI2cInitialised[idx] = false;
+  }
+  rpI2cReleasePins(idx);
+}
+
+static void rpI2cResetAll(void) {
+  for (int i = 0; i < 2; i++)
+    rpI2cUnsetupIdx(i);
+}
+
+static bool rpI2cEnsureInitialised(IOEventFlags device, JshI2CInfo *inf) {
+  int idx = rpI2cIndexFromDevice(device);
+  if (idx < 0) {
+    jsExceptionHere(JSET_ERROR, "Only I2C1 and I2C2 supported");
+    return false;
+  }
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  if (!jshIsPinValid(inf->pinSCL)) inf->pinSCL = jshFindPinForFunction(funcType, JSH_I2C_SCL);
+  if (!jshIsPinValid(inf->pinSDA)) inf->pinSDA = jshFindPinForFunction(funcType, JSH_I2C_SDA);
+
+  if (!jshIsPinValid(inf->pinSCL) || !jshIsPinValid(inf->pinSDA)) {
+    jsExceptionHere(JSET_ERROR, "I2C pins not valid");
+    return false;
+  }
+  if (!rpI2cPinMatchesDevice(device, inf->pinSCL, JSH_I2C_SCL) ||
+      !rpI2cPinMatchesDevice(device, inf->pinSDA, JSH_I2C_SDA)) {
+    jsExceptionHere(JSET_ERROR, "Selected pins do not match %s", jshGetDeviceString(device));
+    return false;
+  }
+
+  rpI2cUnsetupIdx(idx);
+
+  if (inf->bitrate <= 0) inf->bitrate = 100000;
+  i2c_inst_t *inst = rpI2cFromIndex(idx);
+  if (!inst) {
+    jsExceptionHere(JSET_ERROR, "I2C backend unavailable");
+    return false;
+  }
+  i2c_init(inst, (uint)inf->bitrate);
+  gpio_set_function(rpPinToGpio(inf->pinSCL), GPIO_FUNC_I2C);
+  gpio_set_function(rpPinToGpio(inf->pinSDA), GPIO_FUNC_I2C);
+  gpio_set_pulls(rpPinToGpio(inf->pinSCL), true, false);
+  gpio_set_pulls(rpPinToGpio(inf->pinSDA), true, false);
+  rpI2cMarkPins(idx, inf->pinSCL, inf->pinSDA);
+  rpI2cInitialised[idx] = true;
+  return true;
+}
+
+static bool rpI2cGetReady(IOEventFlags device, i2c_inst_t **inst) {
+  int idx = rpI2cIndexFromDevice(device);
+  if (idx < 0) {
+    jsExceptionHere(JSET_ERROR, "Only I2C1 and I2C2 supported");
+    return false;
+  }
+  if (!rpI2cInitialised[idx]) {
+    jsExceptionHere(JSET_ERROR, "%s not initialised", jshGetDeviceString(device));
+    return false;
+  }
+  *inst = rpI2cFromIndex(idx);
+  return *inst != NULL;
+}
+
+static void rpI2cHandleError(const char *caller, int ret) {
+  if (ret >= 0) return;
+  if (ret == PICO_ERROR_TIMEOUT) {
+    jsExceptionHere(JSET_ERROR, "%s: timeout", caller);
+  } else {
+    jsExceptionHere(JSET_ERROR, "%s: I2C I/O error", caller);
+  }
 }
 
 static int rpWatchSlotForPin(Pin pin) {
@@ -273,6 +393,10 @@ void jshInit() {
     rpWatchLastState[i] = false;
   }
   BITFIELD_CLEAR(jshPinSoftPWM);
+  rpI2cInitialised[0] = false;
+  rpI2cInitialised[1] = false;
+  rpI2cPinScl[0] = rpI2cPinSda[0] = PIN_UNDEFINED;
+  rpI2cPinScl[1] = rpI2cPinSda[1] = PIN_UNDEFINED;
   rpSystemTimeOffsetUs = 0;
   rpFirstIdle = true;
   jshInitDevices();
@@ -283,6 +407,7 @@ void jshReset() {
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
   BITFIELD_CLEAR(jshPinSoftPWM);
   rpWatchResetAll();
+  rpI2cResetAll();
 }
 
 void jshIdle() {
@@ -317,6 +442,7 @@ bool jshSleep(JsSysTime timeUntilWake) {
 }
 
 void jshKill() {
+  rpI2cResetAll();
 }
 
 int jshGetSerialNumber(unsigned char *data, int maxChars) {
@@ -533,6 +659,8 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
 #ifdef USB
   if (device == EV_USBSERIAL) return rpUsbInitialised;
 #endif
+  int i2cIdx = rpI2cIndexFromDevice(device);
+  if (i2cIdx >= 0) return rpI2cInitialised[i2cIdx];
   return false;
 }
 
@@ -592,23 +720,39 @@ void jshSPIWait(IOEventFlags device) {
 }
 
 void jshI2CSetup(IOEventFlags device, JshI2CInfo *inf) {
-  NOT_USED(device);
-  NOT_USED(inf);
+  if (!inf) return;
+  rpI2cEnsureInitialised(device, inf);
+}
+
+void jshI2CUnSetup(IOEventFlags device) {
+  int idx = rpI2cIndexFromDevice(device);
+  if (idx >= 0) rpI2cUnsetupIdx(idx);
 }
 
 void jshI2CWrite(IOEventFlags device, unsigned char address, int nBytes, const unsigned char *data, bool sendStop) {
-  NOT_USED(device);
-  NOT_USED(address);
-  NOT_USED(nBytes);
-  NOT_USED(data);
-  NOT_USED(sendStop);
+  if (nBytes <= 0) return;
+  if (!data) {
+    jsExceptionHere(JSET_ERROR, "jshI2CWrite: no data");
+    return;
+  }
+  i2c_inst_t *inst;
+  if (!rpI2cGetReady(device, &inst)) return;
+  int ret = i2c_write_timeout_us(inst, address, data, (size_t)nBytes, !sendStop, 50000);
+  rpI2cHandleError("jshI2CWrite", ret);
 }
 
 void jshI2CRead(IOEventFlags device, unsigned char address, int nBytes, unsigned char *data, bool sendStop) {
-  NOT_USED(device);
-  NOT_USED(address);
-  NOT_USED(sendStop);
-  if (data && nBytes > 0) memset(data, 0, (size_t)nBytes);
+  if (!data || nBytes <= 0) return;
+  i2c_inst_t *inst;
+  if (!rpI2cGetReady(device, &inst)) {
+    memset(data, 0, (size_t)nBytes);
+    return;
+  }
+  int ret = i2c_read_timeout_us(inst, address, data, (size_t)nBytes, !sendStop, 50000);
+  if (ret < 0) {
+    memset(data, 0, (size_t)nBytes);
+    rpI2cHandleError("jshI2CRead", ret);
+  }
 }
 
 bool jshFlashGetPage(uint32_t addr, uint32_t *startAddr, uint32_t *pageSize) {
