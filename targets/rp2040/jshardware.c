@@ -23,6 +23,7 @@
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
+#include "hardware/spi.h"
 #include "hardware/sync.h"
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
@@ -47,12 +48,20 @@ static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
 static bool rpAdcInitialised = false;
 static bool rpI2cInitialised[2] = { false, false };
+static bool rpSpiInitialised[2] = { false, false };
+static bool rpSpiIs16[2] = { false, false };
+static bool rpSpiReceive[2] = { true, true };
+static unsigned char rpSpiMode[2] = { SPIF_SPI_MODE_0, SPIF_SPI_MODE_0 };
+static bool rpSpiMsb[2] = { true, true };
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
 static Pin rpI2cPinScl[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpI2cPinSda[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static Pin rpSpiPinSck[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static Pin rpSpiPinMiso[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static Pin rpSpiPinMosi[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 BITFIELD_DECL(jshPinSoftPWM, JSH_PIN_COUNT);
 
 static uint32_t rpIrqStateStack[8];
@@ -133,13 +142,31 @@ static int rpI2cIndexFromDevice(IOEventFlags device) {
   return -1;
 }
 
+static int rpSpiIndexFromDevice(IOEventFlags device) {
+  if (device == EV_SPI1) return 0;
+  if (device == EV_SPI2) return 1;
+  return -1;
+}
+
 static i2c_inst_t *rpI2cFromIndex(int idx) {
   if (idx == 0) return i2c0;
   if (idx == 1) return i2c1;
   return NULL;
 }
 
+static spi_inst_t *rpSpiFromIndex(int idx) {
+  if (idx == 0) return spi0;
+  if (idx == 1) return spi1;
+  return NULL;
+}
+
 static bool rpI2cPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction info) {
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  JshPinFunction func = jshGetPinFunctionForPin(pin, funcType);
+  return func && ((func & JSH_MASK_INFO) == info);
+}
+
+static bool rpSpiPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction info) {
   JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
   JshPinFunction func = jshGetPinFunctionForPin(pin, funcType);
   return func && ((func & JSH_MASK_INFO) == info);
@@ -150,6 +177,15 @@ static void rpI2cMarkPins(int idx, Pin pinScl, Pin pinSda) {
   if (rpPinIsValid(pinSda)) rpPinState[pinSda] = JSHPINSTATE_AF_OUT_OPENDRAIN;
   rpI2cPinScl[idx] = pinScl;
   rpI2cPinSda[idx] = pinSda;
+}
+
+static void rpSpiMarkPins(int idx, Pin pinSck, Pin pinMiso, Pin pinMosi) {
+  if (rpPinIsValid(pinSck)) rpPinState[pinSck] = JSHPINSTATE_AF_OUT;
+  if (rpPinIsValid(pinMiso)) rpPinState[pinMiso] = JSHPINSTATE_AF_OUT;
+  if (rpPinIsValid(pinMosi)) rpPinState[pinMosi] = JSHPINSTATE_AF_OUT;
+  rpSpiPinSck[idx] = pinSck;
+  rpSpiPinMiso[idx] = pinMiso;
+  rpSpiPinMosi[idx] = pinMosi;
 }
 
 static void rpI2cReleasePins(int idx) {
@@ -167,6 +203,27 @@ static void rpI2cReleasePins(int idx) {
   }
 }
 
+static void rpSpiReleasePins(int idx) {
+  Pin pinSck = rpSpiPinSck[idx];
+  Pin pinMiso = rpSpiPinMiso[idx];
+  Pin pinMosi = rpSpiPinMosi[idx];
+  rpSpiPinSck[idx] = PIN_UNDEFINED;
+  rpSpiPinMiso[idx] = PIN_UNDEFINED;
+  rpSpiPinMosi[idx] = PIN_UNDEFINED;
+  if (rpPinIsValid(pinSck)) {
+    gpio_set_function(rpPinToGpio(pinSck), GPIO_FUNC_SIO);
+    jshPinSetState(pinSck, JSHPINSTATE_GPIO_IN);
+  }
+  if (rpPinIsValid(pinMiso)) {
+    gpio_set_function(rpPinToGpio(pinMiso), GPIO_FUNC_SIO);
+    jshPinSetState(pinMiso, JSHPINSTATE_GPIO_IN);
+  }
+  if (rpPinIsValid(pinMosi)) {
+    gpio_set_function(rpPinToGpio(pinMosi), GPIO_FUNC_SIO);
+    jshPinSetState(pinMosi, JSHPINSTATE_GPIO_IN);
+  }
+}
+
 static void rpI2cUnsetupIdx(int idx) {
   i2c_inst_t *inst = rpI2cFromIndex(idx);
   if (!inst) return;
@@ -177,9 +234,38 @@ static void rpI2cUnsetupIdx(int idx) {
   rpI2cReleasePins(idx);
 }
 
+static void rpSpiApplyFormat(int idx) {
+  spi_inst_t *inst = rpSpiFromIndex(idx);
+  if (!inst) return;
+  spi_set_format(inst,
+                 rpSpiIs16[idx] ? 16 : 8,
+                 (rpSpiMode[idx] & SPIF_CPOL) ? SPI_CPOL_1 : SPI_CPOL_0,
+                 (rpSpiMode[idx] & SPIF_CPHA) ? SPI_CPHA_1 : SPI_CPHA_0,
+                 rpSpiMsb[idx] ? SPI_MSB_FIRST : SPI_LSB_FIRST);
+}
+
+static void rpSpiUnsetupIdx(int idx) {
+  spi_inst_t *inst = rpSpiFromIndex(idx);
+  if (!inst) return;
+  if (rpSpiInitialised[idx]) {
+    spi_deinit(inst);
+    rpSpiInitialised[idx] = false;
+  }
+  rpSpiReleasePins(idx);
+  rpSpiIs16[idx] = false;
+  rpSpiReceive[idx] = true;
+  rpSpiMode[idx] = SPIF_SPI_MODE_0;
+  rpSpiMsb[idx] = true;
+}
+
 static void rpI2cResetAll(void) {
   for (int i = 0; i < 2; i++)
     rpI2cUnsetupIdx(i);
+}
+
+static void rpSpiResetAll(void) {
+  for (int i = 0; i < 2; i++)
+    rpSpiUnsetupIdx(i);
 }
 
 static bool rpI2cEnsureInitialised(IOEventFlags device, JshI2CInfo *inf) {
@@ -231,6 +317,76 @@ static bool rpI2cGetReady(IOEventFlags device, i2c_inst_t **inst) {
     return false;
   }
   *inst = rpI2cFromIndex(idx);
+  return *inst != NULL;
+}
+
+static bool rpSpiEnsureInitialised(IOEventFlags device, JshSPIInfo *inf) {
+  int idx = rpSpiIndexFromDevice(device);
+  if (idx < 0) {
+    jsExceptionHere(JSET_ERROR, "Only SPI1 and SPI2 supported");
+    return false;
+  }
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  bool allPinsUnset = !jshIsPinValid(inf->pinSCK) &&
+                      !jshIsPinValid(inf->pinMISO) &&
+                      !jshIsPinValid(inf->pinMOSI);
+  if (allPinsUnset) {
+    inf->pinSCK = jshFindPinForFunction(funcType, JSH_SPI_SCK);
+    inf->pinMISO = jshFindPinForFunction(funcType, JSH_SPI_MISO);
+    inf->pinMOSI = jshFindPinForFunction(funcType, JSH_SPI_MOSI);
+  }
+
+  if (!jshIsPinValid(inf->pinSCK)) {
+    jsExceptionHere(JSET_ERROR, "SPI SCK pin not valid");
+    return false;
+  }
+  if (!jshIsPinValid(inf->pinMISO) && !jshIsPinValid(inf->pinMOSI)) {
+    jsExceptionHere(JSET_ERROR, "SPI requires MISO or MOSI");
+    return false;
+  }
+  if (!rpSpiPinMatchesDevice(device, inf->pinSCK, JSH_SPI_SCK) ||
+      (jshIsPinValid(inf->pinMISO) && !rpSpiPinMatchesDevice(device, inf->pinMISO, JSH_SPI_MISO)) ||
+      (jshIsPinValid(inf->pinMOSI) && !rpSpiPinMatchesDevice(device, inf->pinMOSI, JSH_SPI_MOSI))) {
+    jsExceptionHere(JSET_ERROR, "Selected pins do not match %s", jshGetDeviceString(device));
+    return false;
+  }
+
+  rpSpiUnsetupIdx(idx);
+
+  if (inf->baudRate <= 0) inf->baudRate = 100000;
+  spi_inst_t *inst = rpSpiFromIndex(idx);
+  if (!inst) {
+    jsExceptionHere(JSET_ERROR, "SPI backend unavailable");
+    return false;
+  }
+  spi_init(inst, (uint)inf->baudRate);
+  rpSpiMode[idx] = inf->spiMode & 3;
+  rpSpiMsb[idx] = inf->spiMSB;
+  rpSpiIs16[idx] = inf->numBits == 16;
+  rpSpiReceive[idx] = jshIsPinValid(inf->pinMISO);
+  rpSpiApplyFormat(idx);
+  gpio_set_function(rpPinToGpio(inf->pinSCK), GPIO_FUNC_SPI);
+  if (jshIsPinValid(inf->pinMISO))
+    gpio_set_function(rpPinToGpio(inf->pinMISO), GPIO_FUNC_SPI);
+  if (jshIsPinValid(inf->pinMOSI))
+    gpio_set_function(rpPinToGpio(inf->pinMOSI), GPIO_FUNC_SPI);
+  rpSpiMarkPins(idx, inf->pinSCK, inf->pinMISO, inf->pinMOSI);
+  rpSpiInitialised[idx] = true;
+  return true;
+}
+
+static bool rpSpiGetReady(IOEventFlags device, spi_inst_t **inst, int *idxOut) {
+  int idx = rpSpiIndexFromDevice(device);
+  if (idx < 0) {
+    jsExceptionHere(JSET_ERROR, "Only SPI1 and SPI2 supported");
+    return false;
+  }
+  if (!rpSpiInitialised[idx]) {
+    jsExceptionHere(JSET_ERROR, "%s not initialised", jshGetDeviceString(device));
+    return false;
+  }
+  *inst = rpSpiFromIndex(idx);
+  if (idxOut) *idxOut = idx;
   return *inst != NULL;
 }
 
@@ -397,6 +553,14 @@ void jshInit() {
   rpI2cInitialised[1] = false;
   rpI2cPinScl[0] = rpI2cPinSda[0] = PIN_UNDEFINED;
   rpI2cPinScl[1] = rpI2cPinSda[1] = PIN_UNDEFINED;
+  rpSpiInitialised[0] = false;
+  rpSpiInitialised[1] = false;
+  rpSpiIs16[0] = rpSpiIs16[1] = false;
+  rpSpiReceive[0] = rpSpiReceive[1] = true;
+  rpSpiMode[0] = rpSpiMode[1] = SPIF_SPI_MODE_0;
+  rpSpiMsb[0] = rpSpiMsb[1] = true;
+  rpSpiPinSck[0] = rpSpiPinMiso[0] = rpSpiPinMosi[0] = PIN_UNDEFINED;
+  rpSpiPinSck[1] = rpSpiPinMiso[1] = rpSpiPinMosi[1] = PIN_UNDEFINED;
   rpSystemTimeOffsetUs = 0;
   rpFirstIdle = true;
   jshInitDevices();
@@ -408,6 +572,7 @@ void jshReset() {
   BITFIELD_CLEAR(jshPinSoftPWM);
   rpWatchResetAll();
   rpI2cResetAll();
+  rpSpiResetAll();
 }
 
 void jshIdle() {
@@ -442,6 +607,7 @@ bool jshSleep(JsSysTime timeUntilWake) {
 }
 
 void jshKill() {
+  rpSpiResetAll();
   rpI2cResetAll();
 }
 
@@ -659,6 +825,8 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
 #ifdef USB
   if (device == EV_USBSERIAL) return rpUsbInitialised;
 #endif
+  int spiIdx = rpSpiIndexFromDevice(device);
+  if (spiIdx >= 0) return rpSpiInitialised[spiIdx];
   int i2cIdx = rpI2cIndexFromDevice(device);
   if (i2cIdx >= 0) return rpI2cInitialised[i2cIdx];
   return false;
@@ -690,33 +858,140 @@ void jshUSARTKick(IOEventFlags device) {
 }
 
 void jshSPISetup(IOEventFlags device, JshSPIInfo *inf) {
-  NOT_USED(device);
-  NOT_USED(inf);
+  if (!inf) return;
+  rpSpiEnsureInitialised(device, inf);
 }
 
 int jshSPISend(IOEventFlags device, int data) {
-  NOT_USED(device);
-  NOT_USED(data);
-  return -1;
+  spi_inst_t *inst;
+  int idx;
+  if (!rpSpiGetReady(device, &inst, &idx)) return -1;
+  if (rpSpiIs16[idx]) {
+    uint16_t tx = data >= 0 ? (uint16_t)data : 0xFFFFu;
+    if (!rpSpiReceive[idx]) {
+      spi_write16_blocking(inst, &tx, 1);
+      return -1;
+    }
+    uint16_t rx = 0;
+    spi_write16_read16_blocking(inst, &tx, &rx, 1);
+    return rx;
+  }
+
+  uint8_t tx = data >= 0 ? (uint8_t)data : 0xFFu;
+  if (!rpSpiReceive[idx]) {
+    spi_write_blocking(inst, &tx, 1);
+    return -1;
+  }
+  uint8_t rx = 0;
+  spi_write_read_blocking(inst, &tx, &rx, 1);
+  return rx;
 }
 
 void jshSPISend16(IOEventFlags device, int data) {
-  NOT_USED(device);
-  NOT_USED(data);
+  spi_inst_t *inst;
+  int idx;
+  if (!rpSpiGetReady(device, &inst, &idx)) return;
+  uint16_t tx = (uint16_t)data;
+  if (rpSpiIs16[idx]) {
+    if (rpSpiReceive[idx]) {
+      uint16_t rx;
+      spi_write16_read16_blocking(inst, &tx, &rx, 1);
+    } else {
+      spi_write16_blocking(inst, &tx, 1);
+    }
+  } else {
+    uint8_t buf[2] = { (uint8_t)(data >> 8), (uint8_t)data };
+    if (rpSpiReceive[idx]) {
+      uint8_t rx[2];
+      spi_write_read_blocking(inst, buf, rx, 2);
+    } else {
+      spi_write_blocking(inst, buf, 2);
+    }
+  }
 }
 
 void jshSPISet16(IOEventFlags device, bool is16) {
-  NOT_USED(device);
-  NOT_USED(is16);
+  spi_inst_t *inst;
+  int idx;
+  if (!rpSpiGetReady(device, &inst, &idx)) return;
+  NOT_USED(inst);
+  rpSpiIs16[idx] = is16;
+  rpSpiApplyFormat(idx);
 }
 
 void jshSPISetReceive(IOEventFlags device, bool isReceive) {
-  NOT_USED(device);
-  NOT_USED(isReceive);
+  spi_inst_t *inst;
+  int idx;
+  if (!rpSpiGetReady(device, &inst, &idx)) return;
+  NOT_USED(inst);
+  rpSpiReceive[idx] = isReceive && rpPinIsValid(rpSpiPinMiso[idx]);
 }
 
 void jshSPIWait(IOEventFlags device) {
-  NOT_USED(device);
+  spi_inst_t *inst;
+  if (!rpSpiGetReady(device, &inst, NULL)) return;
+  while (spi_get_hw(inst)->sr & SPI_SSPSR_BSY_BITS)
+    tight_loop_contents();
+  while (spi_is_readable(inst))
+    (void)spi_get_hw(inst)->dr;
+  spi_get_hw(inst)->icr = SPI_SSPICR_RORIC_BITS;
+}
+
+bool jshSPISendMany(IOEventFlags device, unsigned char *tx, unsigned char *rx, size_t count, void (*callback)()) {
+  spi_inst_t *inst;
+  int idx;
+  if (!rpSpiGetReady(device, &inst, &idx)) return false;
+  if (!count) {
+    if (callback) callback();
+    return true;
+  }
+
+  if (rpSpiIs16[idx]) {
+    size_t halfwords = count / 2;
+    if (halfwords) {
+      if (tx && rx) {
+        for (size_t i = 0; i < halfwords; i++) {
+          uint16_t t = ((uint16_t)tx[2 * i] << 8) | tx[2 * i + 1];
+          uint16_t r = 0;
+          spi_write16_read16_blocking(inst, &t, &r, 1);
+          rx[2 * i] = (unsigned char)(r >> 8);
+          rx[2 * i + 1] = (unsigned char)r;
+        }
+      } else if (tx) {
+        for (size_t i = 0; i < halfwords; i++) {
+          uint16_t t = ((uint16_t)tx[2 * i] << 8) | tx[2 * i + 1];
+          spi_write16_blocking(inst, &t, 1);
+        }
+      } else if (rx) {
+        for (size_t i = 0; i < halfwords; i++) {
+          uint16_t r = 0;
+          spi_read16_blocking(inst, 0xFFFFu, &r, 1);
+          rx[2 * i] = (unsigned char)(r >> 8);
+          rx[2 * i + 1] = (unsigned char)r;
+        }
+      }
+    }
+    if (count & 1) {
+      unsigned char tailTx = tx ? tx[count - 1] : 0xFFu;
+      if (rx) {
+        unsigned char tailRx = 0;
+        spi_write_read_blocking(inst, &tailTx, &tailRx, 1);
+        rx[count - 1] = tailRx;
+      } else {
+        spi_write_blocking(inst, &tailTx, 1);
+      }
+    }
+  } else {
+    if (tx && rx)
+      spi_write_read_blocking(inst, tx, rx, count);
+    else if (tx)
+      spi_write_blocking(inst, tx, count);
+    else if (rx)
+      spi_read_blocking(inst, 0xFFu, rx, count);
+  }
+
+  if (callback) callback();
+  return true;
 }
 
 void jshI2CSetup(IOEventFlags device, JshI2CInfo *inf) {
