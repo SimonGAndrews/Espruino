@@ -140,18 +140,18 @@ Generated from `src/jshardware.h`.
 | `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
 | `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
 | `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
-| `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus RP2040 I2C device state |
+| `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus RP2040 SPI/I2C device state |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
 | `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | No | USB path only |
 | `jshUSARTUnSetup` | 6 | yes | yes |  | partial | M1 | `?Serial.unsetup` | No | weak default |
 | `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | No | USB CDC only |
 | `jshSPIInitInfo` | 13 |  |  |  | implemented (common) | M2 | `SPI.setup` | No | common helper |
-| `jshSPISetup` | 19 | yes | yes | yes | stubbed | M2 | `SPI.setup` | No | backend not wired |
-| `jshSPISend` | 16 | yes | yes | yes | stubbed | M2 | `SPI.send` | No | returns error |
-| `jshSPISend16` | 10 | yes | yes | yes | stubbed | M2 | `?SPI.send` | No | backend not wired |
-| `jshSPISet16` | 11 | yes | yes | yes | stubbed | M2 | `?SPI.setup` | No | backend not wired |
-| `jshSPISetReceive` | 12 | yes | yes | yes | stubbed | M2 | `?SPI.send` | No | backend not wired |
-| `jshSPIWait` | 14 | yes | yes | yes | stubbed | M2 | `SPI.send` | No | backend not wired |
+| `jshSPISetup` | 19 | yes | yes | yes | implemented | M2 | `SPI.setup` | Yes | RP2040 hardware SPI setup validated on `SPI1` with explicit harness pins `D18/D16/D19` and bare `SPI1.setup()` defaulting to the same `MCP3008` harness path |
+| `jshSPISend` | 16 | yes | yes | yes | implemented | M2 | `SPI.send` | Yes | blocking RP2040 SPI transfer validated against `MCP3008 CH0` reads |
+| `jshSPISend16` | 10 | yes | yes | yes | implemented | M2 | `?SPI.send` | No | first-pass 16-bit support implemented; wider hardware validation still TBD |
+| `jshSPISet16` | 11 | yes | yes | yes | implemented | M2 | `?SPI.setup` | No | reconfigures RP2040 SPI frame size between 8-bit and 16-bit |
+| `jshSPISetReceive` | 12 | yes | yes | yes | implemented | M2 | `?SPI.send` | No | target state used to enable/disable receive path when MISO is present |
+| `jshSPIWait` | 14 | yes | yes | yes | implemented | M2 | `SPI.send` | No | blocking backend waits for idle and drains RX state |
 | `jshI2CInitInfo` | 7 |  |  |  | implemented (common) | M2 | `I2C.setup` | No | common helper |
 | `jshI2CSetup` | 12 | yes | yes | yes | implemented | M2 | `I2C.setup` | Yes | RP2040 hardware I2C master setup implemented and validated on `I2C1` with the `MCP23008` harness device |
 | `jshI2CUnSetup` | 4 | yes |  |  | partial | M2 | `?I2C.unsetup` | No | weak default |
