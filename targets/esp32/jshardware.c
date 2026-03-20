@@ -31,13 +31,13 @@
 #include "jshardwareAnalog.h"
 #include "jshardwarePWM.h"
 #include "jshardwarePulse.h"
+#include "rtosutil.h"
 #if ESP_IDF_VERSION_MAJOR>=5
-#include "rtosutil_idf5.h"
 #include "driver/gptimer.h"
 #else
-#include "rtosutil.h"
 #include "driver/timer.h"
 #endif
+
 #ifdef BLUETOOTH
 #include "BLE/esp32_gap_func.h"
 #include "BLE/esp32_gattc_func.h"

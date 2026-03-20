@@ -8,11 +8,16 @@ DEFINES += -DESP32
 DEFINES += -DESPR_DEFINES_ON_COMMANDLINE
 
 SOURCES += targets/esp32/main.c \
-targets/esp32/rtosutil_idf5.c \
+targets/esp32/jshardware.c \
+targets/esp32/jshardwareAnalog.c \
+targets/esp32/jshardwarePulse.c \
+targets/esp32/jshardwarePWM.c \
 targets/esp32/jshardwareUart.c \
 targets/esp32/jshardwareSpi.c \
-targets/esp32/jshardware.c \
-targets/esp32/jshardwareESP32.c 
+targets/esp32/jshardwareI2c.c \
+targets/esp32/jshardwareESP32.c \
+targets/esp32/rtosutil.c \
+targets/esp32/jshardwareESP32.c
 
 ifeq ($(USE_NEOPIXEL),1)
 SOURCES +=  targets/esp32/esp32_neopixel.c

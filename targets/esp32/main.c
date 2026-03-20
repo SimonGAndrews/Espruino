@@ -9,11 +9,7 @@
 
 #include <jsdevices.h>
 #include <jsinteractive.h>
-#if ESP_IDF_VERSION_MAJOR>=5
-#include "rtosutil_idf5.h"
-#else
 #include "rtosutil.h"
-#endif
 #include "jstimer.h"
 #include "jshardwareUart.h"
 #include "jshardwareAnalog.h"
