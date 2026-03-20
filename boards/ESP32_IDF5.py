@@ -52,7 +52,7 @@ info = {
  'espruino_page_link'       : 'ESP32',
  'default_console'          : "EV_SERIAL1",
  'default_console_baudrate' : "115200",
- 'variables'                : 8181, # 16383, # See note above
+ 'variables'                : 8191, # See note above
  'io_buffer_size'           : 4096, # How big is the input buffer (in bytes). Default on nRF52 is 1024
  'binary_name'              : 'espruino_%v_esp32.bin',
  'build' : {
@@ -60,8 +60,8 @@ info = {
    'libraries' : [
      'ESP32',
 #     'NET',
-      'GRAPHICS',
-#     'CRYPTO','SHA256','SHA512',
+     'GRAPHICS',
+     'CRYPTO', 'SHA256', 'SHA512',
 #     'TLS',
 #     'TELNET',
 #     'NEOPIXEL',
@@ -69,6 +69,7 @@ info = {
 #     'BLUETOOTH'
    ],
    'makefile' : [
+     'WRAPPERSOURCES+=targets/esp32/jswrap_esp32.c',
      'DEFINES+=-DESP_PLATFORM -DESP32=1',
      'DEFINES+=-DESP_STACK_SIZE=25000',
      'DEFINES+=-DJSVAR_MALLOC', # Allocate space for variables at jsvInit time
@@ -87,7 +88,7 @@ chip = {
   'speed'   : 240,
   'usart'   : 3,
   'spi'     : 2,
-  'i2c'     : 0, #2,
+  'i2c'     : 2, #2,
   'adc'     : 2,
   'dac'     : 0,
   'saved_code' : {

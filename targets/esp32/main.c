@@ -10,7 +10,7 @@
 #include <jsdevices.h>
 #include <jsinteractive.h>
 #if ESP_IDF_VERSION_MAJOR>=5
-  #include "rtosutil_idf5.h"
+#include "rtosutil_idf5.h"
 #else
 #include "rtosutil.h"
 #endif
@@ -85,16 +85,12 @@ static void espruinoTask(void *data) {
   espruino_stackHighPtr = (uintptr_t)&heapVars; //Ignore the name, 'heapVars' is on the stack!
                         //I didn't use another variable becaue this function never ends so
                         //all variables declared here consume stack space that is never freed.
-  #if ESP_IDF_VERSION_MAJOR>=5
-  #else
   PWMInit();
   RMTInit();
   initADC(1);
-  #endif
   SPIChannelsInit();
   jshInit();     // Initialize the hardware
   jswHWInit();
-
 
   heapVars = (esp_get_free_heap_size() - 40000) / sizeof(JsVar);  //calculate space for jsVars
 

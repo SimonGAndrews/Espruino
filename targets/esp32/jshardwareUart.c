@@ -17,10 +17,9 @@
 
 #include "jshardwareUart.h"
 #include "driver/uart.h"
-
 #include <stdio.h>
 #include <string.h>
-#include <jsdevices.h>
+#include "jsdevices.h"
 #include "jsinteractive.h"
 
 #ifdef ESPR_USE_USB_SERIAL_JTAG
@@ -33,68 +32,85 @@ bool serial3_initialized = false;
 void jshSetDeviceInitialised(IOEventFlags device, bool isInit);
 
 void initUart(int uart_num, uart_config_t uart_config, int txpin, int rxpin){
-  int r;
-  r = uart_param_config(uart_num, &uart_config);   //Configure UART1 parameters
-  r = uart_set_pin(uart_num, txpin, rxpin, -1, -1); //Set UART0 pins(TX: IO16, RX: IO17, RTS: IO18, CTS: IO19)
-  r = uart_driver_install(uart_num, 1024, 1024, 10, NULL, 0);  //Install UART driver( We don't need an event queue here)
+  esp_err_t err;
+
+  err = uart_param_config(uart_num, &uart_config);
+  ESP_ERROR_CHECK(err);
+  err = uart_set_pin(uart_num, txpin, rxpin, -1, -1);
+  ESP_ERROR_CHECK(err);
+  err = uart_driver_install(uart_num, 1024, 1024, 0, NULL, 0);
+  ESP_ERROR_CHECK(err);
 }
 
 void UartReset(){
   uart_driver_delete(uart_console);
   initConsole();
-  if(serial2_initialized) uart_driver_delete(uart_Serial2);
-  if(serial3_initialized) uart_driver_delete(uart_Serial3);
+
+  if(serial2_initialized){
+    uart_driver_delete(uart_Serial2);
+    serial2_initialized = false;
+  }
+#if ESPR_USART_COUNT>2
+  if(serial3_initialized){
+    uart_driver_delete(uart_Serial3);
+    serial3_initialized = false;
+  }
+#endif
 }
 
-void initSerial(IOEventFlags device,JshUSARTInfo *inf){
-  // NOTE: we can get called for bluetooth and telnet, so this may not be a serial device!
+void initSerial(IOEventFlags device, JshUSARTInfo *inf){
   uart_config_t uart_config = {
     .baud_rate = inf->baudRate,
-    .data_bits = (inf->bytesize == 7)? UART_DATA_7_BITS : UART_DATA_8_BITS,
-    .stop_bits = (inf->stopbits == 1)? UART_STOP_BITS_1 : UART_STOP_BITS_2,
-    //.flow_ctrl = (inf->xOnXOff)? UART_HW_FLOWCTRL_DISABLE : UART_HW_FLOWCTRL_CTS_RTS,
+    .data_bits = (inf->bytesize == 7) ? UART_DATA_7_BITS : UART_DATA_8_BITS,
+    .stop_bits = (inf->stopbits == 1) ? UART_STOP_BITS_1 : UART_STOP_BITS_2,
+    .parity = UART_PARITY_DISABLE,
     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     .rx_flow_ctrl_thresh = 122,
-    .parity = UART_PARITY_DISABLE
   };
   switch(inf->parity){
     case 0: uart_config.parity = UART_PARITY_DISABLE; break;
     case 1: uart_config.parity = UART_PARITY_ODD; break;
     case 2: uart_config.parity = UART_PARITY_EVEN; break;
   }
-  if(device == EV_SERIAL1) {
-    initUart(uart_console,uart_config,-1,-1);
+  if(device == EV_SERIAL1){
+    initUart(uart_console, uart_config, -1, -1);
     jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
-  } else if(device == EV_SERIAL2){
-    if(inf->pinTX == 0xff) inf->pinTX = 4;
-    if(inf->pinRX == 0xff) inf->pinRX = 5;
-    if(serial2_initialized) uart_driver_delete(uart_Serial2);
-    initUart(uart_Serial2,uart_config,inf->pinTX,inf->pinRX);
-    jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
-    jshSetDeviceInitialised(EV_SERIAL2,true);
-    serial2_initialized = true;
-#if ESPR_USART_COUNT>2
-  } else if(device == EV_SERIAL3){
-    if(inf->pinTX == 0xff) inf->pinTX = 17;
-    if(inf->pinRX == 0xff) inf->pinRX = 16;
-    if(serial3_initialized) uart_driver_delete(uart_Serial3);
-    initUart(uart_Serial3,uart_config,inf->pinTX,inf->pinRX);
-    jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
-    jshSetDeviceInitialised(EV_SERIAL3,true);
-    serial3_initialized = true;
-#endif
+    jshSetDeviceInitialised(EV_SERIAL1, true);
   }
+  else if(device == EV_SERIAL2){
+    if(inf->pinTX == 0xFF) inf->pinTX = 4;
+    if(inf->pinRX == 0xFF) inf->pinRX = 5;
+
+    if(serial2_initialized) uart_driver_delete(uart_Serial2);
+
+    initUart(uart_Serial2, uart_config, inf->pinTX, inf->pinRX);
+    jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
+    jshSetDeviceInitialised(EV_SERIAL2, true);
+    serial2_initialized = true;
+  }
+#if ESPR_USART_COUNT>2
+  else if(device == EV_SERIAL3){
+    if(inf->pinTX == 0xFF) inf->pinTX = 17;
+    if(inf->pinRX == 0xFF) inf->pinRX = 16;
+    if(serial3_initialized) uart_driver_delete(uart_Serial3);
+    initUart(uart_Serial3, uart_config, inf->pinTX, inf->pinRX);
+    jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
+    jshSetDeviceInitialised(EV_SERIAL3, true);
+    serial3_initialized = true;
+  }
+#endif
 }
 
 void initConsole(){
 #ifdef ESPR_USE_USB_SERIAL_JTAG
-  /* Configure USB-CDC */
-  usb_serial_jtag_driver_config_t usb_serial_config = {.tx_buffer_size = 128,
-                                                       .rx_buffer_size = 128};
-  jsDebug(DBG_INFO, "initConsole: Installing usb_serial_jtag_driver \n");
+  /* Configure USB-CDC driver */
+  usb_serial_jtag_driver_config_t usb_serial_config = {
+    .tx_buffer_size = 128,
+    .rx_buffer_size = 128
+  };
+  jsDebug(DBG_INFO, "initConsole: Installing usb_serial_jtag_driver\n");
   ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_serial_config));
 #endif
-
   uart_config_t uart_config = {
     .baud_rate = 115200,
     .data_bits = UART_DATA_8_BITS,
@@ -103,24 +119,19 @@ void initConsole(){
     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     .rx_flow_ctrl_thresh = 122,
   };
-  initUart(uart_console,uart_config,-1,-1);
-
-  // should we use hardware flow control on most ESP32 boards?
-  // No... It looks like CTS is not connected on most boards, so XON/XOFF is best!
+  initUart(uart_console, uart_config, -1, -1);
   jshSetFlowControlEnabled(EV_SERIAL1, true, PIN_UNDEFINED);
-  jshSetDeviceInitialised(EV_SERIAL1,true);
+  jshSetDeviceInitialised(EV_SERIAL1, true);
 }
 
-uint8_t rxbuf[256];
+static uint8_t rxbuf[256];
+
 void consoleToEspruino(){
-  TickType_t ticksToWait = 100;
-#if ESP_IDF_VERSION_MAJOR>=4
-  ticksToWait = 50 / portTICK_RATE_MS;
-#endif
+  TickType_t ticksToWait = pdMS_TO_TICKS(50);
 #ifdef ESPR_USE_USB_SERIAL_JTAG
   int len = usb_serial_jtag_read_bytes(rxbuf, sizeof(rxbuf), ticksToWait);
 #else
-  int len = uart_read_bytes(uart_console, rxbuf, sizeof(rxbuf), ticksToWait);  // Read data from UART
+  int len = uart_read_bytes(uart_console, rxbuf, sizeof(rxbuf), ticksToWait);
 #endif
   if(len > 0) jshPushIOCharEvents(EV_SERIAL1, rxbuf, len);
 }
@@ -128,21 +139,28 @@ void consoleToEspruino(){
 void serialToEspruino(){
   int len;
   if(serial2_initialized){
-    len = uart_read_bytes(uart_Serial2,rxbuf, sizeof(rxbuf),0);
-    if(len > 0)jshPushIOCharEvents(EV_SERIAL2, rxbuf, len);
+    len = uart_read_bytes(uart_Serial2, rxbuf, sizeof(rxbuf), 0);
+    if(len > 0) jshPushIOCharEvents(EV_SERIAL2, rxbuf, len);
   }
+
 #if ESPR_USART_COUNT>2
   if(serial3_initialized){
-    len = uart_read_bytes(uart_Serial3,rxbuf, sizeof(rxbuf),0);
-    if(len > 0) jshPushIOCharEvents(EV_SERIAL3, rxbuf,len);
+    len = uart_read_bytes(uart_Serial3, rxbuf, sizeof(rxbuf), 0);
+    if(len > 0) jshPushIOCharEvents(EV_SERIAL3, rxbuf, len);
   }
 #endif
 }
 
-void writeSerial(IOEventFlags device,uint8_t c){
-  char str[2]; int r;
-  str[1] = '\0';
-  str[0] = (char)c;
-  if(device == EV_SERIAL2){ r = uart_write_bytes(uart_Serial2, (const char*)str,1);}
-  else{r = uart_write_bytes(uart_Serial3, (const char*)str,1);}
+void writeSerial(IOEventFlags device, uint8_t c){
+  char str[2] = { (char)c, '\0' };
+  int r = 0;
+  if(device == EV_SERIAL2 && serial2_initialized){
+    r = uart_write_bytes(uart_Serial2, str, 1);
+  }
+#if ESPR_USART_COUNT>2
+  else if(device == EV_SERIAL3 && serial3_initialized){
+    r = uart_write_bytes(uart_Serial3, str, 1);
+  }
+#endif
+  (void)r; 
 }

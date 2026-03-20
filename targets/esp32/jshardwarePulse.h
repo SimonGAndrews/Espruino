@@ -15,18 +15,30 @@
  * ----------------------------------------------------------------------------
  */
 
+#ifndef JSHARDWAREPULSE_H_
+#define JSHARDWAREPULSE_H_
+
 #include "jspininfo.h"
+#include <stdbool.h>
 
-#define RMTChannelMax 8 //maximum RMT channel
+#define RMTChannelMax 8  // maximum RMT channels available
 
-typedef struct {  //will be extended once we know more about RMT functions for Espruino on ESP32
-  Pin pin;
+typedef struct {
+    Pin pin;
+#if ESP_IDF_VERSION_MAJOR >= 5
+    void *rmt_handle;   // rmt_channel_handle_t in IDF5, stored as void* for compatibility
+#endif
 } RMTChannel;
+
 extern RMTChannel RMTChannels[RMTChannelMax];
 
 void RMTInit();
 void RMTReset();
-void sendPulse(Pin pin,              //!< The pin to be pulsed.
-    bool pulsePolarity,   //!< The value to be pulsed into the pin.
-    int duration  //!< The duration in microseconds to hold the pin.
+
+void sendPulse(
+    Pin pin,
+    bool pulsePolarity,
+    int duration
 );
+
+#endif /* JSHARDWAREPULSE_H_ */

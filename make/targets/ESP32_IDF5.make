@@ -24,22 +24,17 @@ else
 	endif
 endif
 
-#	@echo 'if(DEFINED QEMU_BUILD)' >> $(CMAKEFILE)
-#	@echo 'list(APPEND SDKCONFIG_DEFAULTS sdkconfig.qemu)' >> $(CMAKEFILE)
-#	@echo 'endif()' >> $(CMAKEFILE)
-
 $(CMAKEFILE):
-	@mkdir -p $(BINDIR)/main
 	@echo "MAKE CMAKEFILE" 
+	@echo "INCLUDE_WITHOUT_GEN: $(INCLUDE_WITHOUT_GEN)"
+	@mkdir -p $(BINDIR)/main
 	@touch $(CMAKEFILE)
-	@echo 'set(MINIMAL_BUILD ON)' >> $(CMAKEFILE)
-	@echo 'set(SDKCONFIG_DEFAULTS sdkconfig.defaults sdkconfig.qemu)' >> $(CMAKEFILE)
+	@echo 'set(SDKCONFIG_DEFAULTS sdkconfig.defaults)' >> $(CMAKEFILE)
 	@echo "idf_component_register(" >> $(CMAKEFILE)
 	@echo "    SRCS" >> $(CMAKEFILE)
 	@for s in $(SOURCES); do \
 		echo "        $(ROOT)/$$s" >> $(CMAKEFILE); \
 	done
-
 	@echo "    INCLUDE_DIRS" >> $(CMAKEFILE)
 	@for d in $(INCLUDE_WITHOUT_GEN); do \
 		path=$${d#-I}; \
@@ -47,7 +42,6 @@ $(CMAKEFILE):
 		path=$${path%;}; \
 		echo "        $$path" >> $(CMAKEFILE); \
 	done
-
 	@echo "    PRIV_REQUIRES" >> $(CMAKEFILE)
 	@for d in freertos \
 		esp_common \
@@ -61,19 +55,11 @@ $(CMAKEFILE):
 		nvs_flash \
 		bt \
 		app_update \
-		esp_driver_gptimer \
-		esp_driver_gpio \
-		esp_driver_uart \
-		esp_driver_spi \
-		esp_driver_i2c \
-		esp_driver_ledc \
-		esp_driver_rmt \
-		esp_adc; do \
+		esp_adc \
+		driver; do \
 		echo "        $$d" >> $(CMAKEFILE); \
 	done
-
 	@echo ")" >> $(CMAKEFILE)
-	
 	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC -DESP_IDF_VERSION_MAJOR=5)" >> $(CMAKEFILE)
 	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC $(DEFINES))" >> $(CMAKEFILE)
 	@echo "target_compile_options(\$${COMPONENT_LIB} PUBLIC -Og -fno-strict-aliasing -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -fgnu89-inline -nostdlib -MMD -MP -Wno-enum-compare)" >> $(CMAKEFILE)
@@ -89,8 +75,7 @@ $(CMAKEFILE):
 	@echo "target_compile_options(\$${COMPONENT_LIB} PRIVATE -Wno-format)" >> $(CMAKEFILE)
 
 $(PROJ_NAME).bin: $(CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININFOFILE).c $(WRAPPERFILE)
-	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)/
-	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.qemu $(BINDIR)/
+	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/CMakeLists.txt $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/partitions.csv $(BINDIR)
 	cd $(BINDIR) && idf.py build
@@ -113,6 +98,9 @@ proj: $(ESP_ZIP)
 
 flash: $(PROJ_NAME).bin
 	cd $(BINDIR) && idf.py flash -p $(PORT)
+
+monitor: $(PROJ_NAME).bin
+	cd $(BINDIR) && idf.py monitor -p $(PORT)
 
 # flashes but also automatically runs a terminal app right after
 # Use Ctrl-] to exit
