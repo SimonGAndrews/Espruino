@@ -40,7 +40,7 @@ $(RP2040_CMAKEFILE): FORCE
 
 $(RP2040_BUILD_STAMP): $(RP2040_CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININFOFILE).c $(WRAPPERFILE)
 	@if [ -z "$(PICO_SDK_PATH)" ]; then \
-		echo "ERROR: PICO_SDK_PATH is not set. Run: source scripts/provision.sh PICO_RP2040"; \
+		echo "ERROR: PICO_SDK_PATH is not set. Run: source scripts/provision.sh RP2040_PICO"; \
 		exit 1; \
 	fi
 	@cmake -S $(RP2040_CMAKE_DIR) -B $(RP2040_CMAKE_BUILD_DIR) -DPICO_BOARD=$(PICO_BOARD) $(if $(picotool_DIR),-Dpicotool_DIR=$(picotool_DIR),)

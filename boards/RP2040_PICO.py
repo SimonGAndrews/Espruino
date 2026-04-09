@@ -13,11 +13,11 @@ info = {
   "name": "Raspberry Pi Pico (RP2040)",
   "link": [ "https://espruino.com/Pico" ],
   "espruino_page_link": "Pico",
-  "boardname": "ESPR_PICO_RP2040",
+  "boardname": "ESPR_RP2040_PICO",
   "default_console": "EV_USBSERIAL",
   "variables": 12000,
   "io_buffer_size": 4096,
-  "binary_name": "espruino_%v_pico_rp2040.uf2",
+  "binary_name": "espruino_%v_rp2040_pico.uf2",
   "build": {
     "optimizeflags": "-Og",
     "libraries": [],
