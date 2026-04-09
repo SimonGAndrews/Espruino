@@ -158,12 +158,12 @@ Generated from `src/jshardware.h`.
 | `jshI2CWrite` | 12 | yes | yes | yes | implemented | M2 | `I2C.writeTo` | Yes | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` |
 | `jshI2CRead` | 12 | yes | yes | yes | implemented | M2 | `I2C.readFrom` | Yes | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` |
 | `jshFlashGetPage` | 11 | yes | yes | yes | implemented | M1 | `Flash.getPage` | No | 4 KiB page model |
-| `jshFlashGetFree` | 10 | yes | yes | yes | partial | M2 | `Flash.getFree` | No | placeholder empty array |
-| `jshFlashErasePage` | 13 | yes | yes | yes | stubbed | M2 | `Flash.erasePage` | No | no erase backend |
-| `jshFlashErasePages` | 4 |  | yes |  | stubbed | M2 | `?Flash.erasePage` | No | no erase backend |
+| `jshFlashGetFree` | 10 | yes | yes | yes | implemented | M2 | `Flash.getFree` | Yes | returns the fixed RP2040 saved-code bank at the top of flash |
+| `jshFlashErasePage` | 13 | yes | yes | yes | implemented | M2 | `Flash.erasePage` | Yes | RP2040 sector erase constrained to the saved-code bank |
+| `jshFlashErasePages` | 4 |  | yes |  | weak default | M2 | `?Flash.erasePage` | No | not overridden; single-page erase path is used |
 | `jshFlashRead` | 16 | yes | yes | yes | implemented | M1 | `Flash.read / Storage.read` | No | XIP flash read |
-| `jshFlashWrite` | 12 | yes | yes | yes | stubbed | M2 | `Flash.write / Storage.write` | No | no write backend |
-| `jshFlashWriteAligned` | 4 |  |  |  | stubbed | M2 | `?Flash.write` | No | depends on stubbed write |
+| `jshFlashWrite` | 12 | yes | yes | yes | implemented | M2 | `Flash.write / Storage.write` | Yes | RP2040 page-program path validated by `Flash` roundtrip and `Storage` write/read |
+| `jshFlashWriteAligned` | 4 |  |  |  | implemented (common) | M2 | `?Flash.write` | Yes | common helper now works on RP2040 because target `jshFlashWrite` exists |
 | `jshFlashGetMemMapAddress` | 11 | yes | yes | yes | implemented | M1 | `Flash.read / Storage.read` | No | XIP mapping only |
 | `jshUtilTimerStart` | 9 | yes | yes | yes | stubbed | M2 | `setInterval / setTimeout` | No | no util timer backend |
 | `jshUtilTimerReschedule` | 9 | yes | yes | yes | stubbed | M2 | `setInterval / setTimeout` | No | no util timer backend |

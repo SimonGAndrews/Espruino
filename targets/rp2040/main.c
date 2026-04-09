@@ -12,7 +12,7 @@ int main(void) {
   jsvInit(JSVAR_CACHE_SIZE);
 
   // start Espruino
-  jsiInit(false);
+  jsiInit(true);
   rp2040EarlyLog("RP2040 boot: jsiInit ok\r\n");
 
   // Start RP2040 USB after interpreter init so regular idle/task servicing is

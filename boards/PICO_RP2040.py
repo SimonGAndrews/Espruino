@@ -38,7 +38,13 @@ chip = {
   "spi": 2,
   "i2c": 2,
   "adc": 1,
-  "dac": 0
+  "dac": 0,
+  "saved_code": {
+    "address": 0x081C0000,
+    "page_size": 4096,
+    "pages": 64,
+    "flash_available": 1792,
+  },
 }
 
 devices = {

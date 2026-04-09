@@ -11,6 +11,7 @@
 #include "jstimer.h"
 
 #include "pico/bootrom.h"
+#include "pico/flash.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "pico/unique_id.h"
@@ -19,6 +20,7 @@
 
 #include "hardware/adc.h"
 #include "hardware/clocks.h"
+#include "hardware/flash.h"
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
@@ -32,7 +34,8 @@
 #include "tusb.h"
 #endif
 
-#define RP2040_FLASH_PAGE_SIZE 4096u
+#define RP2040_FLASH_SECTOR_SIZE FLASH_SECTOR_SIZE
+#define RP2040_FLASH_PROGRAM_SIZE FLASH_PAGE_SIZE
 #define RP2040_XIP_BASE 0x10000000u
 
 #if !defined(RELEASE) && defined(RP2040_DEBUG_EARLY_BOOT)
@@ -66,6 +69,17 @@ BITFIELD_DECL(jshPinSoftPWM, JSH_PIN_COUNT);
 
 static uint32_t rpIrqStateStack[8];
 static uint8_t rpIrqStateStackLen = 0;
+
+typedef struct {
+  uint32_t offset;
+  size_t count;
+} RpFlashEraseOp;
+
+typedef struct {
+  uint32_t offset;
+  size_t count;
+  const uint8_t *data;
+} RpFlashProgramOp;
 
 void NVIC_SystemReset(void) {
   watchdog_reboot(0, 0, 0);
@@ -481,8 +495,39 @@ static bool rpFlashAddrValid(uint32_t addr, uint32_t len) {
   return (addr - FLASH_START) <= (FLASH_TOTAL - len);
 }
 
+static bool rpFlashAddrInSavedCode(uint32_t addr, uint32_t len) {
+  if (!rpFlashAddrValid(addr, len)) return false;
+  if (addr < FLASH_SAVED_CODE_START) return false;
+  return (addr - FLASH_SAVED_CODE_START) <= (FLASH_SAVED_CODE_LENGTH - len);
+}
+
 static uint32_t rpFlashOffset(uint32_t addr) {
   return addr - FLASH_START;
+}
+
+static void addFlashArea(JsVar *jsFreeFlash, uint32_t addr, uint32_t length) {
+  JsVar *jsArea = jsvNewObject();
+  if (!jsArea) return;
+  jsvObjectSetChildAndUnLock(jsArea, "addr", jsvNewFromInteger((JsVarInt)addr));
+  jsvObjectSetChildAndUnLock(jsArea, "length", jsvNewFromInteger((JsVarInt)length));
+  jsvArrayPushAndUnLock(jsFreeFlash, jsArea);
+}
+
+static void rpFlashEraseUnsafe(void *param) {
+  RpFlashEraseOp *op = (RpFlashEraseOp *)param;
+  flash_range_erase(op->offset, op->count);
+}
+
+static void rpFlashProgramUnsafe(void *param) {
+  RpFlashProgramOp *op = (RpFlashProgramOp *)param;
+  flash_range_program(op->offset, op->data, op->count);
+}
+
+static bool rpFlashSafeExecute(void (*func)(void *), void *param, const char *op) {
+  int rc = flash_safe_execute(func, param, 1000);
+  if (rc == PICO_OK) return true;
+  jsExceptionHere(JSET_INTERNALERROR, "%s: flash_safe_execute rc=%d", op, rc);
+  return false;
 }
 
 static void rpEarlyLogInit(void) {
@@ -1032,17 +1077,30 @@ void jshI2CRead(IOEventFlags device, unsigned char address, int nBytes, unsigned
 
 bool jshFlashGetPage(uint32_t addr, uint32_t *startAddr, uint32_t *pageSize) {
   if (!rpFlashAddrValid(addr, 1)) return false;
-  if (startAddr) *startAddr = addr - (addr % RP2040_FLASH_PAGE_SIZE);
-  if (pageSize) *pageSize = RP2040_FLASH_PAGE_SIZE;
+  if (startAddr) *startAddr = addr - (addr % RP2040_FLASH_SECTOR_SIZE);
+  if (pageSize) *pageSize = RP2040_FLASH_SECTOR_SIZE;
   return true;
 }
 
 JsVar *jshFlashGetFree() {
-  return jsvNewEmptyArray();
+  JsVar *jsFreeFlash = jsvNewEmptyArray();
+  if (!jsFreeFlash) return 0;
+  addFlashArea(jsFreeFlash, FLASH_SAVED_CODE_START, FLASH_SAVED_CODE_LENGTH);
+  return jsFreeFlash;
 }
 
 void jshFlashErasePage(uint32_t addr) {
-  NOT_USED(addr);
+  uint32_t pageAddr = addr - (addr % RP2040_FLASH_SECTOR_SIZE);
+  if (!rpFlashAddrInSavedCode(pageAddr, RP2040_FLASH_SECTOR_SIZE)) {
+    jsExceptionHere(JSET_ERROR, "jshFlashErasePage: address 0x%08x outside saved flash", addr);
+    return;
+  }
+
+  RpFlashEraseOp op = {
+    .offset = rpFlashOffset(pageAddr),
+    .count = RP2040_FLASH_SECTOR_SIZE,
+  };
+  rpFlashSafeExecute(rpFlashEraseUnsafe, &op, "jshFlashErasePage");
 }
 
 void jshFlashRead(void *buf, uint32_t addr, uint32_t len) {
@@ -1055,9 +1113,40 @@ void jshFlashRead(void *buf, uint32_t addr, uint32_t len) {
 }
 
 void jshFlashWrite(void *buf, uint32_t addr, uint32_t len) {
-  NOT_USED(buf);
-  NOT_USED(addr);
-  NOT_USED(len);
+  if (!buf || !len) return;
+  if (!rpFlashAddrInSavedCode(addr, len)) {
+    jsExceptionHere(JSET_ERROR, "jshFlashWrite: range 0x%08x+%u outside saved flash", addr, len);
+    return;
+  }
+
+  uint8_t *src = (uint8_t *)buf;
+  uint8_t pageBuf[RP2040_FLASH_PROGRAM_SIZE];
+  while (len) {
+    uint32_t pageAddr = addr - (addr % RP2040_FLASH_PROGRAM_SIZE);
+    uint32_t pageOffset = addr - pageAddr;
+    uint32_t writeLen = RP2040_FLASH_PROGRAM_SIZE - pageOffset;
+    if (writeLen > len) writeLen = len;
+
+    memcpy(pageBuf, (const void *)(RP2040_XIP_BASE + rpFlashOffset(pageAddr)), RP2040_FLASH_PROGRAM_SIZE);
+    memcpy(pageBuf + pageOffset, src, writeLen);
+
+    RpFlashProgramOp op = {
+      .offset = rpFlashOffset(pageAddr),
+      .count = RP2040_FLASH_PROGRAM_SIZE,
+      .data = pageBuf,
+    };
+    if (!rpFlashSafeExecute(rpFlashProgramUnsafe, &op, "jshFlashWrite"))
+      return;
+
+    if (memcmp((const void *)(RP2040_XIP_BASE + rpFlashOffset(pageAddr)), pageBuf, RP2040_FLASH_PROGRAM_SIZE) != 0) {
+      jsExceptionHere(JSET_INTERNALERROR, "jshFlashWrite: verification failed at 0x%08x", pageAddr);
+      return;
+    }
+
+    addr += writeLen;
+    src += writeLen;
+    len -= writeLen;
+  }
 }
 
 size_t jshFlashGetMemMapAddress(size_t ptr) {
