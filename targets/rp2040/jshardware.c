@@ -38,6 +38,9 @@
 #define RP2040_FLASH_PROGRAM_SIZE FLASH_PAGE_SIZE
 #define RP2040_XIP_BASE 0x10000000u
 
+// Early boot logging is only intended for bring-up and explicit diagnostics.
+// Release builds stay quiet by default, and debug builds only log when the
+// dedicated RP2040_DEBUG_EARLY_BOOT define is enabled.
 #if !defined(RELEASE) && defined(RP2040_DEBUG_EARLY_BOOT)
 #define RP2040_EARLY_LOG_ENABLED 1
 #else
@@ -70,6 +73,8 @@ BITFIELD_DECL(jshPinSoftPWM, JSH_PIN_COUNT);
 static uint32_t rpIrqStateStack[8];
 static uint8_t rpIrqStateStackLen = 0;
 
+// flash_safe_execute takes a single callback parameter, so erase/program
+// operations are wrapped in small structs before being handed to the Pico SDK.
 typedef struct {
   uint32_t offset;
   size_t count;
@@ -87,6 +92,10 @@ void NVIC_SystemReset(void) {
     tight_loop_contents();
   }
 }
+
+// -----------------------------------------------------------------------------
+// Pin helpers and shared peripheral state
+// -----------------------------------------------------------------------------
 
 static bool rpPinIsValid(Pin pin) {
   return pin != PIN_UNDEFINED && pin < JSH_PIN_COUNT;
@@ -110,6 +119,9 @@ static void rpAdcEnsureInitialised(void) {
   rpAdcInitialised = true;
 }
 
+// RP2040 PWM uses a shared source clock with per-slice divisors. These helpers
+// keep the rounding logic in one place so jshPinAnalogOutput can choose a
+// sensible hardware PWM setup before falling back to software PWM.
 static uint32_t rpPwmGetSliceHz(uint32_t offset, uint32_t div16) {
   uint32_t source_hz = clock_get_hz(clk_sys);
   if (source_hz + offset / 16 > 268000000) {
@@ -127,6 +139,8 @@ static uint32_t rpPwmGetSliceHzCeil(uint32_t div16) {
   return rpPwmGetSliceHz(div16 - 1, div16);
 }
 
+// Fulfil jshPinAnalogOutput's hardware-PWM path by selecting a divider/wrap
+// pair that keeps the requested frequency within RP2040 slice limits.
 static bool rpPwmConfigure(uint slice, JsVarFloat freq) {
   const uint32_t top_max = 65534;
   uint32_t source_hz = clock_get_hz(clk_sys);
@@ -282,6 +296,13 @@ static void rpSpiResetAll(void) {
     rpSpiUnsetupIdx(i);
 }
 
+// -----------------------------------------------------------------------------
+// I2C and SPI setup helpers
+// -----------------------------------------------------------------------------
+
+// Fulfil jshI2CSetup by selecting the requested Espruino device, resolving
+// default pins from board metadata if needed, and then binding them to RP2040
+// hardware I2C.
 static bool rpI2cEnsureInitialised(IOEventFlags device, JshI2CInfo *inf) {
   int idx = rpI2cIndexFromDevice(device);
   if (idx < 0) {
@@ -334,6 +355,9 @@ static bool rpI2cGetReady(IOEventFlags device, i2c_inst_t **inst) {
   return *inst != NULL;
 }
 
+// Fulfil jshSPISetup using RP2040 hardware SPI. Pin defaults come from the
+// board definition, while transfer-format state is cached for later jshSPISend*
+// calls because the Espruino SPI contract can change format after setup.
 static bool rpSpiEnsureInitialised(IOEventFlags device, JshSPIInfo *inf) {
   int idx = rpSpiIndexFromDevice(device);
   if (idx < 0) {
@@ -419,6 +443,10 @@ static int rpWatchSlotForPin(Pin pin) {
   return -1;
 }
 
+// -----------------------------------------------------------------------------
+// Watch and GPIO interrupt support
+// -----------------------------------------------------------------------------
+
 static void rpWatchDisablePinIrq(Pin pin) {
   if (!rpPinIsValid(pin)) return;
   gpio_set_irq_enabled(rpPinToGpio(pin), GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, false);
@@ -436,6 +464,9 @@ static void rpWatchResetAll(void) {
   restore_interrupts(irqState);
 }
 
+// RP2040 exposes one shared GPIO IRQ on each core. Watched pins are tracked in
+// software and translated into Espruino EV_EXTI slots here before the normal
+// deferred event path takes over.
 static void CALLED_FROM_INTERRUPT rpWatchBank0Irq(void) {
   for (int slot = 0; slot < ESPR_EXTI_COUNT; slot++) {
     Pin pin = rpWatchPins[slot];
@@ -489,6 +520,9 @@ static void rpPinApplyState(Pin pin, JshPinState state) {
   }
 }
 
+// Espruino's flash helpers use logical flash addresses, while RP2040 code reads
+// from XIP and writes by raw flash offset. These helpers keep the range checks
+// and translations in one place.
 static bool rpFlashAddrValid(uint32_t addr, uint32_t len) {
   if (addr < FLASH_START) return false;
   if (len > FLASH_TOTAL) return false;
@@ -505,6 +539,12 @@ static uint32_t rpFlashOffset(uint32_t addr) {
   return addr - FLASH_START;
 }
 
+// -----------------------------------------------------------------------------
+// Flash persistence helpers
+// -----------------------------------------------------------------------------
+
+// jshFlashGetFree returns an array of {addr,length} objects, so target flash
+// ranges are published into JS using this small helper.
 static void addFlashArea(JsVar *jsFreeFlash, uint32_t addr, uint32_t length) {
   JsVar *jsArea = jsvNewObject();
   if (!jsArea) return;
@@ -530,6 +570,13 @@ static bool rpFlashSafeExecute(void (*func)(void *), void *param, const char *op
   return false;
 }
 
+// -----------------------------------------------------------------------------
+// Early logging and USB bring-up helpers
+// -----------------------------------------------------------------------------
+
+// Early boot logging is intentionally separate from the normal console path so
+// low-level bring-up messages can be emitted before USB or Espruino devices are
+// available.
 static void rpEarlyLogInit(void) {
 #if RP2040_EARLY_LOG_ENABLED
   if (rpEarlyLogInitialised) return;
@@ -576,6 +623,14 @@ void rp2040UsbInitNow(void) {
 #endif
 }
 
+// -----------------------------------------------------------------------------
+// jshardware lifecycle and runtime service hooks
+// -----------------------------------------------------------------------------
+
+// jshInit performs target-wide hardware initialisation expected by the
+// jshardware.h contract. Peripheral-specific init remains lazy where practical,
+// but shared infrastructure such as USB board init and the watch IRQ handler is
+// installed here.
 void jshInit() {
 #ifdef USB
   board_init();
@@ -620,6 +675,8 @@ void jshReset() {
   rpSpiResetAll();
 }
 
+// jshIdle is the RP2040 target's main service point for USB CDC traffic and
+// one-time post-startup bookkeeping.
 void jshIdle() {
 #ifdef USB
   tud_task();
@@ -690,12 +747,19 @@ JsVarFloat jshGetMillisecondsFromTime(JsSysTime time) {
   return ((JsVarFloat)time) / 1000.0;
 }
 
+// -----------------------------------------------------------------------------
+// Interrupt and pin I/O contract functions
+// -----------------------------------------------------------------------------
+
 void jshInterruptOff() {
   uint32_t irqState = save_and_disable_interrupts();
   if (rpIrqStateStackLen < (sizeof(rpIrqStateStack) / sizeof(rpIrqStateStack[0])))
     rpIrqStateStack[rpIrqStateStackLen++] = irqState;
 }
 
+// Espruino allows nested interrupt-off sections. The target keeps a small local
+// stack of IRQ state so paired jshInterruptOff/jshInterruptOn calls unwind in
+// the expected order.
 void jshInterruptOn() {
   if (rpIrqStateStackLen)
     restore_interrupts(rpIrqStateStack[--rpIrqStateStackLen]);
@@ -739,6 +803,10 @@ JshPinState jshPinGetState(Pin pin) {
   return rpPinState[pin];
 }
 
+// -----------------------------------------------------------------------------
+// ADC and PWM contract functions
+// -----------------------------------------------------------------------------
+
 JsVarFloat jshPinAnalog(Pin pin) {
   if (!rpPinHasAdc(pin)) return NAN;
   if (!jshGetPinStateIsManual(pin))
@@ -762,6 +830,9 @@ int jshPinAnalogFast(Pin pin) {
   return value;
 }
 
+// Fulfil jshPinAnalogOutput using hardware PWM when the requested frequency can
+// be represented by an RP2040 slice. Software PWM remains available when the
+// caller allows it or explicitly forces it.
 JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, JshAnalogOutputFlags flags) {
   if (!rpPinIsValid(pin)) return JSH_NOTHING;
   if (value < 0) value = 0;
@@ -877,6 +948,10 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
   return false;
 }
 
+// -----------------------------------------------------------------------------
+// USART, SPI, and I2C contract functions
+// -----------------------------------------------------------------------------
+
 void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
   NOT_USED(device);
   NOT_USED(inf);
@@ -902,6 +977,8 @@ void jshUSARTKick(IOEventFlags device) {
 #endif
 }
 
+// SPI setup and transfer calls are thin contract adapters over the cached
+// RP2040 hardware-SPI state prepared by rpSpiEnsureInitialised().
 void jshSPISetup(IOEventFlags device, JshSPIInfo *inf) {
   if (!inf) return;
   rpSpiEnsureInitialised(device, inf);
@@ -982,6 +1059,9 @@ void jshSPIWait(IOEventFlags device) {
   spi_get_hw(inst)->icr = SPI_SSPICR_RORIC_BITS;
 }
 
+// jshSPISendMany fulfils Espruino's buffered SPI transfer contract. The RP2040
+// backend keeps the implementation synchronous for now and completes the
+// callback immediately after the transfer.
 bool jshSPISendMany(IOEventFlags device, unsigned char *tx, unsigned char *rx, size_t count, void (*callback)()) {
   spi_inst_t *inst;
   int idx;
@@ -1075,6 +1155,10 @@ void jshI2CRead(IOEventFlags device, unsigned char address, int nBytes, unsigned
   }
 }
 
+// -----------------------------------------------------------------------------
+// Flash contract functions
+// -----------------------------------------------------------------------------
+
 bool jshFlashGetPage(uint32_t addr, uint32_t *startAddr, uint32_t *pageSize) {
   if (!rpFlashAddrValid(addr, 1)) return false;
   if (startAddr) *startAddr = addr - (addr % RP2040_FLASH_SECTOR_SIZE);
@@ -1082,6 +1166,8 @@ bool jshFlashGetPage(uint32_t addr, uint32_t *startAddr, uint32_t *pageSize) {
   return true;
 }
 
+// RP2040_PICO uses one explicit saved-code reservation. Exposing exactly that
+// range through jshFlashGetFree keeps Storage/save() bounded away from firmware.
 JsVar *jshFlashGetFree() {
   JsVar *jsFreeFlash = jsvNewEmptyArray();
   if (!jsFreeFlash) return 0;
@@ -1089,6 +1175,8 @@ JsVar *jshFlashGetFree() {
   return jsFreeFlash;
 }
 
+// Flash erase is only valid inside the reserved saved-code bank. Page addresses
+// are normalised to RP2040 4 KB erase sectors before calling flash_safe_execute.
 void jshFlashErasePage(uint32_t addr) {
   uint32_t pageAddr = addr - (addr % RP2040_FLASH_SECTOR_SIZE);
   if (!rpFlashAddrInSavedCode(pageAddr, RP2040_FLASH_SECTOR_SIZE)) {
@@ -1112,6 +1200,9 @@ void jshFlashRead(void *buf, uint32_t addr, uint32_t len) {
   memcpy(buf, (const void *)(RP2040_XIP_BASE + rpFlashOffset(addr)), len);
 }
 
+// RP2040 flash programs in 256-byte pages. Partial writes therefore read the
+// existing XIP page into RAM, patch only the changed bytes, and then program
+// the full page back before verifying the result.
 void jshFlashWrite(void *buf, uint32_t addr, uint32_t len) {
   if (!buf || !len) return;
   if (!rpFlashAddrInSavedCode(addr, len)) {
@@ -1155,6 +1246,10 @@ size_t jshFlashGetMemMapAddress(size_t ptr) {
     return RP2040_XIP_BASE + rpFlashOffset(addr);
   return ptr;
 }
+
+// -----------------------------------------------------------------------------
+// Remaining platform hooks and stubs
+// -----------------------------------------------------------------------------
 
 void jshUtilTimerStart(JsSysTime period) {
   NOT_USED(period);
