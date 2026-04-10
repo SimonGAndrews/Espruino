@@ -979,7 +979,7 @@ void jsiInit(bool autoLoad) {
   consoleDevice = EV_LIMBO;
 #endif
 
-#if !defined(RELEASE)
+#ifndef RELEASE
   jsnSanityTest();
 #endif
 
