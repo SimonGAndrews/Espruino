@@ -52,6 +52,7 @@ $(CMAKEFILE):
 		esp_netif \
 		esp_wifi \
 		lwip \
+		mdns \
 		nvs_flash \
 		bt \
 		app_update \
@@ -78,6 +79,9 @@ $(PROJ_NAME).bin: $(CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININF
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/CMakeLists.txt $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/partitions.csv $(BINDIR)
+	$(Q)mkdir -p $(BINDIR)/main
+	# Only add mdns dependency if missing
+	$(Q)if [ ! -f "$(BINDIR)/main/idf_component.yml" ] || ! grep -q "espressif/mdns" "$(BINDIR)/main/idf_component.yml"; then cd $(BINDIR) && idf.py add-dependency "espressif/mdns^1.11.0"; fi
 	cd $(BINDIR) && idf.py build
 	$(Q)cp $(BINDIR)/build/espruino.bin $(PROJ_NAME).bin
 
@@ -95,6 +99,9 @@ $(ESP_ZIP): $(PROJ_NAME).bin
 
 proj: $(ESP_ZIP)
 #depend on $(PROJ_NAME).bin
+
+flash-erase: $(PROJ_NAME).bin
+	cd $(BINDIR) && idf.py erase-flash -p $(PORT)
 
 flash: $(PROJ_NAME).bin
 	cd $(BINDIR) && idf.py flash -p $(PORT)

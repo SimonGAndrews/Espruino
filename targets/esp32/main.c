@@ -4,7 +4,11 @@
 #include "esp_wifi.h"
 #include "esp_system.h"
 #include "esp_event.h"
+#if ESP_IDF_VERSION_MAJOR>=5
+#include "esp_event.h"
+#else
 #include "esp_event_loop.h"
+#endif
 #include "nvs_flash.h"
 
 #include <jsdevices.h>
@@ -17,9 +21,7 @@
 #include "jshardwarePulse.h"
 #include "jshardwareSpi.h"
 #include "jshardwareESP32.h"
-#ifdef NET 
-#include "jswrap_wifi.h" // jswrap_wifi_restore
-#endif
+#include "jswrap_wifi.h"
 #include "jswrapper.h"
 
 uintptr_t espruino_stackHighPtr = 0;
@@ -102,12 +104,8 @@ static void espruinoTask(void *data) {
 
   jsvInit(heapVars);     // Initialize the variables
 
-  // not sure why this delay is needed?
-  vTaskDelay(200 / portTICK_PERIOD_MS);
   jsiInit(true); // Initialize the interactive subsystem
-#ifdef NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_wifi_restore();
-#endif
 #ifdef BLUETOOTH
   bluetooth_initDeviceName();
 #endif

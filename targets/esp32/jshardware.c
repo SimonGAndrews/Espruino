@@ -50,11 +50,7 @@
 #include "jsparse.h"
 #include "jsinteractive.h"
 #include "jspininfo.h"
-
-#ifdef NET
 #include "jswrap_esp32_network.h"
-#endif
-
 #if ESP_IDF_VERSION_MAJOR>=4
 #include "soc/uart_reg.h"
 #include "esp_mac.h"
@@ -180,9 +176,11 @@ void jshInit() {
 #ifdef CONFIG_ESP_TASK_WDT
   ESP_LOGW("Espruino", "ESP-IDF task watchdog enabled in sdkconfig; E.enableWatchdog may behave inconsistently");
 #endif
-#ifdef NET
-  if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) esp32_wifi_init();
-#endif
+  esp32_wifi_init();
+  // Auto-reconnect if saved creds exist
+  //if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) {
+  //  jswrap_wifi_restore();  // Loads SSID/pass from NVS → auto-connect
+  //}
 #ifdef BLUETOOTH
   if(ESP32_Get_NVS_Status(ESP_NETWORK_BLE)) gattc_init();
 #endif
@@ -206,12 +204,9 @@ void jshReset() {
   jshResetDevices();
   jshPinDefaultPullup() ;
 //  UartReset();
-#if ESP_IDF_VERSION_MAJOR>=5
-#else
   RMTReset();
   ADCReset();
   I2CReset();
-#endif
   SPIReset();
 #ifdef BLUETOOTH
   if(ESP32_Get_NVS_Status(ESP_NETWORK_BLE)) gatts_reset(false);
@@ -840,15 +835,11 @@ JsVar *jshFlashGetFree() {
   return jsFreeFlash;
 }
 
-
-/**
- * Erase the flash page containing the address.
- */
-void jshFlashErasePage(
-    uint32_t addr //!<
-  ) {
+//Erase the flash page containing the address.
+void jshFlashErasePage(uint32_t addr) {
 #if ESP_IDF_VERSION_MAJOR>=5
-  esp_flash_erase_region(NULL, addr >> FLASH_PAGE_SHIFT, FLASH_PAGE);
+  esp_err_t err = esp_flash_erase_region(esp_flash_default_chip, addr, 4096);
+  assert(err == ESP_OK);
 #else
   spi_flash_erase_sector(addr >> FLASH_PAGE_SHIFT);
 #endif
