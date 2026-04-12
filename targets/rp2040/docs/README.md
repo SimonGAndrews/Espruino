@@ -28,6 +28,12 @@ That document records:
 - hardware validation state
 - remaining gaps and next steps
 
+Current validated highlights now include:
+
+- `I2C1` with one and two `MCP23008` devices on the shared harness bus
+- `I2C2` on `D14/D15` with a removable `SSD1306`-compatible OLED at `0x3c`
+- shared-bus `SPI1` validation with `MCP3008` and `W25xxx`
+
 ## Documentation Split
 
 Documentation for this port is split across two repositories.

@@ -20,9 +20,12 @@ info = {
   "binary_name": "espruino_%v_rp2040_pico.uf2",
   "build": {
     "optimizeflags": "-Og",
-    "libraries": [],
+    "libraries": [
+      "GRAPHICS"
+    ],
     "makefile": [
-      "DEFINES+=-DRP2040=1"
+      "DEFINES+=-DRP2040=1",
+      "DEFINES+=-DUSE_FONT_6X8"
     ]
   }
 }

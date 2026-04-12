@@ -41,6 +41,7 @@ Already implemented and proven on hardware:
 - watch/event delivery on real GPIO and expander interrupt paths
 - ADC read and first-pass PWM output on the standard harness
 - hardware `I2C1` setup/read/write on one and two devices on the same bus
+- hardware `I2C2` setup/read/write to a removable OLED on the second dedicated bus
 - hardware `SPI1` setup/send on a shared bus with `MCP3008` and `W25xxx`
 - flash read/write/erase in the saved-code bank
 - `Storage` and `save()` restore
@@ -49,7 +50,6 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 - hardware validation of `jshPinAnalogFast`
 - non-USB UART support
-- wider I2C coverage on the second dedicated Grove bus (`I2C2`)
 - wider SPI coverage for 16-bit transfers and additional mode/rate combinations
 - util timer behaviour
 - low-power and deeper power-management behaviour
@@ -58,7 +58,6 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 ### Next Hardware Validation Targets
 
-- dedicated `I2C2` validation on the second Grove connector
 - wider ADC/PWM coverage beyond the current standard harness node
 - wider SPI coverage for 16-bit transfers and additional bus settings
 - non-USB UART API validation
@@ -90,9 +89,9 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: `jshPinSetState`, `jshPinGetValue`, `jshPinSetValue`, `jshPinAnalog`, `jshPinAnalogOutput`, `jshPinWatch`, `jshFlash*`, `jshReboot`
 
 **`I2C`**
-- Proven: `I2C1.setup`, `writeTo`, `readFrom`, `readReg`
-- Outstanding: dedicated `I2C2` validation on the second Grove bus
-- Evidence: `testing/i2c_tests`, including two `MCP23008` devices on shared `I2C1`
+- Proven: `I2C1.setup`, `I2C2.setup`, `writeTo`, `readFrom`, `readReg`
+- Outstanding: broader second-bus device coverage beyond the current OLED
+- Evidence: `testing/i2c_tests`, including two `MCP23008` devices on shared `I2C1` and an `SSD1306`-compatible OLED at `0x3c` on `I2C2`
 - `jshardware`: `jshI2CSetup`, `jshI2CWrite`, `jshI2CRead`
 
 **`Modules`**
@@ -227,10 +226,10 @@ Generated from `src/jshardware.h`.
 | `jshSPISetReceive` | 12 | yes | yes | yes | implemented | M2 | `?SPI.send` | No | target state used to enable/disable receive path when MISO is present |
 | `jshSPIWait` | 14 | yes | yes | yes | implemented | M2 | `SPI.send` | No | blocking backend waits for idle and drains RX state |
 | `jshI2CInitInfo` | 7 |  |  |  | implemented (common) | M2 | `I2C.setup` | No | common helper |
-| `jshI2CSetup` | 12 | yes | yes | yes | implemented | M2 | `I2C.setup` | Yes | RP2040 hardware I2C master setup validated on `I2C1` with default/explicit pins and two `MCP23008` devices on one bus |
+| `jshI2CSetup` | 12 | yes | yes | yes | implemented | M2 | `I2C.setup` | Yes | RP2040 hardware I2C master setup validated on `I2C1` with default/explicit pins and two `MCP23008` devices on one bus, plus `I2C2` on `D14/D15` with an OLED at `0x3c` |
 | `jshI2CUnSetup` | 4 | yes |  |  | partial | M2 | `?I2C.unsetup` | No | weak default |
-| `jshI2CWrite` | 12 | yes | yes | yes | implemented | M2 | `I2C.writeTo` | Yes | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus |
-| `jshI2CRead` | 12 | yes | yes | yes | implemented | M2 | `I2C.readFrom` | Yes | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21` on the same bus |
+| `jshI2CWrite` | 12 | yes | yes | yes | implemented | M2 | `I2C.writeTo` | Yes | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus and OLED command/data traffic at `0x3c` on `I2C2` |
+| `jshI2CRead` | 12 | yes | yes | yes | implemented | M2 | `I2C.readFrom` | Yes | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21`; `I2C2` OLED validation is write-oriented and does not add meaningful controller readback |
 | `jshFlashGetPage` | 11 | yes | yes | yes | implemented | M1 | `Flash.getPage` | No | 4 KiB page model |
 | `jshFlashGetFree` | 10 | yes | yes | yes | implemented | M2 | `Flash.getFree` | Yes | returns the fixed RP2040 saved-code bank at the top of flash |
 | `jshFlashErasePage` | 13 | yes | yes | yes | implemented | M2 | `Flash.erasePage` | Yes | RP2040 sector erase constrained to the saved-code bank |
