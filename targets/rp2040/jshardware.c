@@ -53,6 +53,7 @@ static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
 static bool rpAdcInitialised = false;
+static bool rpUartInitialised[2] = { false, false };
 static bool rpI2cInitialised[2] = { false, false };
 static bool rpSpiInitialised[2] = { false, false };
 static bool rpSpiIs16[2] = { false, false };
@@ -63,6 +64,9 @@ static bool rpSpiMsb[2] = { true, true };
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
+static Pin rpUartPinRx[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static Pin rpUartPinTx[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+static uint64_t rpUartIgnoreNullUntilUs[2] = { 0, 0 };
 static Pin rpI2cPinScl[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpI2cPinSda[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpSpiPinSck[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
@@ -170,10 +174,20 @@ static int rpI2cIndexFromDevice(IOEventFlags device) {
   return -1;
 }
 
+static int rpUartIndexFromDevice(IOEventFlags device) {
+  if (device == EV_SERIAL2) return 1;
+  return -1;
+}
+
 static int rpSpiIndexFromDevice(IOEventFlags device) {
   if (device == EV_SPI1) return 0;
   if (device == EV_SPI2) return 1;
   return -1;
+}
+
+static uart_inst_t *rpUartFromIndex(int idx) {
+  if (idx == 1) return uart1;
+  return NULL;
 }
 
 static i2c_inst_t *rpI2cFromIndex(int idx) {
@@ -194,10 +208,23 @@ static bool rpI2cPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction i
   return func && ((func & JSH_MASK_INFO) == info);
 }
 
+static bool rpUartPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction info) {
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  JshPinFunction func = jshGetPinFunctionForPin(pin, funcType);
+  return func && ((func & JSH_MASK_INFO) == info);
+}
+
 static bool rpSpiPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction info) {
   JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
   JshPinFunction func = jshGetPinFunctionForPin(pin, funcType);
   return func && ((func & JSH_MASK_INFO) == info);
+}
+
+static void rpUartMarkPins(int idx, Pin pinRx, Pin pinTx) {
+  if (rpPinIsValid(pinRx)) rpPinState[pinRx] = JSHPINSTATE_GPIO_IN_PULLUP;
+  if (rpPinIsValid(pinTx)) rpPinState[pinTx] = JSHPINSTATE_USART_OUT;
+  rpUartPinRx[idx] = pinRx;
+  rpUartPinTx[idx] = pinTx;
 }
 
 static void rpI2cMarkPins(int idx, Pin pinScl, Pin pinSda) {
@@ -214,6 +241,21 @@ static void rpSpiMarkPins(int idx, Pin pinSck, Pin pinMiso, Pin pinMosi) {
   rpSpiPinSck[idx] = pinSck;
   rpSpiPinMiso[idx] = pinMiso;
   rpSpiPinMosi[idx] = pinMosi;
+}
+
+static void rpUartReleasePins(int idx) {
+  Pin pinRx = rpUartPinRx[idx];
+  Pin pinTx = rpUartPinTx[idx];
+  rpUartPinRx[idx] = PIN_UNDEFINED;
+  rpUartPinTx[idx] = PIN_UNDEFINED;
+  if (rpPinIsValid(pinRx)) {
+    gpio_set_function(rpPinToGpio(pinRx), GPIO_FUNC_SIO);
+    jshPinSetState(pinRx, JSHPINSTATE_GPIO_IN_PULLUP);
+  }
+  if (rpPinIsValid(pinTx)) {
+    gpio_set_function(rpPinToGpio(pinTx), GPIO_FUNC_SIO);
+    jshPinSetState(pinTx, JSHPINSTATE_GPIO_IN);
+  }
 }
 
 static void rpI2cReleasePins(int idx) {
@@ -250,6 +292,17 @@ static void rpSpiReleasePins(int idx) {
     gpio_set_function(rpPinToGpio(pinMosi), GPIO_FUNC_SIO);
     jshPinSetState(pinMosi, JSHPINSTATE_GPIO_IN);
   }
+}
+
+static void rpUartUnsetupIdx(int idx) {
+  uart_inst_t *inst = rpUartFromIndex(idx);
+  if (!inst) return;
+  if (rpUartInitialised[idx]) {
+    uart_deinit(inst);
+    rpUartInitialised[idx] = false;
+  }
+  rpUartIgnoreNullUntilUs[idx] = 0;
+  rpUartReleasePins(idx);
 }
 
 static void rpI2cUnsetupIdx(int idx) {
@@ -291,14 +344,99 @@ static void rpI2cResetAll(void) {
     rpI2cUnsetupIdx(i);
 }
 
+static void rpUartResetAll(void) {
+  for (int i = 0; i < 2; i++)
+    rpUartUnsetupIdx(i);
+}
+
 static void rpSpiResetAll(void) {
   for (int i = 0; i < 2; i++)
     rpSpiUnsetupIdx(i);
 }
 
 // -----------------------------------------------------------------------------
-// I2C and SPI setup helpers
+// USART, I2C, and SPI setup helpers
 // -----------------------------------------------------------------------------
+
+// Fulfil jshUSARTSetup using RP2040 hardware UARTs and Espruino-selected pins.
+// The RP2040 backend stays aligned with the shared Espruino serial model:
+// setup/configuration is target-local, RX feeds jshPushIOCharEvent(s), and TX
+// drains Espruino's transmit queue via jshGetCharToTransmit.
+static bool rpUartEnsureInitialised(IOEventFlags device, JshUSARTInfo *inf) {
+  int idx = rpUartIndexFromDevice(device);
+  if (idx < 0) {
+    jsExceptionHere(JSET_ERROR, "Only Serial2 supported");
+    return false;
+  }
+
+  JshPinFunction funcType = jshGetPinFunctionFromDevice(device);
+  if (!jshIsPinValid(inf->pinRX)) inf->pinRX = jshFindPinForFunction(funcType, JSH_USART_RX);
+  if (!jshIsPinValid(inf->pinTX)) inf->pinTX = jshFindPinForFunction(funcType, JSH_USART_TX);
+
+  if (!jshIsPinValid(inf->pinRX) || !jshIsPinValid(inf->pinTX)) {
+    jsExceptionHere(JSET_ERROR, "USART pins not valid");
+    return false;
+  }
+  if (!rpUartPinMatchesDevice(device, inf->pinRX, JSH_USART_RX) ||
+      !rpUartPinMatchesDevice(device, inf->pinTX, JSH_USART_TX)) {
+    jsExceptionHere(JSET_ERROR, "Selected pins do not match %s", jshGetDeviceString(device));
+    return false;
+  }
+
+  uart_inst_t *inst = rpUartFromIndex(idx);
+  if (!inst) {
+    jsExceptionHere(JSET_ERROR, "USART backend unavailable");
+    return false;
+  }
+
+  rpUartUnsetupIdx(idx);
+
+  if (inf->baudRate <= 0) inf->baudRate = DEFAULT_BAUD_RATE;
+  if (inf->bytesize < 7 || inf->bytesize > 8) {
+    jsExceptionHere(JSET_ERROR, "Unsupported USART bytesize %d", inf->bytesize);
+    return false;
+  }
+  if (inf->stopbits < 1 || inf->stopbits > 2) {
+    jsExceptionHere(JSET_ERROR, "Unsupported USART stopbits %d", inf->stopbits);
+    return false;
+  }
+
+  uart_parity_t parity = UART_PARITY_NONE;
+  if (inf->parity == 1) parity = UART_PARITY_ODD;
+  else if (inf->parity == 2) parity = UART_PARITY_EVEN;
+  else if (inf->parity != 0) {
+    jsExceptionHere(JSET_ERROR, "Unsupported USART parity %d", inf->parity);
+    return false;
+  }
+
+  // When TX and RX are physically looped for validation, keep TX high in GPIO
+  // mode before handing both pins to the UART peripheral. This avoids a false
+  // start bit while the pin functions are switching over.
+  gpio_init(rpPinToGpio(inf->pinTX));
+  gpio_set_dir(rpPinToGpio(inf->pinTX), GPIO_OUT);
+  gpio_put(rpPinToGpio(inf->pinTX), 1);
+  gpio_init(rpPinToGpio(inf->pinRX));
+  gpio_set_dir(rpPinToGpio(inf->pinRX), GPIO_IN);
+  gpio_pull_up(rpPinToGpio(inf->pinRX));
+
+  uart_init(inst, (uint)inf->baudRate);
+  uart_set_hw_flow(inst, false, false);
+  uart_set_format(inst, inf->bytesize, inf->stopbits, parity);
+  uart_set_fifo_enabled(inst, true);
+  gpio_set_function(rpPinToGpio(inf->pinTX), UART_FUNCSEL_NUM(inst, rpPinToGpio(inf->pinTX)));
+  gpio_set_function(rpPinToGpio(inf->pinRX), UART_FUNCSEL_NUM(inst, rpPinToGpio(inf->pinRX)));
+  gpio_pull_up(rpPinToGpio(inf->pinRX));
+  // A physical TX->RX loopback can produce an initial junk byte while the UART
+  // pins switch into their peripheral functions. Let the line settle and drain
+  // any immediately pending RX data before exposing the device to Espruino.
+  sleep_us(100);
+  while (uart_is_readable(inst)) (void)uart_getc(inst);
+  rpUartMarkPins(idx, inf->pinRX, inf->pinTX);
+  rpUartInitialised[idx] = true;
+  rpUartIgnoreNullUntilUs[idx] = time_us_64() + 100000;
+  jshSetFlowControlEnabled(device, inf->xOnXOff, inf->pinCTS);
+  return true;
+}
 
 // Fulfil jshI2CSetup by selecting the requested Espruino device, resolving
 // default pins from board metadata if needed, and then binding them to RP2040
@@ -649,6 +787,12 @@ void jshInit() {
     rpWatchLastState[i] = false;
   }
   BITFIELD_CLEAR(jshPinSoftPWM);
+  rpUartInitialised[0] = false;
+  rpUartInitialised[1] = false;
+  rpUartPinRx[0] = rpUartPinTx[0] = PIN_UNDEFINED;
+  rpUartPinRx[1] = rpUartPinTx[1] = PIN_UNDEFINED;
+  rpUartIgnoreNullUntilUs[0] = 0;
+  rpUartIgnoreNullUntilUs[1] = 0;
   rpI2cInitialised[0] = false;
   rpI2cInitialised[1] = false;
   rpI2cPinScl[0] = rpI2cPinSda[0] = PIN_UNDEFINED;
@@ -671,6 +815,7 @@ void jshReset() {
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
   BITFIELD_CLEAR(jshPinSoftPWM);
   rpWatchResetAll();
+  rpUartResetAll();
   rpI2cResetAll();
   rpSpiResetAll();
 }
@@ -689,6 +834,22 @@ void jshIdle() {
     }
   }
 #endif
+  for (int i = 0; i < 2; i++) {
+    if (!rpUartInitialised[i]) continue;
+    uart_inst_t *inst = rpUartFromIndex(i);
+    if (!inst) continue;
+    IOEventFlags device = (IOEventFlags)(EV_SERIAL1 + i);
+    char rxbuf[32];
+    size_t len = 0;
+    while (uart_is_readable(inst) && len < sizeof(rxbuf)) {
+      uint16_t raw = uart_get_hw(inst)->dr;
+      if (raw & (UART_UARTDR_BE_BITS | UART_UARTDR_FE_BITS | UART_UARTDR_PE_BITS | UART_UARTDR_OE_BITS)) continue;
+      char ch = (char)(raw & UART_UARTDR_DATA_BITS);
+      if (ch == 0 && time_us_64() < rpUartIgnoreNullUntilUs[i]) continue;
+      rxbuf[len++] = ch;
+    }
+    if (len) jshPushIOCharEvents(device, rxbuf, (unsigned int)len);
+  }
   if (rpFirstIdle) {
     jsiOneSecondAfterStartup();
     rpFirstIdle = false;
@@ -711,6 +872,7 @@ bool jshSleep(JsSysTime timeUntilWake) {
 void jshKill() {
   rpSpiResetAll();
   rpI2cResetAll();
+  rpUartResetAll();
 }
 
 int jshGetSerialNumber(unsigned char *data, int maxChars) {
@@ -941,6 +1103,8 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
 #ifdef USB
   if (device == EV_USBSERIAL) return rpUsbInitialised;
 #endif
+  int uartIdx = rpUartIndexFromDevice(device);
+  if (uartIdx >= 0) return rpUartInitialised[uartIdx];
   int spiIdx = rpSpiIndexFromDevice(device);
   if (spiIdx >= 0) return rpSpiInitialised[spiIdx];
   int i2cIdx = rpI2cIndexFromDevice(device);
@@ -953,8 +1117,11 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
 // -----------------------------------------------------------------------------
 
 void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
-  NOT_USED(device);
-  NOT_USED(inf);
+  if (!inf) return;
+#ifdef USB
+  if (device == EV_USBSERIAL) return;
+#endif
+  rpUartEnsureInitialised(device, inf);
 }
 
 void jshUSARTKick(IOEventFlags device) {
@@ -971,10 +1138,18 @@ void jshUSARTKick(IOEventFlags device) {
     }
     tud_cdc_write_flush();
     NOT_USED(transmitted);
+    return;
   }
-#else
-  NOT_USED(device);
 #endif
+  int idx = rpUartIndexFromDevice(device);
+  if (idx < 0 || !rpUartInitialised[idx]) return;
+  uart_inst_t *inst = rpUartFromIndex(idx);
+  if (!inst) return;
+  int c = jshGetCharToTransmit(device);
+  while (c >= 0) {
+    uart_putc_raw(inst, (char)c);
+    c = jshGetCharToTransmit(device);
+  }
 }
 
 // SPI setup and transfer calls are thin contract adapters over the cached

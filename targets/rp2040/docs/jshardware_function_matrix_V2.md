@@ -43,13 +43,14 @@ Already implemented and proven on hardware:
 - hardware `I2C1` setup/read/write on one and two devices on the same bus
 - hardware `I2C2` setup/read/write to a removable OLED on the second dedicated bus
 - hardware `SPI1` setup/send on a shared bus with `MCP3008` and `W25xxx`
+- hardware `Serial2` setup/read/write on `D4/D5` loopback
 - flash read/write/erase in the saved-code bank
 - `Storage` and `save()` restore
 
 Still stubbed, minimal, or not yet proven on hardware:
 
 - hardware validation of `jshPinAnalogFast`
-- non-USB UART support
+- `Serial1` and wider non-USB UART coverage beyond the validated `Serial2` loopback path
 - wider SPI coverage for 16-bit transfers and additional mode/rate combinations
 - util timer behaviour
 - low-power and deeper power-management behaviour
@@ -60,7 +61,7 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 - wider ADC/PWM coverage beyond the current standard harness node
 - wider SPI coverage for 16-bit transfers and additional bus settings
-- non-USB UART API validation
+- wider non-USB UART API validation beyond `Serial2` loopback
 - `OneWire` with a real device such as `DS18B20`
 
 ## 3. Espruino API Validation Summary
@@ -113,10 +114,10 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: GPIO, ADC/PWM, and watch-related `jshPin*` functions
 
 **`Serial`**
-- Proven: USB CDC REPL and Web IDE console path
-- Outstanding: hardware UART API validation on non-USB `Serial` devices
-- Evidence: standard REPL and Web IDE operation on the Pico CDC port
-- `jshardware`: `jshIsUSBSERIALConnected`, `jshUSARTKick`, RP2040 USB/runtime lifecycle helpers
+- Proven: USB CDC REPL and Web IDE console path, `Serial2.setup`, `write`, `read`, and `on("data",...)` on `D4/D5`
+- Outstanding: `Serial1` and wider hardware UART coverage beyond the validated `Serial2` path
+- Evidence: standard REPL and Web IDE operation on the Pico CDC port; `testing/serial_tests`
+- `jshardware`: `jshUSARTSetup`, `jshUSARTKick`, `jshIsDeviceInitialised`, RP2040 USB/runtime lifecycle helpers
 
 **`SPI`**
 - Proven: `SPI1.setup`, `send`
@@ -213,11 +214,11 @@ Generated from `src/jshardware.h`.
 | `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
 | `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
 | `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
-| `jshIsDeviceInitialised` | 15 | yes | yes | yes | partial | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus RP2040 SPI/I2C device state |
+| `jshIsDeviceInitialised` | 15 | yes | yes | yes | implemented | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus validated RP2040 Serial2, SPI, and I2C device state |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
-| `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | Yes | validated for the RP2040 USB console path only; non-USB UARTs remain unproven |
+| `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | Yes | validated for the RP2040 USB console path and `Serial2` on `D4/D5`; current non-USB support is intentionally limited to `Serial2` |
 | `jshUSARTUnSetup` | 6 | yes | yes |  | partial | M1 | `?Serial.unsetup` | No | weak default |
-| `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction |
+| `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART1 transmit path proven through `Serial2` loopback |
 | `jshSPIInitInfo` | 13 |  |  |  | implemented (common) | M2 | `SPI.setup` | No | common helper |
 | `jshSPISetup` | 19 | yes | yes | yes | implemented | M2 | `SPI.setup` | Yes | RP2040 hardware SPI setup validated on `SPI1` with explicit/default harness pins and shared-bus use with `MCP3008` plus `W25xxx` |
 | `jshSPISend` | 16 | yes | yes | yes | implemented | M2 | `SPI.send` | Yes | blocking RP2040 SPI transfer validated against `MCP3008` reads, `W25xxx` JEDEC/status commands, and shared-bus coexistence |
