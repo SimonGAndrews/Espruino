@@ -175,6 +175,7 @@ static int rpI2cIndexFromDevice(IOEventFlags device) {
 }
 
 static int rpUartIndexFromDevice(IOEventFlags device) {
+  if (device == EV_SERIAL1) return 0;
   if (device == EV_SERIAL2) return 1;
   return -1;
 }
@@ -186,6 +187,7 @@ static int rpSpiIndexFromDevice(IOEventFlags device) {
 }
 
 static uart_inst_t *rpUartFromIndex(int idx) {
+  if (idx == 0) return uart0;
   if (idx == 1) return uart1;
   return NULL;
 }
@@ -365,7 +367,7 @@ static void rpSpiResetAll(void) {
 static bool rpUartEnsureInitialised(IOEventFlags device, JshUSARTInfo *inf) {
   int idx = rpUartIndexFromDevice(device);
   if (idx < 0) {
-    jsExceptionHere(JSET_ERROR, "Only Serial2 supported");
+    jsExceptionHere(JSET_ERROR, "Unsupported USART device");
     return false;
   }
 
