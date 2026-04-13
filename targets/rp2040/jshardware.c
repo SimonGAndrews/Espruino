@@ -49,6 +49,7 @@
 
 static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
+static bool rpUsbConnected = false;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
@@ -775,6 +776,7 @@ void jshInit() {
 #ifdef USB
   board_init();
   rpUsbInitialised = false;
+  rpUsbConnected = false;
 #endif
   rpEarlyLogInit();
   rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
@@ -827,6 +829,18 @@ void jshReset() {
 void jshIdle() {
 #ifdef USB
   tud_task();
+  bool usbConnected = tud_cdc_connected();
+  if (usbConnected != rpUsbConnected) {
+    rpUsbConnected = usbConnected;
+    if (jsiGetConsoleDevice() != EV_LIMBO && !jsiIsConsoleDeviceForced()) {
+      if (usbConnected) {
+        jsiSetConsoleDevice(EV_USBSERIAL, false);
+      } else if (jsiGetConsoleDevice() == EV_USBSERIAL) {
+        jsiSetConsoleDevice(EV_SERIAL1, false);
+        jshTransmitClearDevice(EV_USBSERIAL);
+      }
+    }
+  }
   if (tud_cdc_available()) {
     char rxbuf[64];
     while (tud_cdc_available()) {
@@ -889,7 +903,7 @@ int jshGetSerialNumber(unsigned char *data, int maxChars) {
 bool jshIsUSBSERIALConnected() {
 #ifdef USB
   tud_task();
-  return tud_mounted();
+  return tud_cdc_connected();
 #else
   return false;
 #endif

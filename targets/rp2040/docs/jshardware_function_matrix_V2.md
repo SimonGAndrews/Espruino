@@ -114,9 +114,9 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: GPIO, ADC/PWM, and watch-related `jshPin*` functions
 
 **`Serial`**
-- Proven: USB CDC REPL and Web IDE console path, `Serial2.setup`, `write`, `read`, and `on("data",...)` on `D4/D5`
-- Outstanding: `Serial1` and wider hardware UART coverage beyond the validated `Serial2` path
-- Evidence: standard REPL and Web IDE operation on the Pico CDC port; `testing/serial_tests`
+- Proven: USB CDC REPL and Web IDE console path, `Serial1.setup`, `Serial2.setup`, `write`, `read`, and `on("data",...)`; unforced console movement between `USB` and `Serial1`; forced `Serial1` retention across USB disconnect/reconnect
+- Outstanding: explicit `Serial.unsetup()` / re-setup cycling, broader UART option coverage, and an automated saved regression for console-switch behavior
+- Evidence: standard REPL and Web IDE operation on the Pico CDC port; `testing/serial_tests`; direct bench validation of `USB <-> Serial1` console switching
 - `jshardware`: `jshUSARTSetup`, `jshUSARTKick`, `jshIsDeviceInitialised`, RP2040 USB/runtime lifecycle helpers
 
 **`SPI`**
@@ -214,11 +214,11 @@ Generated from `src/jshardware.h`.
 | `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
 | `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
 | `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
-| `jshIsDeviceInitialised` | 15 | yes | yes | yes | implemented | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus validated RP2040 Serial2, SPI, and I2C device state |
+| `jshIsDeviceInitialised` | 15 | yes | yes | yes | implemented | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus validated RP2040 Serial1/Serial2, SPI, and I2C device state |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
-| `jshUSARTSetup` | 12 | yes | yes | yes | partial | M1 | `Serial.setup` | Yes | validated for the RP2040 USB console path and `Serial2` on `D4/D5`; current non-USB support is intentionally limited to `Serial2` |
+| `jshUSARTSetup` | 12 | yes | yes | yes | implemented | M1 | `Serial.setup`, `Serial.setConsole`, `E.setConsole` | Yes | validated for the RP2040 USB console path plus `Serial1` on `D0/D1` and `Serial2` on `D4/D5`; hardware console auto-init and runtime console movement are now proven |
 | `jshUSARTUnSetup` | 6 | yes | yes |  | partial | M1 | `?Serial.unsetup` | No | weak default |
-| `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART1 transmit path proven through `Serial2` loopback |
+| `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART0/UART1 transmit paths proven through `Serial1` and `Serial2` validation |
 | `jshSPIInitInfo` | 13 |  |  |  | implemented (common) | M2 | `SPI.setup` | No | common helper |
 | `jshSPISetup` | 19 | yes | yes | yes | implemented | M2 | `SPI.setup` | Yes | RP2040 hardware SPI setup validated on `SPI1` with explicit/default harness pins and shared-bus use with `MCP3008` plus `W25xxx` |
 | `jshSPISend` | 16 | yes | yes | yes | implemented | M2 | `SPI.send` | Yes | blocking RP2040 SPI transfer validated against `MCP3008` reads, `W25xxx` JEDEC/status commands, and shared-bus coexistence |
