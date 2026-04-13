@@ -50,7 +50,7 @@ Already implemented and proven on hardware:
 Still stubbed, minimal, or not yet proven on hardware:
 
 - hardware validation of `jshPinAnalogFast`
-- `Serial1` and wider non-USB UART coverage beyond the validated `Serial2` loopback path
+- wider UART option coverage such as framing-error injection and broader configuration combinations
 - wider SPI coverage for 16-bit transfers and additional mode/rate combinations
 - util timer behaviour
 - low-power and deeper power-management behaviour
@@ -61,7 +61,7 @@ Still stubbed, minimal, or not yet proven on hardware:
 
 - wider ADC/PWM coverage beyond the current standard harness node
 - wider SPI coverage for 16-bit transfers and additional bus settings
-- wider non-USB UART API validation beyond `Serial2` loopback
+- broader UART option coverage and automated console-switch regression
 - `OneWire` with a real device such as `DS18B20`
 
 ## 3. Espruino API Validation Summary
@@ -114,8 +114,8 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: GPIO, ADC/PWM, and watch-related `jshPin*` functions
 
 **`Serial`**
-- Proven: USB CDC REPL and Web IDE console path, `Serial1.setup`, `Serial2.setup`, `write`, `read`, and `on("data",...)`; unforced console movement between `USB` and `Serial1`; forced `Serial1` retention across USB disconnect/reconnect
-- Outstanding: explicit `Serial.unsetup()` / re-setup cycling, broader UART option coverage, and an automated saved regression for console-switch behavior
+- Proven: USB CDC REPL and Web IDE console path, `Serial1.setup`, `Serial2.setup`, `write`, `read`, `on("data",...)`, and explicit `Serial.unsetup()` / re-setup cycling on both hardware UARTs; unforced console movement between `USB` and `Serial1`; forced `Serial1` retention across USB disconnect/reconnect
+- Outstanding: broader UART option coverage and an automated saved regression for console-switch behavior
 - Evidence: standard REPL and Web IDE operation on the Pico CDC port; `testing/serial_tests`; direct bench validation of `USB <-> Serial1` console switching
 - `jshardware`: `jshUSARTSetup`, `jshUSARTKick`, `jshIsDeviceInitialised`, RP2040 USB/runtime lifecycle helpers
 
@@ -217,7 +217,7 @@ Generated from `src/jshardware.h`.
 | `jshIsDeviceInitialised` | 15 | yes | yes | yes | implemented | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus validated RP2040 Serial1/Serial2, SPI, and I2C device state |
 | `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
 | `jshUSARTSetup` | 12 | yes | yes | yes | implemented | M1 | `Serial.setup`, `Serial.setConsole`, `E.setConsole` | Yes | validated for the RP2040 USB console path plus `Serial1` on `D0/D1` and `Serial2` on `D4/D5`; hardware console auto-init and runtime console movement are now proven |
-| `jshUSARTUnSetup` | 6 | yes | yes |  | partial | M1 | `?Serial.unsetup` | No | weak default |
+| `jshUSARTUnSetup` | 6 | yes | yes | yes | implemented | M1 | `Serial.unsetup` | Yes | validated for `Serial1` and `Serial2`, including setup -> use -> unsetup -> setup -> use lifecycle tests |
 | `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART0/UART1 transmit paths proven through `Serial1` and `Serial2` validation |
 | `jshSPIInitInfo` | 13 |  |  |  | implemented (common) | M2 | `SPI.setup` | No | common helper |
 | `jshSPISetup` | 19 | yes | yes | yes | implemented | M2 | `SPI.setup` | Yes | RP2040 hardware SPI setup validated on `SPI1` with explicit/default harness pins and shared-bus use with `MCP3008` plus `W25xxx` |
