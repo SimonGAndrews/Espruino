@@ -859,9 +859,28 @@ void jshIdle() {
     size_t len = 0;
     while (uart_is_readable(inst) && len < sizeof(rxbuf)) {
       uint16_t raw = uart_get_hw(inst)->dr;
-      if (raw & (UART_UARTDR_BE_BITS | UART_UARTDR_FE_BITS | UART_UARTDR_PE_BITS | UART_UARTDR_OE_BITS)) continue;
       char ch = (char)(raw & UART_UARTDR_DATA_BITS);
-      if (ch == 0 && time_us_64() < rpUartIgnoreNullUntilUs[i]) continue;
+      uint16_t err = raw & (UART_UARTDR_BE_BITS | UART_UARTDR_FE_BITS |
+                            UART_UARTDR_PE_BITS | UART_UARTDR_OE_BITS);
+      bool inStartupIgnoreWindow = time_us_64() < rpUartIgnoreNullUntilUs[i];
+
+      // RP2040 can report a false RX entry while TX/RX pins are being handed
+      // over to the UART peripheral on a physical loopback. During that short
+      // post-setup window, discard both flagged entries and stray NUL bytes.
+      if (inStartupIgnoreWindow && (err || ch == 0)) continue;
+
+      // Keep break/overrun handling conservative for now. Espruino exposes
+      // parity/framing events in the shared serial API, but break/overrun do
+      // not have an equivalent event path here.
+      if (err & (UART_UARTDR_BE_BITS | UART_UARTDR_OE_BITS)) continue;
+
+      if (jshGetErrorHandlingEnabled(device)) {
+        if (err & UART_UARTDR_FE_BITS)
+          jshPushEvent(IOEVENTFLAGS_SERIAL_TO_SERIAL_STATUS(device) | EV_SERIAL_STATUS_FRAMING_ERR, 0, 0);
+        if (err & UART_UARTDR_PE_BITS)
+          jshPushEvent(IOEVENTFLAGS_SERIAL_TO_SERIAL_STATUS(device) | EV_SERIAL_STATUS_PARITY_ERR, 0, 0);
+      }
+
       rxbuf[len++] = ch;
     }
     if (len) jshPushIOCharEvents(device, rxbuf, (unsigned int)len);
@@ -1137,7 +1156,19 @@ void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
 #ifdef USB
   if (device == EV_USBSERIAL) return;
 #endif
-  rpUartEnsureInitialised(device, inf);
+  if (rpUartEnsureInitialised(device, inf))
+    jshSetErrorHandlingEnabled(device, inf->errorHandling);
+}
+
+void jshUSARTUnSetup(IOEventFlags device) {
+#ifdef USB
+  if (device == EV_USBSERIAL) return;
+#endif
+  int idx = rpUartIndexFromDevice(device);
+  if (idx < 0) return;
+  rpUartUnsetupIdx(idx);
+  jshSetFlowControlEnabled(device, false, PIN_UNDEFINED);
+  jshSetErrorHandlingEnabled(device, false);
 }
 
 void jshUSARTKick(IOEventFlags device) {
