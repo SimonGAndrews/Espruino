@@ -188,17 +188,17 @@ Generated from `src/jshardware.h`.
 | `jshReset` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()/boot` | `Yes` | reset/boot path exercised during persistence and power-cycle validation |
 | `jshIdle` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
 | `jshBusyIdle` | 5<br>NRF | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
-| `jshSleep` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?setDeepSleep / idle` | `No` | basic sleep only |
+| `jshSleep` | 10<br>STM<br>NRF<br>ESP | `part` | `Later` | `jsiIdle / idle runtime` | `Yes` | implemented and bench-validated only for the narrow idle path needed by core `jsiIdle()`; fuller RP2040 sleep-mode design and related public API support are deferred to a later planned phase |
 | `jshKill` | 15<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?E.kill` | `No` | no-op cleanup |
-| `jshGetSerialNumber` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?getSerial()` | `No` | board unique ID |
+| `jshGetSerialNumber` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getSerial()` | `Yes` | direct `getSerial()` saved test now proves the Pico unique-board-id path and Espruino string formatting |
 | `jshIsUSBSERIALConnected` | 13<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | TinyUSB CDC state proven through repeated host connect/disconnect use |
 | `jshGetSystemTime` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getTime` | `Yes` | `getTime` and timer scheduling validated by explicit `timer_tests` and wider saved async test use |
-| `jshSetSystemTime` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setTime` | `No` | offset from time_us_64 |
+| `jshSetSystemTime` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setTime` | `Yes` | explicit `setTime()` / `getTime()` roundtrip saved test proves the RP2040 system-time offset path |
 | `jshGetTimeFromMilliseconds` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setTimeout / setInterval` | `Yes` | time conversion path validated by explicit `timer_tests` and async scheduling across the saved packs |
 | `jshGetMillisecondsFromTime` | 19<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getTime / setTimeout` | `Yes` | time conversion path validated by explicit `timer_tests` and `getTime` use |
-| `jshInterruptOff` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setWatch` | `No` | stacked IRQ state |
-| `jshInterruptOn` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setWatch` | `No` | stacked IRQ state |
-| `jshIsInInterrupt` | 12<br>STM<br>NRF<br>ESP | `part` | `M1` | `setWatch` | `No` | always false |
+| `jshInterruptOff` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `OneWire timing-critical paths` | `Yes` | nested IRQ-disable stack is now supported indirectly by repeated DS18B20 OneWire transactions under concurrent timer activity |
+| `jshInterruptOn` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `OneWire timing-critical paths` | `Yes` | nested IRQ-enable unwind is now supported indirectly by repeated DS18B20 OneWire transactions under concurrent timer activity |
+| `jshIsInInterrupt` | 12<br>STM<br>NRF<br>ESP | `impl` | `M1` | internal core guard paths | `No` | now uses the Cortex-M0+ `IPSR` register to distinguish IRQ from thread context; internal semantic fix, not directly user-visible |
 | `jshDelayMicroseconds` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `OneWire / I2C delay paths` | `Yes` | busy wait used successfully by proven `OneWire` DS18B20 transactions and existing bit-delay users |
 | `jshPinSetValue` | 34<br>STM<br>NRF<br>ESP | `impl` | `M1` | `digitalWrite` | `Yes` | proven on real cross-pin loopbacks and harness control paths |
 | `jshPinGetValue` | 29<br>STM<br>NRF<br>ESP | `impl` | `M1` | `digitalRead` | `Yes` | proven on real cross-pin loopbacks and harness feedback paths |
@@ -234,7 +234,7 @@ Generated from `src/jshardware.h`.
 | `jshI2CUnSetup` | 4<br>STM | `part` | `M2` | `?I2C.unsetup` | `No` | weak default |
 | `jshI2CWrite` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.writeTo` | `Yes` | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus and OLED command/data traffic at `0x3c` on `I2C2` |
 | `jshI2CRead` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.readFrom` | `Yes` | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21`; `I2C2` OLED validation is write-oriented and does not add meaningful controller readback |
-| `jshFlashGetPage` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.getPage` | `No` | 4 KiB page model |
+| `jshFlashGetPage` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.getPage` | `Yes` | direct saved test proves RP2040 4 KiB page geometry on the reserved saved-code bank |
 | `jshFlashGetFree` | 10<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Flash.getFree` | `Yes` | returns the fixed RP2040 saved-code bank at the top of flash |
 | `jshFlashErasePage` | 13<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Flash.erasePage` | `Yes` | RP2040 sector erase constrained to the saved-code bank |
 | `jshFlashErasePages` | 4<br>NRF | `weak` | `M2` | `?Flash.erasePage` | `No` | not overridden; single-page erase path is used |
@@ -253,8 +253,8 @@ Generated from `src/jshardware.h`.
 | `jshReadVRef` | 13<br>STM<br>NRF<br>ESP | `part` | `M2` | `E.getAnalogVRef` | `No` | fixed 3.3V |
 | `jshReadVDDH` | 3<br>NRF | `stub` | `Later` | `?E.getBattery` | `No` | unsupported on RP2040 |
 | `jshGetRandomNumber` | 9<br>STM<br>NRF<br>ESP | `part` | `TBD` | `Math.random` | `No` | uses rand() |
-| `jshSetSystemClock` | 10<br>STM<br>NRF<br>ESP | `part` | `M1` | `E.setClock` | `No` | reports current clock |
-| `jshGetSystemClock` | 4<br>STM | `part` | `M1` | `E.getClock` | `No` | no detailed clock data |
+| `jshSetSystemClock` | 10<br>STM<br>NRF<br>ESP | `stub` | `Later` | `E.setClock` | `Yes` | RP2040 now defers clock control explicitly; `E.setClock(...)` returns `0` per the documented unimplemented contract and is covered by a saved API test |
+| `jshGetSystemClock` | 4<br>STM | `weak` | `Later` | `E.getClock` | `Yes` | RP2040 intentionally leaves the weak default in place, so `E.getClock()` returns `undefined`; this deferred state is covered by a saved API test |
 | `jshReboot` | 12<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()` | `Yes` | reboot/reset path proven during `save()` restore and persistence validation |
 | `jshVirtualPinSetValue` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
 | `jshVirtualPinGetValue` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |

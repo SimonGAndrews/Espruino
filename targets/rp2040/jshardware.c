@@ -935,6 +935,20 @@ void jshIdle() {
 
   if (rpFirstIdle) {
     jsiOneSecondAfterStartup();
+
+#ifdef USB
+    // On a cold boot with USB absent, the shared startup handoff still prefers
+    // the board default console (`USB`). Unlike a later USB disconnect, there
+    // is no state transition to trigger the RP2040-specific fallback logic
+    // above, so move the unforced console to Serial1 explicitly here.
+    if (!tud_cdc_connected() &&
+        !jsiIsConsoleDeviceForced() &&
+        jsiGetConsoleDevice() == EV_USBSERIAL) {
+      jsiSetConsoleDevice(EV_SERIAL1, false);
+      jshTransmitClearDevice(EV_USBSERIAL);
+    }
+#endif
+
     rpFirstIdle = false;
   }
 }
@@ -1014,7 +1028,9 @@ void jshInterruptOn() {
 }
 
 bool jshIsInInterrupt() {
-  return false;
+  uint32_t ipsr;
+  __asm volatile ("mrs %0, ipsr" : "=r" (ipsr));
+  return ipsr != 0;
 }
 
 void jshDelayMicroseconds(int microsec) {
@@ -1577,7 +1593,9 @@ unsigned int jshGetRandomNumber() {
 
 unsigned int jshSetSystemClock(JsVar *options) {
   NOT_USED(options);
-  return CLOCK_SPEED_MHZ * 1000000;
+  // RP2040 clock control is deliberately deferred for now. Returning 0 matches
+  // the core Espruino contract for an unsupported E.setClock implementation.
+  return 0;
 }
 
 void jshReboot() {
