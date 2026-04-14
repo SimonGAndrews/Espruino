@@ -61,6 +61,7 @@ static bool rpSpiIs16[2] = { false, false };
 static bool rpSpiReceive[2] = { true, true };
 static unsigned char rpSpiMode[2] = { SPIF_SPI_MODE_0, SPIF_SPI_MODE_0 };
 static bool rpSpiMsb[2] = { true, true };
+static int rpUtilTimerAlarmNum = -1;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
@@ -104,6 +105,17 @@ void NVIC_SystemReset(void) {
 
 static bool rpPinIsValid(Pin pin) {
   return pin != PIN_UNDEFINED && pin < JSH_PIN_COUNT;
+}
+
+static void rpUtilTimerAlarmCallback(uint alarm_num) {
+  NOT_USED(alarm_num);
+  jstUtilTimerInterruptHandler();
+}
+
+static void rpUtilTimerEnsureClaimed(void) {
+  if (rpUtilTimerAlarmNum >= 0) return;
+  rpUtilTimerAlarmNum = hardware_alarm_claim_unused(true);
+  hardware_alarm_set_callback((uint)rpUtilTimerAlarmNum, rpUtilTimerAlarmCallback);
 }
 
 static uint rpPinToGpio(Pin pin) {
@@ -818,6 +830,7 @@ void jshReset() {
   jshResetDevices();
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
   BITFIELD_CLEAR(jshPinSoftPWM);
+  jshUtilTimerDisable();
   rpWatchResetAll();
   rpUartResetAll();
   rpI2cResetAll();
@@ -905,6 +918,7 @@ bool jshSleep(JsSysTime timeUntilWake) {
 }
 
 void jshKill() {
+  jshUtilTimerDisable();
   rpSpiResetAll();
   rpI2cResetAll();
   rpUartResetAll();
@@ -1474,14 +1488,20 @@ size_t jshFlashGetMemMapAddress(size_t ptr) {
 // -----------------------------------------------------------------------------
 
 void jshUtilTimerStart(JsSysTime period) {
-  NOT_USED(period);
+  rpUtilTimerEnsureClaimed();
+  jshUtilTimerReschedule(period);
 }
 
 void jshUtilTimerReschedule(JsSysTime period) {
-  NOT_USED(period);
+  rpUtilTimerEnsureClaimed();
+  if (period < 1) period = 1;
+  hardware_alarm_cancel((uint)rpUtilTimerAlarmNum);
+  hardware_alarm_set_target((uint)rpUtilTimerAlarmNum, delayed_by_us(get_absolute_time(), (uint64_t)period));
 }
 
 void jshUtilTimerDisable() {
+  if (rpUtilTimerAlarmNum >= 0)
+    hardware_alarm_cancel((uint)rpUtilTimerAlarmNum);
 }
 
 JshPinFunction jshGetCurrentPinFunction(Pin pin) {

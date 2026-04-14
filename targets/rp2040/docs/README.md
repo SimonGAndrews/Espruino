@@ -30,8 +30,11 @@ That document records:
 
 Current validated highlights now include:
 
+- `digitalPulse` and `shiftOut` on the standard GPIO harness loopbacks
+- explicit `setTimeout` / `setInterval` / cancel validation
 - `I2C1` with one and two `MCP23008` devices on the shared harness bus
 - `I2C2` on `D14/D15` with a removable `SSD1306`-compatible OLED at `0x3c`
+- `OneWire` on `D21` with `DS18B20` search and temperature conversion/read
 - shared-bus `SPI1` validation with `MCP3008` and `W25xxx`
 - non-USB `Serial1` validation on `D0/D1`
 - non-USB `Serial2` validation on `D4/D5`

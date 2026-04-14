@@ -84,10 +84,10 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: `jshFlashGetFree`, `jshFlashRead`, `jshFlashWrite`, `jshFlashErasePage`, `jshFlashGetMemMapAddress`
 
 **`Globals`**
-- Proven: `pinMode`, `digitalRead`, `digitalWrite`, `analogRead`, `analogWrite`, `setWatch`, `save`, `reset`
-- Outstanding: `digitalPulse`, `shiftOut`, broader timing and deep-sleep behaviour
-- Evidence: `gpio_loopback_tests`, `watch_tests`, `adc_tests`, `flash_tests`, `storage_tests`, reset/power-cycle validation
-- `jshardware`: `jshPinSetState`, `jshPinGetValue`, `jshPinSetValue`, `jshPinAnalog`, `jshPinAnalogOutput`, `jshPinWatch`, `jshFlash*`, `jshReboot`
+- Proven: `pinMode`, `digitalRead`, `digitalWrite`, `digitalPulse`, `shiftOut`, `analogRead`, `analogWrite`, `setWatch`, `save`, `reset`
+- Outstanding: broader timing and deep-sleep behaviour
+- Evidence: `gpio_loopback_tests`, `pin_api_tests`, `watch_tests`, `adc_tests`, `flash_tests`, `storage_tests`, reset/power-cycle validation
+- `jshardware`: `jshPinSetState`, `jshPinGetValue`, `jshPinSetValue`, `jshPinAnalog`, `jshPinAnalogOutput`, `jshPinWatch`, `jshUtilTimer*`, `jshFlash*`, `jshReboot`
 
 **`I2C`**
 - Proven: `I2C1.setup`, `I2C2.setup`, `writeTo`, `readFrom`, `readReg`
@@ -102,9 +102,9 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: indirect via `jshFlash*`
 
 **`OneWire`**
-- Proven: none
-- Outstanding: bus reset, search, and data transfer with a real device such as `DS18B20`
-- Evidence: none yet on RP2040
+- Proven: bus reset, device search, ROM handling, and temperature conversion/read with `DS18B20`
+- Outstanding: broader device coverage beyond the current `DS18B20` harness path
+- Evidence: `testing/onewire_tests`
 - `jshardware`: shared software implementation depends on GPIO, timing, and interrupt primitives already present in the port
 
 **`Pin`**
@@ -132,10 +132,10 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - `jshardware`: `jshFlash*` via Espruino flash/storage layers
 
 **`timer`**
-- Proven: asynchronous timing used successfully by saved tests
-- Outstanding: explicit API-level validation of timer behaviour
-- Evidence: saved tests depend on `setTimeout` sequencing across GPIO, I2C, and SPI paths
-- `jshardware`: `jshGetSystemTime`, `jshGetTimeFromMilliseconds`, `jshGetMillisecondsFromTime`; util timer hooks remain stubbed
+- Proven: `setTimeout`, `setInterval`, `clearTimeout`, and `clearInterval`; asynchronous timing used successfully by saved tests
+- Outstanding: broader timing characterisation and deep-sleep interaction
+- Evidence: `testing/timer_tests` plus saved tests that depend on `setTimeout` sequencing across GPIO, I2C, and SPI paths
+- `jshardware`: `jshGetSystemTime`, `jshGetTimeFromMilliseconds`, `jshGetMillisecondsFromTime`, `jshUtilTimer*`
 
 ## 4. jshardware Implementation Summary
 
@@ -189,14 +189,14 @@ Generated from `src/jshardware.h`.
 | `jshKill` | 15 | yes | yes | yes | implemented | M1 | `?E.kill` | No | no-op cleanup |
 | `jshGetSerialNumber` | 9 | yes | yes | yes | implemented | M1 | `?getSerial()` | No | board unique ID |
 | `jshIsUSBSERIALConnected` | 13 | yes | yes | yes | implemented | M1 | `USB REPL / Web IDE` | Yes | TinyUSB CDC state proven through repeated host connect/disconnect use |
-| `jshGetSystemTime` | 32 | yes | yes | yes | implemented | M1 | `getTime` | No | uses time_us_64 |
+| `jshGetSystemTime` | 32 | yes | yes | yes | implemented | M1 | `getTime` | Yes | `getTime` and timer scheduling validated by explicit `timer_tests` and wider saved async test use |
 | `jshSetSystemTime` | 10 | yes | yes | yes | implemented | M1 | `setTime` | No | offset from time_us_64 |
-| `jshGetTimeFromMilliseconds` | 32 | yes | yes | yes | implemented | M1 | `setTimeout / setInterval` | No | microsecond units |
-| `jshGetMillisecondsFromTime` | 19 | yes | yes | yes | implemented | M1 | `getTime / setTimeout` | No | microsecond units |
+| `jshGetTimeFromMilliseconds` | 32 | yes | yes | yes | implemented | M1 | `setTimeout / setInterval` | Yes | time conversion path validated by explicit `timer_tests` and async scheduling across the saved packs |
+| `jshGetMillisecondsFromTime` | 19 | yes | yes | yes | implemented | M1 | `getTime / setTimeout` | Yes | time conversion path validated by explicit `timer_tests` and `getTime` use |
 | `jshInterruptOff` | 20 | yes | yes | yes | implemented | M1 | `setWatch` | No | stacked IRQ state |
 | `jshInterruptOn` | 20 | yes | yes | yes | implemented | M1 | `setWatch` | No | stacked IRQ state |
 | `jshIsInInterrupt` | 12 | yes | yes | yes | partial | M1 | `setWatch` | No | always false |
-| `jshDelayMicroseconds` | 32 | yes | yes | yes | implemented | M1 | `?digitalPulse` | No | busy wait |
+| `jshDelayMicroseconds` | 32 | yes | yes | yes | implemented | M1 | `OneWire / I2C delay paths` | Yes | busy wait used successfully by proven `OneWire` DS18B20 transactions and existing bit-delay users |
 | `jshPinSetValue` | 34 | yes | yes | yes | implemented | M1 | `digitalWrite` | Yes | proven on real cross-pin loopbacks and harness control paths |
 | `jshPinGetValue` | 29 | yes | yes | yes | implemented | M1 | `digitalRead` | Yes | proven on real cross-pin loopbacks and harness feedback paths |
 | `jshPinSetState` | 29 | yes | yes | yes | implemented | M1 | `pinMode` | Yes | input/output/pull state handling proven on harness GPIO and watch tests |
@@ -239,9 +239,9 @@ Generated from `src/jshardware.h`.
 | `jshFlashWrite` | 12 | yes | yes | yes | implemented | M2 | `Flash.write / Storage.write` | Yes | RP2040 page-program path validated by `Flash` roundtrip and `Storage` write/read |
 | `jshFlashWriteAligned` | 4 |  |  |  | implemented (common) | M2 | `?Flash.write` | Yes | common helper now works on RP2040 because target `jshFlashWrite` exists |
 | `jshFlashGetMemMapAddress` | 11 | yes | yes | yes | implemented | M1 | `Flash.read / Storage.read` | Yes | XIP address mapping exercised by the proven flash/storage read paths |
-| `jshUtilTimerStart` | 9 | yes | yes | yes | stubbed | M2 | `setInterval / setTimeout` | No | no util timer backend |
-| `jshUtilTimerReschedule` | 9 | yes | yes | yes | stubbed | M2 | `setInterval / setTimeout` | No | no util timer backend |
-| `jshUtilTimerDisable` | 10 | yes | yes | yes | stubbed | M2 | `clearInterval / clearTimeout` | No | no util timer backend |
+| `jshUtilTimerStart` | 9 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | RP2040 hardware-alarm backend now drives the util timer and is validated by `digitalPulse` edge-pattern tests |
+| `jshUtilTimerReschedule` | 9 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | util timer reschedule path is exercised by multi-stage pulse sequences on real hardware |
+| `jshUtilTimerDisable` | 10 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | util timer disable/reset path is exercised by pulse completion and reset-time cleanup without residual pulses |
 | `jshGetPinAddress` | 5 | yes |  |  | stubbed | Later | `?peek / poke` | No | no RP2040 mapping |
 | `jshSetupRTCPrescalerValue` | 3 | yes |  |  | not reviewed | Later | `?E.setClock` | No | out of current scope |
 | `jshGetRTCPrescalerValue` | 3 | yes |  |  | not reviewed | Later | `?E.getClock` | No | out of current scope |
