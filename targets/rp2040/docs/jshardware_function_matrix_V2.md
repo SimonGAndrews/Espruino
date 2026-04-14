@@ -38,12 +38,17 @@ Already implemented and proven on hardware:
 - standard build and delegated Pico SDK handoff
 - USB CDC REPL and Web IDE RAM upload
 - GPIO pin state and value handling
+- `digitalPulse` and `shiftOut` on the standard GPIO harness loopbacks
 - watch/event delivery on real GPIO and expander interrupt paths
+- explicit `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval`
 - ADC read and first-pass PWM output on the standard harness
 - hardware `I2C1` setup/read/write on one and two devices on the same bus
 - hardware `I2C2` setup/read/write to a removable OLED on the second dedicated bus
 - hardware `SPI1` setup/send on a shared bus with `MCP3008` and `W25xxx`
-- hardware `Serial2` setup/read/write on `D4/D5` loopback
+- hardware `Serial1` setup/read/write on `D0/D1`
+- hardware `Serial2` setup/read/write on `D4/D5` with a Debug Probe UART peer
+- `OneWire` on `D21` with `DS18B20` search and temperature conversion/read
+- console movement between `USB` and `Serial1`, including forced `Serial1` retention
 - flash read/write/erase in the saved-code bank
 - `Storage` and `save()` restore
 
@@ -52,9 +57,7 @@ Still stubbed, minimal, or not yet proven on hardware:
 - hardware validation of `jshPinAnalogFast`
 - wider UART option coverage such as framing-error injection and broader configuration combinations
 - wider SPI coverage for 16-bit transfers and additional mode/rate combinations
-- util timer behaviour
 - low-power and deeper power-management behaviour
-- `OneWire` and other baseline-adjacent shared APIs not yet validated on RP2040
 - full pin-function reporting and output-function routing
 
 ### Next Hardware Validation Targets
@@ -62,7 +65,7 @@ Still stubbed, minimal, or not yet proven on hardware:
 - wider ADC/PWM coverage beyond the current standard harness node
 - wider SPI coverage for 16-bit transfers and additional bus settings
 - broader UART option coverage and automated console-switch regression
-- `OneWire` with a real device such as `DS18B20`
+- explicit `Pin` object coverage and remaining shared API tidy-up
 
 ## 3. Espruino API Validation Summary
 
@@ -146,15 +149,15 @@ Appendix A provides the full `jshardware.h` prototypes as a raw reference list.
 
 ### How To Use The RP2040 Tracking Columns
 
-The matrix below now includes RP2040-specific tracking columns alongside the
-generated cross-target reference data.
+The generated RP2040 snapshot uses the following columns alongside the
+cross-target reference data.
 
 Use them as follows:
 
 - `RP2040 Status`
-  - set to `implemented`, `implemented (common)`, `partial`, `stubbed`, or
-    `not reviewed`
-  - use `implemented (common)` where the RP2040 target is currently satisfied by
+  - set to `impl`, `impl-common`, `part`, `stub`, or
+    `unrev`
+  - use `impl-common` where the RP2040 target is currently satisfied by
     shared Espruino hardware-layer support such as `src/jshardware_common.c`
 - `Milestone`
   - note the phase where the function matters most, for example `M1`, `M2`,
@@ -180,84 +183,84 @@ the active tracking matrix without losing the generated reference content.
 
 Generated from `src/jshardware.h`.
 
-| Function | Uses | STM32 | NRF5x | ESP32 | RP2040 Status | Milestone | Primary API Test | Hardware Validated | Notes |
-|---|---:|---|---|---|---|---|---|---|---|
-| `jshReset` | 10 | yes | yes | yes | implemented | M1 | `reset()/boot` | Yes | reset/boot path exercised during persistence and power-cycle validation |
-| `jshIdle` | 9 | yes | yes | yes | implemented | M1 | `USB REPL / Web IDE` | Yes | USB runtime polling path proven by CDC REPL and Web IDE use |
-| `jshBusyIdle` | 5 |  | yes |  | implemented | M1 | `USB REPL / Web IDE` | Yes | USB runtime polling path proven by CDC REPL and Web IDE use |
-| `jshSleep` | 10 | yes | yes | yes | implemented | M1 | `?setDeepSleep / idle` | No | basic sleep only |
-| `jshKill` | 15 | yes | yes | yes | implemented | M1 | `?E.kill` | No | no-op cleanup |
-| `jshGetSerialNumber` | 9 | yes | yes | yes | implemented | M1 | `?getSerial()` | No | board unique ID |
-| `jshIsUSBSERIALConnected` | 13 | yes | yes | yes | implemented | M1 | `USB REPL / Web IDE` | Yes | TinyUSB CDC state proven through repeated host connect/disconnect use |
-| `jshGetSystemTime` | 32 | yes | yes | yes | implemented | M1 | `getTime` | Yes | `getTime` and timer scheduling validated by explicit `timer_tests` and wider saved async test use |
-| `jshSetSystemTime` | 10 | yes | yes | yes | implemented | M1 | `setTime` | No | offset from time_us_64 |
-| `jshGetTimeFromMilliseconds` | 32 | yes | yes | yes | implemented | M1 | `setTimeout / setInterval` | Yes | time conversion path validated by explicit `timer_tests` and async scheduling across the saved packs |
-| `jshGetMillisecondsFromTime` | 19 | yes | yes | yes | implemented | M1 | `getTime / setTimeout` | Yes | time conversion path validated by explicit `timer_tests` and `getTime` use |
-| `jshInterruptOff` | 20 | yes | yes | yes | implemented | M1 | `setWatch` | No | stacked IRQ state |
-| `jshInterruptOn` | 20 | yes | yes | yes | implemented | M1 | `setWatch` | No | stacked IRQ state |
-| `jshIsInInterrupt` | 12 | yes | yes | yes | partial | M1 | `setWatch` | No | always false |
-| `jshDelayMicroseconds` | 32 | yes | yes | yes | implemented | M1 | `OneWire / I2C delay paths` | Yes | busy wait used successfully by proven `OneWire` DS18B20 transactions and existing bit-delay users |
-| `jshPinSetValue` | 34 | yes | yes | yes | implemented | M1 | `digitalWrite` | Yes | proven on real cross-pin loopbacks and harness control paths |
-| `jshPinGetValue` | 29 | yes | yes | yes | implemented | M1 | `digitalRead` | Yes | proven on real cross-pin loopbacks and harness feedback paths |
-| `jshPinSetState` | 29 | yes | yes | yes | implemented | M1 | `pinMode` | Yes | input/output/pull state handling proven on harness GPIO and watch tests |
-| `jshPinGetState` | 13 | yes | yes | yes | implemented | M1 | `pinMode` | Yes | software-tracked state proven indirectly through working `pinMode` paths |
-| `jshIsPinStateDefault` | 5 |  |  | yes | implemented (common) | TBD | `?pinMode` | No | common helper |
-| `jshPinAnalog` | 15 | yes | yes | yes | implemented | M2 | `analogRead` | Yes | RP2040 ADC path implemented for ADC-capable pins; hardware validated on `D26` via harness feedback node |
-| `jshPinAnalogFast` | 9 | yes | yes | yes | implemented | M2 | `?analogRead` | No | uses same RP2040 ADC path as `jshPinAnalog`; direct API-level hardware proof still pending |
-| `jshPinAnalogOutput` | 13 | yes | yes | yes | partial | M2 | `analogWrite` | Yes | first-pass PWM output implemented; hardware PWM validated on `D10`; software PWM fallback exists but is not yet characterised |
-| `jshCanWatch` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | RP2040 GPIO IRQ path; currently permissive, no RP2040-specific conflict filtering yet |
-| `jshPinWatch` | 15 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot map + GPIO edge IRQ enable; `JshPinWatchFlags` not yet differentiated on RP2040; normal watch use proven, burst-edge stress still TBD |
-| `jshGetCurrentPinFunction` | 9 | yes | yes | yes | stubbed | M2 | `?analogWrite / SPI.setup` | No | always JSH_NOTHING |
-| `jshSetOutputValue` | 9 | yes | yes | yes | stubbed | M2 | `?analogWrite` | No | no output backend |
-| `jshEnableWatchDog` | 10 | yes | yes | yes | partial | TBD | `E.enableWatchdog` | No | no-op placeholder |
-| `jshKickWatchDog` | 16 | yes | yes | yes | partial | TBD | `E.kickWatchdog` | No | no-op placeholder |
-| `jshKickSoftWatchDog` | 5 |  | yes |  | not reviewed | TBD | `?E.kickWatchdog` | No | review later |
-| `jshGetWatchedPinState` | 9 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
-| `jshIsEventForPin` | 10 | yes | yes | yes | implemented | M2 | `setWatch` | Yes | EV_EXTI slot-to-pin mapping |
-| `jshIsDeviceInitialised` | 15 | yes | yes | yes | implemented | M1 | `USB REPL / Serial/SPI/I2C` | Yes | USB plus validated RP2040 Serial1/Serial2, SPI, and I2C device state |
-| `jshUSARTInitInfo` | 8 | yes | yes |  | implemented (common) | M1 | `Serial.setup` | No | common helper |
-| `jshUSARTSetup` | 12 | yes | yes | yes | implemented | M1 | `Serial.setup`, `Serial.setConsole`, `E.setConsole` | Yes | validated for the RP2040 USB console path plus `Serial1` on `D0/D1` and `Serial2` on `D4/D5`; hardware console auto-init and runtime console movement are now proven |
-| `jshUSARTUnSetup` | 6 | yes | yes | yes | implemented | M1 | `Serial.unsetup` | Yes | validated for `Serial1` and `Serial2`, including setup -> use -> unsetup -> setup -> use lifecycle tests |
-| `jshUSARTKick` | 11 | yes | yes | yes | implemented | M1 | `USB REPL / Serial.print` | Yes | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART0/UART1 transmit paths proven through `Serial1` and `Serial2` validation |
-| `jshSPIInitInfo` | 13 |  |  |  | implemented (common) | M2 | `SPI.setup` | No | common helper |
-| `jshSPISetup` | 19 | yes | yes | yes | implemented | M2 | `SPI.setup` | Yes | RP2040 hardware SPI setup validated on `SPI1` with explicit/default harness pins and shared-bus use with `MCP3008` plus `W25xxx` |
-| `jshSPISend` | 16 | yes | yes | yes | implemented | M2 | `SPI.send` | Yes | blocking RP2040 SPI transfer validated against `MCP3008` reads, `W25xxx` JEDEC/status commands, and shared-bus coexistence |
-| `jshSPISend16` | 10 | yes | yes | yes | implemented | M2 | `?SPI.send` | No | first-pass 16-bit support implemented; wider hardware validation still TBD |
-| `jshSPISet16` | 11 | yes | yes | yes | implemented | M2 | `?SPI.setup` | No | reconfigures RP2040 SPI frame size between 8-bit and 16-bit |
-| `jshSPISetReceive` | 12 | yes | yes | yes | implemented | M2 | `?SPI.send` | No | target state used to enable/disable receive path when MISO is present |
-| `jshSPIWait` | 14 | yes | yes | yes | implemented | M2 | `SPI.send` | No | blocking backend waits for idle and drains RX state |
-| `jshI2CInitInfo` | 7 |  |  |  | implemented (common) | M2 | `I2C.setup` | No | common helper |
-| `jshI2CSetup` | 12 | yes | yes | yes | implemented | M2 | `I2C.setup` | Yes | RP2040 hardware I2C master setup validated on `I2C1` with default/explicit pins and two `MCP23008` devices on one bus, plus `I2C2` on `D14/D15` with an OLED at `0x3c` |
-| `jshI2CUnSetup` | 4 | yes |  |  | partial | M2 | `?I2C.unsetup` | No | weak default |
-| `jshI2CWrite` | 12 | yes | yes | yes | implemented | M2 | `I2C.writeTo` | Yes | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus and OLED command/data traffic at `0x3c` on `I2C2` |
-| `jshI2CRead` | 12 | yes | yes | yes | implemented | M2 | `I2C.readFrom` | Yes | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21`; `I2C2` OLED validation is write-oriented and does not add meaningful controller readback |
-| `jshFlashGetPage` | 11 | yes | yes | yes | implemented | M1 | `Flash.getPage` | No | 4 KiB page model |
-| `jshFlashGetFree` | 10 | yes | yes | yes | implemented | M2 | `Flash.getFree` | Yes | returns the fixed RP2040 saved-code bank at the top of flash |
-| `jshFlashErasePage` | 13 | yes | yes | yes | implemented | M2 | `Flash.erasePage` | Yes | RP2040 sector erase constrained to the saved-code bank |
-| `jshFlashErasePages` | 4 |  | yes |  | weak default | M2 | `?Flash.erasePage` | No | not overridden; single-page erase path is used |
-| `jshFlashRead` | 16 | yes | yes | yes | implemented | M1 | `Flash.read / Storage.read` | Yes | XIP flash read proven by `Flash` and `Storage` roundtrip tests plus Web IDE storage access |
-| `jshFlashWrite` | 12 | yes | yes | yes | implemented | M2 | `Flash.write / Storage.write` | Yes | RP2040 page-program path validated by `Flash` roundtrip and `Storage` write/read |
-| `jshFlashWriteAligned` | 4 |  |  |  | implemented (common) | M2 | `?Flash.write` | Yes | common helper now works on RP2040 because target `jshFlashWrite` exists |
-| `jshFlashGetMemMapAddress` | 11 | yes | yes | yes | implemented | M1 | `Flash.read / Storage.read` | Yes | XIP address mapping exercised by the proven flash/storage read paths |
-| `jshUtilTimerStart` | 9 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | RP2040 hardware-alarm backend now drives the util timer and is validated by `digitalPulse` edge-pattern tests |
-| `jshUtilTimerReschedule` | 9 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | util timer reschedule path is exercised by multi-stage pulse sequences on real hardware |
-| `jshUtilTimerDisable` | 10 | yes | yes | yes | implemented | M2 | `digitalPulse` | Yes | util timer disable/reset path is exercised by pulse completion and reset-time cleanup without residual pulses |
-| `jshGetPinAddress` | 5 | yes |  |  | stubbed | Later | `?peek / poke` | No | no RP2040 mapping |
-| `jshSetupRTCPrescalerValue` | 3 | yes |  |  | not reviewed | Later | `?E.setClock` | No | out of current scope |
-| `jshGetRTCPrescalerValue` | 3 | yes |  |  | not reviewed | Later | `?E.getClock` | No | out of current scope |
-| `jshResetRTCTimer` | 3 | yes |  |  | not reviewed | Later | `?E.setClock` | No | out of current scope |
-| `jshClearUSBIdleTimeout` | 4 | yes |  |  | not reviewed | Later | `?USB REPL idle` | No | likely unnecessary |
-| `jshReadVRef` | 13 | yes | yes | yes | partial | M2 | `E.getAnalogVRef` | No | fixed 3.3V |
-| `jshReadVDDH` | 3 |  | yes |  | stubbed | Later | `?E.getBattery` | No | unsupported on RP2040 |
-| `jshGetRandomNumber` | 9 | yes | yes | yes | partial | TBD | `Math.random` | No | uses rand() |
-| `jshSetSystemClock` | 10 | yes | yes | yes | partial | M1 | `E.setClock` | No | reports current clock |
-| `jshGetSystemClock` | 4 | yes |  |  | partial | M1 | `E.getClock` | No | no detailed clock data |
-| `jshReboot` | 12 | yes | yes | yes | implemented | M1 | `reset()` | Yes | reboot/reset path proven during `save()` restore and persistence validation |
-| `jshVirtualPinSetValue` | 4 |  | yes |  | not reviewed | Later | `?virtual pins` | No | out of current scope |
-| `jshVirtualPinGetValue` | 4 |  | yes |  | not reviewed | Later | `?virtual pins` | No | out of current scope |
-| `jshVirtualPinGetAnalogValue` | 4 |  | yes |  | not reviewed | Later | `?virtual pins` | No | out of current scope |
-| `jshVirtualPinSetState` | 4 |  | yes |  | not reviewed | Later | `?virtual pins` | No | out of current scope |
-| `jshVirtualPinGetState` | 4 |  | yes |  | not reviewed | Later | `?virtual pins` | No | out of current scope |
+| Function | Uses<br>Targets | RP2040 Status | Phase | Primary API Test | Hardware Validated | Notes |
+|---|---|---|---|---|---|---|
+| `jshReset` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()/boot` | `Yes` | reset/boot path exercised during persistence and power-cycle validation |
+| `jshIdle` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
+| `jshBusyIdle` | 5<br>NRF | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
+| `jshSleep` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?setDeepSleep / idle` | `No` | basic sleep only |
+| `jshKill` | 15<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?E.kill` | `No` | no-op cleanup |
+| `jshGetSerialNumber` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?getSerial()` | `No` | board unique ID |
+| `jshIsUSBSERIALConnected` | 13<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | TinyUSB CDC state proven through repeated host connect/disconnect use |
+| `jshGetSystemTime` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getTime` | `Yes` | `getTime` and timer scheduling validated by explicit `timer_tests` and wider saved async test use |
+| `jshSetSystemTime` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setTime` | `No` | offset from time_us_64 |
+| `jshGetTimeFromMilliseconds` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setTimeout / setInterval` | `Yes` | time conversion path validated by explicit `timer_tests` and async scheduling across the saved packs |
+| `jshGetMillisecondsFromTime` | 19<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getTime / setTimeout` | `Yes` | time conversion path validated by explicit `timer_tests` and `getTime` use |
+| `jshInterruptOff` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setWatch` | `No` | stacked IRQ state |
+| `jshInterruptOn` | 20<br>STM<br>NRF<br>ESP | `impl` | `M1` | `setWatch` | `No` | stacked IRQ state |
+| `jshIsInInterrupt` | 12<br>STM<br>NRF<br>ESP | `part` | `M1` | `setWatch` | `No` | always false |
+| `jshDelayMicroseconds` | 32<br>STM<br>NRF<br>ESP | `impl` | `M1` | `OneWire / I2C delay paths` | `Yes` | busy wait used successfully by proven `OneWire` DS18B20 transactions and existing bit-delay users |
+| `jshPinSetValue` | 34<br>STM<br>NRF<br>ESP | `impl` | `M1` | `digitalWrite` | `Yes` | proven on real cross-pin loopbacks and harness control paths |
+| `jshPinGetValue` | 29<br>STM<br>NRF<br>ESP | `impl` | `M1` | `digitalRead` | `Yes` | proven on real cross-pin loopbacks and harness feedback paths |
+| `jshPinSetState` | 29<br>STM<br>NRF<br>ESP | `impl` | `M1` | `pinMode` | `Yes` | input/output/pull state handling proven on harness GPIO and watch tests |
+| `jshPinGetState` | 13<br>STM<br>NRF<br>ESP | `impl` | `M1` | `pinMode` | `Yes` | software-tracked state proven indirectly through working `pinMode` paths |
+| `jshIsPinStateDefault` | 5<br>ESP | `impl-common` | `TBD` | `?pinMode` | `No` | common helper |
+| `jshPinAnalog` | 15<br>STM<br>NRF<br>ESP | `impl` | `M2` | `analogRead` | `Yes` | RP2040 ADC path implemented for ADC-capable pins; hardware validated on `D26` via harness feedback node |
+| `jshPinAnalogFast` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `?analogRead` | `No` | uses same RP2040 ADC path as `jshPinAnalog`; direct API-level hardware proof still pending |
+| `jshPinAnalogOutput` | 13<br>STM<br>NRF<br>ESP | `part` | `M2` | `analogWrite` | `Yes` | first-pass PWM output implemented; hardware PWM validated on `D10`; software PWM fallback exists but is not yet characterised |
+| `jshCanWatch` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | RP2040 GPIO IRQ path; currently permissive, no RP2040-specific conflict filtering yet |
+| `jshPinWatch` | 15<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | EV_EXTI slot map + GPIO edge IRQ enable; `JshPinWatchFlags` not yet differentiated on RP2040; normal watch use proven, burst-edge stress still TBD |
+| `jshGetCurrentPinFunction` | 9<br>STM<br>NRF<br>ESP | `stub` | `M2` | `?analogWrite / SPI.setup` | `No` | always JSH_NOTHING |
+| `jshSetOutputValue` | 9<br>STM<br>NRF<br>ESP | `stub` | `M2` | `?analogWrite` | `No` | no output backend |
+| `jshEnableWatchDog` | 10<br>STM<br>NRF<br>ESP | `part` | `TBD` | `E.enableWatchdog` | `No` | no-op placeholder |
+| `jshKickWatchDog` | 16<br>STM<br>NRF<br>ESP | `part` | `TBD` | `E.kickWatchdog` | `No` | no-op placeholder |
+| `jshKickSoftWatchDog` | 5<br>NRF | `unrev` | `TBD` | `?E.kickWatchdog` | `No` | review later |
+| `jshGetWatchedPinState` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | cached IRQ-time pin level; sufficient for current watch semantics, stress characterization still TBD |
+| `jshIsEventForPin` | 10<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | EV_EXTI slot-to-pin mapping |
+| `jshIsDeviceInitialised` | 15<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Serial/SPI/I2C` | `Yes` | USB plus validated RP2040 Serial1/Serial2, SPI, and I2C device state |
+| `jshUSARTInitInfo` | 8<br>STM<br>NRF | `impl-common` | `M1` | `Serial.setup` | `No` | common helper |
+| `jshUSARTSetup` | 12<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Serial.setup`, `Serial.setConsole`, `E.setConsole` | `Yes` | validated for the RP2040 USB console path plus `Serial1` on `D0/D1` and `Serial2` on `D4/D5`; hardware console auto-init and runtime console movement are now proven |
+| `jshUSARTUnSetup` | 6<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Serial.unsetup` | `Yes` | validated for `Serial1` and `Serial2`, including setup -> use -> unsetup -> setup -> use lifecycle tests |
+| `jshUSARTKick` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Serial.print` | `Yes` | USB CDC transmit path proven by REPL and Web IDE interaction; RP2040 UART0/UART1 transmit paths proven through `Serial1` and `Serial2` validation |
+| `jshSPIInitInfo` | 13 | `impl-common` | `M2` | `SPI.setup` | `No` | common helper |
+| `jshSPISetup` | 19<br>STM<br>NRF<br>ESP | `impl` | `M2` | `SPI.setup` | `Yes` | RP2040 hardware SPI setup validated on `SPI1` with explicit/default harness pins and shared-bus use with `MCP3008` plus `W25xxx` |
+| `jshSPISend` | 16<br>STM<br>NRF<br>ESP | `impl` | `M2` | `SPI.send` | `Yes` | blocking RP2040 SPI transfer validated against `MCP3008` reads, `W25xxx` JEDEC/status commands, and shared-bus coexistence |
+| `jshSPISend16` | 10<br>STM<br>NRF<br>ESP | `impl` | `M2` | `?SPI.send` | `No` | first-pass 16-bit support implemented; wider hardware validation still TBD |
+| `jshSPISet16` | 11<br>STM<br>NRF<br>ESP | `impl` | `M2` | `?SPI.setup` | `No` | reconfigures RP2040 SPI frame size between 8-bit and 16-bit |
+| `jshSPISetReceive` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `?SPI.send` | `No` | target state used to enable/disable receive path when MISO is present |
+| `jshSPIWait` | 14<br>STM<br>NRF<br>ESP | `impl` | `M2` | `SPI.send` | `No` | blocking backend waits for idle and drains RX state |
+| `jshI2CInitInfo` | 7 | `impl-common` | `M2` | `I2C.setup` | `No` | common helper |
+| `jshI2CSetup` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.setup` | `Yes` | RP2040 hardware I2C master setup validated on `I2C1` with default/explicit pins and two `MCP23008` devices on one bus, plus `I2C2` on `D14/D15` with an OLED at `0x3c` |
+| `jshI2CUnSetup` | 4<br>STM | `part` | `M2` | `?I2C.unsetup` | `No` | weak default |
+| `jshI2CWrite` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.writeTo` | `Yes` | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus and OLED command/data traffic at `0x3c` on `I2C2` |
+| `jshI2CRead` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.readFrom` | `Yes` | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21`; `I2C2` OLED validation is write-oriented and does not add meaningful controller readback |
+| `jshFlashGetPage` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.getPage` | `No` | 4 KiB page model |
+| `jshFlashGetFree` | 10<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Flash.getFree` | `Yes` | returns the fixed RP2040 saved-code bank at the top of flash |
+| `jshFlashErasePage` | 13<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Flash.erasePage` | `Yes` | RP2040 sector erase constrained to the saved-code bank |
+| `jshFlashErasePages` | 4<br>NRF | `weak` | `M2` | `?Flash.erasePage` | `No` | not overridden; single-page erase path is used |
+| `jshFlashRead` | 16<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.read / Storage.read` | `Yes` | XIP flash read proven by `Flash` and `Storage` roundtrip tests plus Web IDE storage access |
+| `jshFlashWrite` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Flash.write / Storage.write` | `Yes` | RP2040 page-program path validated by `Flash` roundtrip and `Storage` write/read |
+| `jshFlashWriteAligned` | 4 | `impl-common` | `M2` | `?Flash.write` | `Yes` | common helper now works on RP2040 because target `jshFlashWrite` exists |
+| `jshFlashGetMemMapAddress` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.read / Storage.read` | `Yes` | XIP address mapping exercised by the proven flash/storage read paths |
+| `jshUtilTimerStart` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `digitalPulse` | `Yes` | RP2040 hardware-alarm backend now drives the util timer and is validated by `digitalPulse` edge-pattern tests |
+| `jshUtilTimerReschedule` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `digitalPulse` | `Yes` | util timer reschedule path is exercised by multi-stage pulse sequences on real hardware |
+| `jshUtilTimerDisable` | 10<br>STM<br>NRF<br>ESP | `impl` | `M2` | `digitalPulse` | `Yes` | util timer disable/reset path is exercised by pulse completion and reset-time cleanup without residual pulses |
+| `jshGetPinAddress` | 5<br>STM | `stub` | `Later` | `?peek / poke` | `No` | no RP2040 mapping |
+| `jshSetupRTCPrescalerValue` | 3<br>STM | `unrev` | `Later` | `?E.setClock` | `No` | out of current scope |
+| `jshGetRTCPrescalerValue` | 3<br>STM | `unrev` | `Later` | `?E.getClock` | `No` | out of current scope |
+| `jshResetRTCTimer` | 3<br>STM | `unrev` | `Later` | `?E.setClock` | `No` | out of current scope |
+| `jshClearUSBIdleTimeout` | 4<br>STM | `unrev` | `Later` | `?USB REPL idle` | `No` | likely unnecessary |
+| `jshReadVRef` | 13<br>STM<br>NRF<br>ESP | `part` | `M2` | `E.getAnalogVRef` | `No` | fixed 3.3V |
+| `jshReadVDDH` | 3<br>NRF | `stub` | `Later` | `?E.getBattery` | `No` | unsupported on RP2040 |
+| `jshGetRandomNumber` | 9<br>STM<br>NRF<br>ESP | `part` | `TBD` | `Math.random` | `No` | uses rand() |
+| `jshSetSystemClock` | 10<br>STM<br>NRF<br>ESP | `part` | `M1` | `E.setClock` | `No` | reports current clock |
+| `jshGetSystemClock` | 4<br>STM | `part` | `M1` | `E.getClock` | `No` | no detailed clock data |
+| `jshReboot` | 12<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()` | `Yes` | reboot/reset path proven during `save()` restore and persistence validation |
+| `jshVirtualPinSetValue` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
+| `jshVirtualPinGetValue` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
+| `jshVirtualPinGetAnalogValue` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
+| `jshVirtualPinSetState` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
+| `jshVirtualPinGetState` | 4<br>NRF | `unrev` | `Later` | `?virtual pins` | `No` | out of current scope |
 
 ## Appendix A. Full Prototypes
 

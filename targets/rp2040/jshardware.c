@@ -1,3 +1,14 @@
+/*
+ * This file is part of Espruino, a JavaScript interpreter for Microcontrollers
+ *
+ * Copyright (C) 2013 Gordon Williams <gw@pur3.co.uk>
+ * Copyright (C) 2026 Simon Andrews
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
 #include <math.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -54,6 +65,7 @@ static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
 static bool rpAdcInitialised = false;
+
 static bool rpUartInitialised[2] = { false, false };
 static bool rpI2cInitialised[2] = { false, false };
 static bool rpSpiInitialised[2] = { false, false };
@@ -61,14 +73,23 @@ static bool rpSpiIs16[2] = { false, false };
 static bool rpSpiReceive[2] = { true, true };
 static unsigned char rpSpiMode[2] = { SPIF_SPI_MODE_0, SPIF_SPI_MODE_0 };
 static bool rpSpiMsb[2] = { true, true };
+
+// The Espruino util timer is a single shared scheduler used for short,
+// accurate follow-on actions such as digitalPulse sequencing. RP2040 backs it
+// with one claimed hardware alarm.
 static int rpUtilTimerAlarmNum = -1;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
+
 static Pin rpUartPinRx[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpUartPinTx[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
+
+// A short post-setup ignore window filters RP2040 loopback bring-up artifacts
+// before normal UART RX bytes are forwarded into Espruino.
 static uint64_t rpUartIgnoreNullUntilUs[2] = { 0, 0 };
+
 static Pin rpI2cPinScl[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpI2cPinSda[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
 static Pin rpSpiPinSck[2] = { PIN_UNDEFINED, PIN_UNDEFINED };
@@ -104,14 +125,19 @@ void NVIC_SystemReset(void) {
 // -----------------------------------------------------------------------------
 
 static bool rpPinIsValid(Pin pin) {
-  return pin != PIN_UNDEFINED && pin < JSH_PIN_COUNT;
+  return pin < JSH_PIN_COUNT &&
+         (pinInfo[pin].port & JSH_PORT_MASK) != JSH_PORT_NONE;
 }
 
+// The util timer callback just hands control back to Espruino's shared timer
+// scheduler. All timer-task ownership remains in core `jstimer.c`.
 static void rpUtilTimerAlarmCallback(uint alarm_num) {
   NOT_USED(alarm_num);
   jstUtilTimerInterruptHandler();
 }
 
+// Claim the hardware alarm lazily so RP2040 only consumes the resource once a
+// feature such as digitalPulse actually needs util-timer scheduling.
 static void rpUtilTimerEnsureClaimed(void) {
   if (rpUtilTimerAlarmNum >= 0) return;
   rpUtilTimerAlarmNum = hardware_alarm_claim_unused(true);
@@ -842,9 +868,15 @@ void jshReset() {
 void jshIdle() {
 #ifdef USB
   tud_task();
+
   bool usbConnected = tud_cdc_connected();
   if (usbConnected != rpUsbConnected) {
     rpUsbConnected = usbConnected;
+
+    // Follow the shared Espruino console model when USB connection state
+    // changes, with one RP2040-specific rule: when an unforced console loses
+    // USB, fall back explicitly to Serial1 while keeping USB as the stable
+    // startup default.
     if (jsiGetConsoleDevice() != EV_LIMBO && !jsiIsConsoleDeviceForced()) {
       if (usbConnected) {
         jsiSetConsoleDevice(EV_USBSERIAL, false);
@@ -854,6 +886,7 @@ void jshIdle() {
       }
     }
   }
+
   if (tud_cdc_available()) {
     char rxbuf[64];
     while (tud_cdc_available()) {
@@ -896,8 +929,10 @@ void jshIdle() {
 
       rxbuf[len++] = ch;
     }
+
     if (len) jshPushIOCharEvents(device, rxbuf, (unsigned int)len);
   }
+
   if (rpFirstIdle) {
     jsiOneSecondAfterStartup();
     rpFirstIdle = false;
@@ -1484,9 +1519,12 @@ size_t jshFlashGetMemMapAddress(size_t ptr) {
 }
 
 // -----------------------------------------------------------------------------
-// Remaining platform hooks and stubs
+// Remaining platform hooks and partial implementations
 // -----------------------------------------------------------------------------
 
+// The util timer contract uses Espruino time units. RP2040 schedules each next
+// expiry with a one-shot hardware alarm and lets the shared util-timer core
+// decide when to reschedule or stop.
 void jshUtilTimerStart(JsSysTime period) {
   rpUtilTimerEnsureClaimed();
   jshUtilTimerReschedule(period);
