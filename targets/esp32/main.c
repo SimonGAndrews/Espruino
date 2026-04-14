@@ -6,6 +6,7 @@
 #include "esp_event.h"
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_event.h"
+#include "esp_task_wdt.h"
 #else
 #include "esp_event_loop.h"
 #endif
@@ -52,6 +53,12 @@ uintptr_t espruino_stackHighPtr = 0;
 #ifdef ESPR_USE_USB_SERIAL_JTAG
 #include "hal/usb_serial_jtag_ll.h"
 volatile bool usbUARTIsNotFlushed;
+#endif
+
+#if ESP_IDF_VERSION_MAJOR>=5
+#define TWDT_TICKS 10
+#else
+#define TWDT_TICKS 1
 #endif
 
 void esp32USBUARTWasUsed() {
@@ -108,9 +115,13 @@ static void espruinoTask(void *data) {
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_wifi_restore();
 #ifdef BLUETOOTH
   bluetooth_initDeviceName();
-#endif
+#endif  
+  esp_task_wdt_add(NULL);
+
   while(1) {
     jsiLoop();   // Perform the primary loop processing
+    esp_task_wdt_reset();           
+    vTaskDelay(pdMS_TO_TICKS(TWDT_TICKS));
 #ifdef BLUETOOTH
     gatts_sendNUSNotificationIfNotEmpty();
 #endif

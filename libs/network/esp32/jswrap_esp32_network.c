@@ -826,7 +826,7 @@ void esp32_wifi_init() {
 #if ESP_IDF_VERSION_MAJOR>=5  
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
-  //esp_netif_create_default_wifi_ap();
+  esp_netif_create_default_wifi_ap();
   esp_netif_create_default_wifi_sta();
 #else
 
