@@ -633,8 +633,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     const char *hostname;
     esp_err_t err = esp_netif_get_hostname(sta_netif, &hostname);
     if (err == ESP_OK && hostname && hostname[0]) startMDNS(hostname);
+  } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
+    scanCB();
+    sendWifiEvent(WIFI_EVENT_SCAN_DONE, NULL);
   }
-  // Add SCAN_DONE if using esp_wifi_scan_start (via WIFI_EVENT_SCAN_DONE? Check docs)
 }
 #else
 /**
