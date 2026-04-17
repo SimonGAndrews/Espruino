@@ -113,6 +113,18 @@ typedef struct {
   const uint8_t *data;
 } RpFlashProgramOp;
 
+static bool rpUsbVbusPresent(void) {
+#ifdef USB
+#ifdef PICO_VBUS_PIN
+  return gpio_get(PICO_VBUS_PIN);
+#else
+  return false;
+#endif
+#else
+  return false;
+#endif
+}
+
 void NVIC_SystemReset(void) {
   watchdog_reboot(0, 0, 0);
   while (1) {
@@ -815,6 +827,11 @@ void jshInit() {
   board_init();
   rpUsbInitialised = false;
   rpUsbConnected = false;
+#ifdef PICO_VBUS_PIN
+  gpio_init(PICO_VBUS_PIN);
+  gpio_set_dir(PICO_VBUS_PIN, GPIO_IN);
+  gpio_disable_pulls(PICO_VBUS_PIN);
+#endif
 #endif
   rpEarlyLogInit();
   rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
@@ -875,12 +892,13 @@ void jshIdle() {
 
     // Follow the shared Espruino console model when USB connection state
     // changes, with one RP2040-specific rule: when an unforced console loses
-    // USB, fall back explicitly to Serial1 while keeping USB as the stable
-    // startup default.
+    // USB because VBUS is physically absent, fall back explicitly to Serial1
+    // while keeping USB as the stable startup default. Do not fall back just
+    // because the host closed the CDC session while the cable remains present.
     if (jsiGetConsoleDevice() != EV_LIMBO && !jsiIsConsoleDeviceForced()) {
       if (usbConnected) {
         jsiSetConsoleDevice(EV_USBSERIAL, false);
-      } else if (jsiGetConsoleDevice() == EV_USBSERIAL) {
+      } else if (jsiGetConsoleDevice() == EV_USBSERIAL && !rpUsbVbusPresent()) {
         jsiSetConsoleDevice(EV_SERIAL1, false);
         jshTransmitClearDevice(EV_USBSERIAL);
       }
@@ -937,11 +955,7 @@ void jshIdle() {
     jsiOneSecondAfterStartup();
 
 #ifdef USB
-    // On a cold boot with USB absent, the shared startup handoff still prefers
-    // the board default console (`USB`). Unlike a later USB disconnect, there
-    // is no state transition to trigger the RP2040-specific fallback logic
-    // above, so move the unforced console to Serial1 explicitly here.
-    if (!tud_cdc_connected() &&
+    if (!rpUsbVbusPresent() &&
         !jsiIsConsoleDeviceForced() &&
         jsiGetConsoleDevice() == EV_USBSERIAL) {
       jsiSetConsoleDevice(EV_SERIAL1, false);

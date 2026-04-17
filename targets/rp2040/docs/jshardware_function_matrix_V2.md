@@ -58,6 +58,9 @@ Still stubbed, minimal, or not yet proven on hardware:
 - wider UART option coverage such as framing-error injection and broader configuration combinations
 - wider SPI coverage for 16-bit transfers and additional mode/rate combinations
 - low-power and deeper power-management behaviour
+- first USB-attach startup banner preservation; current evidence points to a
+  shared `EV_LIMBO` / TX-buffer capacity limit rather than a remaining
+  RP2040-specific runtime console bug
 - full pin-function reporting and output-function routing
 
 ### Next Hardware Validation Targets
@@ -186,7 +189,7 @@ Generated from `src/jshardware.h`.
 | Function | Uses<br>Targets | RP2040 Status | Phase | Primary API Test | Hardware Validated | Notes |
 |---|---|---|---|---|---|---|
 | `jshReset` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()/boot` | `Yes` | reset/boot path exercised during persistence and power-cycle validation |
-| `jshIdle` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
+| `jshIdle` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use; first-attach boot banner remains limited by shared `EV_LIMBO` / TX-buffer capacity rather than RP2040 polling logic |
 | `jshBusyIdle` | 5<br>NRF | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
 | `jshSleep` | 10<br>STM<br>NRF<br>ESP | `part` | `Later` | `jsiIdle / idle runtime` | `Yes` | implemented and bench-validated only for the narrow idle path needed by core `jsiIdle()`; fuller RP2040 sleep-mode design and related public API support are deferred to a later planned phase |
 | `jshKill` | 15<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?E.kill` | `No` | no-op cleanup |
