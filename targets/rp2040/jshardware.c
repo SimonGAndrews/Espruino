@@ -62,6 +62,7 @@
 static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
 static bool rpUsbConnected = false;
+static bool rpWatchdogEnabled = false;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
@@ -1645,10 +1646,33 @@ void jshSetOutputValue(JshPinFunction func, int value) {
 }
 
 void jshEnableWatchDog(JsVarFloat timeout) {
-  NOT_USED(timeout);
+  const uint32_t rpWatchdogMaxMs = 8388;
+  uint32_t timeoutMs;
+  if (!isfinite(timeout) || timeout <= 0) {
+    timeoutMs = 1;
+    jsExceptionHere(JSET_ERROR, "Minimum watchdog timeout exceeded");
+  } else {
+    JsVarFloat timeoutMsFloat = timeout * 1000.0;
+    if (timeoutMsFloat < 1.0) {
+      timeoutMs = 1;
+      jsExceptionHere(JSET_ERROR, "Minimum watchdog timeout exceeded");
+    } else if (timeoutMsFloat > (JsVarFloat)rpWatchdogMaxMs) {
+      timeoutMs = rpWatchdogMaxMs;
+      jsExceptionHere(JSET_ERROR, "Maximum watchdog timeout exceeded");
+    } else {
+      timeoutMs = (uint32_t)timeoutMsFloat;
+    }
+  }
+  watchdog_enable(timeoutMs, true /* pause_on_debug */);
+  rpWatchdogEnabled = true;
 }
 
 void jshKickWatchDog() {
+#ifdef ESPR_DISABLE_KICKWATCHDOG_PIN
+  if (jshPinGetValue(ESPR_DISABLE_KICKWATCHDOG_PIN)) return;
+#endif
+  if (rpWatchdogEnabled)
+    watchdog_update();
 }
 
 JsVarFloat jshReadTemperature() {
