@@ -113,6 +113,9 @@ typedef struct {
   const uint8_t *data;
 } RpFlashProgramOp;
 
+// VBUS presence is a physical USB-cable signal, not the same thing as an open
+// CDC session. RP2040 uses it to distinguish "host closed WebIDE" from "USB
+// cable genuinely went away" when deciding whether console fallback is allowed.
 static bool rpUsbVbusPresent(void) {
 #ifdef USB
 #ifdef PICO_VBUS_PIN
@@ -880,8 +883,9 @@ void jshReset() {
   rpSpiResetAll();
 }
 
-// jshIdle is the RP2040 target's main service point for USB CDC traffic and
-// one-time post-startup bookkeeping.
+// jshIdle is the RP2040 target's main service point for USB CDC traffic,
+// runtime console policy, and the one-time startup handoff into the normal
+// Espruino console model.
 void jshIdle() {
 #ifdef USB
   tud_task();
@@ -952,6 +956,9 @@ void jshIdle() {
   }
 
   if (rpFirstIdle) {
+    // Follow the shared Espruino startup path first, then apply the one
+    // RP2040-specific cold-boot rule: if USB is physically absent and the
+    // unforced console still landed on USB, move it to Serial1 explicitly.
     jsiOneSecondAfterStartup();
 
 #ifdef USB
