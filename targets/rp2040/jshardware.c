@@ -1433,6 +1433,9 @@ void jshI2CSetup(IOEventFlags device, JshI2CInfo *inf) {
   rpI2cEnsureInitialised(device, inf);
 }
 
+// RP2040 has no public JS-level I2C unsetup API, but the target still
+// implements the formal jshardware hook so reset paths and any internal users
+// can cleanly deinitialise a specific hardware I2C block.
 void jshI2CUnSetup(IOEventFlags device) {
   int idx = rpI2cIndexFromDevice(device);
   if (idx >= 0) rpI2cUnsetupIdx(idx);

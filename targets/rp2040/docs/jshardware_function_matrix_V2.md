@@ -240,7 +240,7 @@ Generated from `src/jshardware.h`.
 | `jshSPIWait` | 14<br>STM<br>NRF<br>ESP | `impl` | `M2` | `SPI.send` | `No` | blocking backend waits for idle and drains RX state |
 | `jshI2CInitInfo` | 7 | `impl-common` | `M2` | `I2C.setup` | `No` | common helper |
 | `jshI2CSetup` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.setup` | `Yes` | RP2040 hardware I2C master setup validated on `I2C1` with default/explicit pins and two `MCP23008` devices on one bus, plus `I2C2` on `D14/D15` with an OLED at `0x3c` |
-| `jshI2CUnSetup` | 4<br>STM | `part` | `M2` | `?I2C.unsetup` | `No` | weak default |
+| `jshI2CUnSetup` | 4<br>STM | `impl` | `M2` | internal reset / I2C teardown paths | `No` | target hook is implemented and used by RP2040 reset/teardown logic; no public JS-level `I2C.unsetup()` API exists for standalone saved-test validation |
 | `jshI2CWrite` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.writeTo` | `Yes` | RP2040 blocking master write validated against `MCP23008` register writes at `0x20` and `0x21` on the same bus and OLED command/data traffic at `0x3c` on `I2C2` |
 | `jshI2CRead` | 12<br>STM<br>NRF<br>ESP | `impl` | `M2` | `I2C.readFrom` | `Yes` | RP2040 blocking master read validated against `MCP23008` register readback at `0x20` and `0x21`; `I2C2` OLED validation is write-oriented and does not add meaningful controller readback |
 | `jshFlashGetPage` | 11<br>STM<br>NRF<br>ESP | `impl` | `M1` | `Flash.getPage` | `Yes` | direct saved test proves RP2040 4 KiB page geometry on the reserved saved-code bank |
