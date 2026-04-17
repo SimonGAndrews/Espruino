@@ -119,6 +119,12 @@ proven on `RP2040_PICO`, what still matters, and which saved tests or
 - Evidence: `gpio_loopback_tests`, `watch_tests`, `adc_tests`
 - `jshardware`: GPIO, ADC/PWM, and watch-related `jshPin*` functions
 
+**`Process`**
+- Proven: `process.env`, `process.memory()`, `process.version`, and interactive `process.on('uncaughtException', ...)`
+- Outstanding: no saved regression yet for process-level exception-hook behavior
+- Evidence: live Web IDE checks on current RP2040 firmware, including `uncaughtException` callback handling
+- `jshardware`: indirect; depends on stable console/runtime/event delivery rather than a dedicated `jshardware` API
+
 **`Serial`**
 - Proven: USB CDC REPL and Web IDE console path, `Serial1.setup`, `Serial2.setup`, `write`, `read`, `on("data",...)`, and explicit `Serial.unsetup()` / re-setup cycling on both hardware UARTs; unforced console movement between `USB` and `Serial1`; forced `Serial1` retention across USB disconnect/reconnect
 - Outstanding: broader UART option coverage and an automated saved regression for console-switch behavior
