@@ -33,7 +33,7 @@ $(RP2040_CMAKEFILE): FORCE
 	@echo "target_compile_options($(RP2040_TARGET) PRIVATE $(DEFINES))" >> $(RP2040_CMAKEFILE)
 	@echo "target_compile_definitions($(RP2040_TARGET) PRIVATE PICO_FLASH_ASSUME_CORE1_SAFE=1)" >> $(RP2040_CMAKEFILE)
 	@echo "target_compile_options($(RP2040_TARGET) PRIVATE -Wno-format -Wno-unused-function)" >> $(RP2040_CMAKEFILE)
-	@echo "target_link_libraries($(RP2040_TARGET) pico_stdlib pico_unique_id hardware_adc hardware_i2c hardware_pwm hardware_spi pico_flash tinyusb_device tinyusb_board tinyusb_additions)" >> $(RP2040_CMAKEFILE)
+	@echo "target_link_libraries($(RP2040_TARGET) pico_stdlib pico_unique_id pico_rand hardware_adc hardware_i2c hardware_pwm hardware_spi pico_flash tinyusb_device tinyusb_board tinyusb_additions)" >> $(RP2040_CMAKEFILE)
 	@echo "pico_enable_stdio_usb($(RP2040_TARGET) 0)" >> $(RP2040_CMAKEFILE)
 	@echo "pico_enable_stdio_uart($(RP2040_TARGET) 1)" >> $(RP2040_CMAKEFILE)
 	@echo "pico_add_extra_outputs($(RP2040_TARGET))" >> $(RP2040_CMAKEFILE)

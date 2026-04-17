@@ -261,7 +261,7 @@ Generated from `src/jshardware.h`.
 | `jshClearUSBIdleTimeout` | 4<br>STM | `unrev` | `Later` | `?USB REPL idle` | `No` | likely unnecessary |
 | `jshReadVRef` | 13<br>STM<br>NRF<br>ESP | `part` | `M2` | `E.getAnalogVRef` | `No` | fixed 3.3V |
 | `jshReadVDDH` | 3<br>NRF | `stub` | `Later` | `?E.getBattery` | `No` | unsupported on RP2040 |
-| `jshGetRandomNumber` | 9<br>STM<br>NRF<br>ESP | `part` | `TBD` | `Math.random` | `No` | uses rand() |
+| `jshGetRandomNumber` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Math.random` | `No` | now uses Pico SDK `pico_rand` via `get_rand_32()`; improved implementation, but no deeper statistical or source-quality validation is claimed yet |
 | `jshSetSystemClock` | 10<br>STM<br>NRF<br>ESP | `stub` | `Later` | `E.setClock` | `Yes` | RP2040 now defers clock control explicitly; `E.setClock(...)` returns `0` per the documented unimplemented contract and is covered by a saved API test |
 | `jshGetSystemClock` | 4<br>STM | `weak` | `Later` | `E.getClock` | `Yes` | RP2040 intentionally leaves the weak default in place, so `E.getClock()` returns `undefined`; this deferred state is covered by a saved API test |
 | `jshReboot` | 12<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()` | `Yes` | reboot/reset path proven during `save()` restore and persistence validation |

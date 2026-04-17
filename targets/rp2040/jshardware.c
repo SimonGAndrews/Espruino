@@ -23,6 +23,7 @@
 
 #include "pico/bootrom.h"
 #include "pico/flash.h"
+#include "pico/rand.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "pico/unique_id.h"
@@ -1609,7 +1610,7 @@ JsVarFloat jshReadVDDH() {
 }
 
 unsigned int jshGetRandomNumber() {
-  return (unsigned int)rand();
+  return (unsigned int)get_rand_32();
 }
 
 unsigned int jshSetSystemClock(JsVar *options) {
