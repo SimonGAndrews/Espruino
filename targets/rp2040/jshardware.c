@@ -81,6 +81,10 @@ static bool rpSpiMsb[2] = { true, true };
 static int rpUtilTimerAlarmNum = -1;
 
 static JshPinState rpPinState[JSH_PIN_COUNT];
+// Some Espruino timer/waveform code asks the target which analog-output
+// backend a pin is currently using. RP2040 caches a small synthetic PWM token
+// here because its PWM routing is chosen from GPIO numbers, not board pinInfo.
+static JshPinFunction rpPinFunction[JSH_PIN_COUNT];
 static Pin rpWatchPins[ESPR_EXTI_COUNT];
 static volatile bool rpWatchLastState[ESPR_EXTI_COUNT];
 
@@ -117,6 +121,8 @@ typedef struct {
 // VBUS presence is a physical USB-cable signal, not the same thing as an open
 // CDC session. RP2040 uses it to distinguish "host closed WebIDE" from "USB
 // cable genuinely went away" when deciding whether console fallback is allowed.
+static bool rpPinIsValid(Pin pin);
+
 static bool rpUsbVbusPresent(void) {
 #ifdef USB
 #ifdef PICO_VBUS_PIN
@@ -127,6 +133,23 @@ static bool rpUsbVbusPresent(void) {
 #else
   return false;
 #endif
+}
+
+// RP2040 PWM routing is selected directly from GPIO numbers rather than from
+// board pinInfo timer entries, so the utility-timer analog path keeps a small
+// target-local token that can be decoded back to a pin by jshSetOutputValue.
+static JshPinFunction rpPwmFunctionFromPin(Pin pin) {
+  if (!rpPinIsValid(pin)) return JSH_NOTHING;
+  return (JshPinFunction)(JSH_TIMER1 |
+                          (((pin >> 4) & 0xF) << JSH_SHIFT_INFO) |
+                          (pin & JSH_MASK_AF));
+}
+
+static Pin rpPinFromPwmFunction(JshPinFunction func) {
+  if (!JSH_PINFUNCTION_IS_TIMER(func)) return PIN_UNDEFINED;
+  Pin pin = (Pin)((((func & JSH_MASK_INFO) >> JSH_SHIFT_INFO) << 4) |
+                  (func & JSH_MASK_AF));
+  return rpPinIsValid(pin) ? pin : PIN_UNDEFINED;
 }
 
 void NVIC_SystemReset(void) {
@@ -280,6 +303,8 @@ static bool rpSpiPinMatchesDevice(IOEventFlags device, Pin pin, JshPinFunction i
 static void rpUartMarkPins(int idx, Pin pinRx, Pin pinTx) {
   if (rpPinIsValid(pinRx)) rpPinState[pinRx] = JSHPINSTATE_GPIO_IN_PULLUP;
   if (rpPinIsValid(pinTx)) rpPinState[pinTx] = JSHPINSTATE_USART_OUT;
+  if (rpPinIsValid(pinRx)) rpPinFunction[pinRx] = JSH_NOTHING;
+  if (rpPinIsValid(pinTx)) rpPinFunction[pinTx] = JSH_NOTHING;
   rpUartPinRx[idx] = pinRx;
   rpUartPinTx[idx] = pinTx;
 }
@@ -287,6 +312,8 @@ static void rpUartMarkPins(int idx, Pin pinRx, Pin pinTx) {
 static void rpI2cMarkPins(int idx, Pin pinScl, Pin pinSda) {
   if (rpPinIsValid(pinScl)) rpPinState[pinScl] = JSHPINSTATE_AF_OUT_OPENDRAIN;
   if (rpPinIsValid(pinSda)) rpPinState[pinSda] = JSHPINSTATE_AF_OUT_OPENDRAIN;
+  if (rpPinIsValid(pinScl)) rpPinFunction[pinScl] = JSH_NOTHING;
+  if (rpPinIsValid(pinSda)) rpPinFunction[pinSda] = JSH_NOTHING;
   rpI2cPinScl[idx] = pinScl;
   rpI2cPinSda[idx] = pinSda;
 }
@@ -295,6 +322,9 @@ static void rpSpiMarkPins(int idx, Pin pinSck, Pin pinMiso, Pin pinMosi) {
   if (rpPinIsValid(pinSck)) rpPinState[pinSck] = JSHPINSTATE_AF_OUT;
   if (rpPinIsValid(pinMiso)) rpPinState[pinMiso] = JSHPINSTATE_AF_OUT;
   if (rpPinIsValid(pinMosi)) rpPinState[pinMosi] = JSHPINSTATE_AF_OUT;
+  if (rpPinIsValid(pinSck)) rpPinFunction[pinSck] = JSH_NOTHING;
+  if (rpPinIsValid(pinMiso)) rpPinFunction[pinMiso] = JSH_NOTHING;
+  if (rpPinIsValid(pinMosi)) rpPinFunction[pinMosi] = JSH_NOTHING;
   rpSpiPinSck[idx] = pinSck;
   rpSpiPinMiso[idx] = pinMiso;
   rpSpiPinMosi[idx] = pinMosi;
@@ -845,6 +875,7 @@ void jshInit() {
     rpWatchIrqHandlerInstalled = true;
   }
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
+  memset(rpPinFunction, 0, sizeof(rpPinFunction));
   for (int i = 0; i < ESPR_EXTI_COUNT; i++) {
     rpWatchPins[i] = PIN_UNDEFINED;
     rpWatchLastState[i] = false;
@@ -876,6 +907,7 @@ void jshInit() {
 void jshReset() {
   jshResetDevices();
   memset(rpPinState, JSHPINSTATE_GPIO_IN, sizeof(rpPinState));
+  memset(rpPinFunction, 0, sizeof(rpPinFunction));
   BITFIELD_CLEAR(jshPinSoftPWM);
   jshUtilTimerDisable();
   rpWatchResetAll();
@@ -1078,6 +1110,7 @@ void jshPinSetState(Pin pin, JshPinState state) {
     BITFIELD_SET(jshPinSoftPWM, pin, 0);
     jstPinPWM(0, 0, pin);
   }
+  rpPinFunction[pin] = JSH_NOTHING;
   rpPinState[pin] = state;
   rpPinApplyState(pin, state);
 }
@@ -1128,6 +1161,7 @@ JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, Js
       BITFIELD_SET(jshPinSoftPWM, pin, 0);
       jshPinSetState(pin, JSHPINSTATE_GPIO_OUT);
     }
+    rpPinFunction[pin] = JSH_NOTHING;
     BITFIELD_SET(jshPinSoftPWM, pin, 1);
     if (freq <= 0 || !isfinite(freq)) freq = 50;
     jstPinPWM(freq, value, pin);
@@ -1143,6 +1177,7 @@ JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, Js
         BITFIELD_SET(jshPinSoftPWM, pin, 0);
         jshPinSetState(pin, JSHPINSTATE_GPIO_OUT);
       }
+      rpPinFunction[pin] = JSH_NOTHING;
       BITFIELD_SET(jshPinSoftPWM, pin, 1);
       if (freq <= 0 || !isfinite(freq)) freq = 50;
       jstPinPWM(freq, value, pin);
@@ -1159,7 +1194,8 @@ JshPinFunction jshPinAnalogOutput(Pin pin, JsVarFloat value, JsVarFloat freq, Js
   if (cc > top + 1) cc = top + 1;
   pwm_set_chan_level(slice, channel, cc);
   pwm_set_enabled(slice, true);
-  return JSH_NOTHING;
+  rpPinFunction[pin] = rpPwmFunctionFromPin(pin);
+  return rpPinFunction[pin];
 }
 
 bool jshCanWatch(Pin pin) {
@@ -1583,14 +1619,29 @@ void jshUtilTimerDisable() {
     hardware_alarm_cancel((uint)rpUtilTimerAlarmNum);
 }
 
+// Report the active RP2040 hardware-PWM token for utility-timer analog output.
+// RP2040 has no DAC and no board pinInfo timer entries to query here.
 JshPinFunction jshGetCurrentPinFunction(Pin pin) {
-  NOT_USED(pin);
-  return JSH_NOTHING;
+  if (!rpPinIsValid(pin)) return JSH_NOTHING;
+  return rpPinFunction[pin];
 }
 
+// Utility-timer waveform output ultimately feeds a 16-bit duty value back into
+// the already-configured RP2040 PWM slice/channel selected for this pin.
 void jshSetOutputValue(JshPinFunction func, int value) {
-  NOT_USED(func);
-  NOT_USED(value);
+  Pin pin = rpPinFromPwmFunction(func);
+  if (!rpPinIsValid(pin)) return;
+  if (pinInfo[pin].port & JSH_PIN_NEGATED) value = 65535 - value;
+  if (value < 0) value = 0;
+  if (value > 65535) value = 65535;
+  uint gpio = rpPinToGpio(pin);
+  uint slice = pwm_gpio_to_slice_num(gpio);
+  uint channel = pwm_gpio_to_channel(gpio);
+  uint32_t top = pwm_hw->slice[slice].top;
+  uint32_t cc = ((uint32_t)value * (top + 1) + 32767) >> 16;
+  if (cc > top + 1) cc = top + 1;
+  pwm_set_chan_level(slice, channel, cc);
+  pwm_set_enabled(slice, true);
 }
 
 void jshEnableWatchDog(JsVarFloat timeout) {

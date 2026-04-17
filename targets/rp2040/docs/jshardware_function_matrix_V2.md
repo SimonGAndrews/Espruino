@@ -219,8 +219,8 @@ Generated from `src/jshardware.h`.
 | `jshPinAnalogOutput` | 13<br>STM<br>NRF<br>ESP | `part` | `M2` | `analogWrite` | `Yes` | first-pass PWM output implemented; hardware PWM validated on `D10`; software PWM fallback exists but is not yet characterised |
 | `jshCanWatch` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | RP2040 GPIO IRQ path; currently permissive, no RP2040-specific conflict filtering yet |
 | `jshPinWatch` | 15<br>STM<br>NRF<br>ESP | `impl` | `M2` | `setWatch` | `Yes` | EV_EXTI slot map + GPIO edge IRQ enable; `JshPinWatchFlags` not yet differentiated on RP2040; normal watch use proven, burst-edge stress still TBD |
-| `jshGetCurrentPinFunction` | 9<br>STM<br>NRF<br>ESP | `stub` | `M2` | `?analogWrite / SPI.setup` | `No` | always JSH_NOTHING |
-| `jshSetOutputValue` | 9<br>STM<br>NRF<br>ESP | `stub` | `M2` | `?analogWrite` | `No` | no output backend |
+| `jshGetCurrentPinFunction` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `analogWrite / Waveform.startOutput` | `Yes` | returns a target-local cached PWM function token for RP2040 hardware-PWM outputs; saved `Waveform.startOutput` test on `D10 -> D26` proves the token is consumed correctly by the utility-timer output path |
+| `jshSetOutputValue` | 9<br>STM<br>NRF<br>ESP | `impl` | `M2` | `Waveform.startOutput` | `Yes` | decodes the cached RP2040 PWM token and updates the active slice/channel duty cycle; saved `Waveform.startOutput` test on `D10 -> D26` validates the waveform-driven duty-cycle updates |
 | `jshEnableWatchDog` | 10<br>STM<br>NRF<br>ESP | `part` | `TBD` | `E.enableWatchdog` | `No` | no-op placeholder |
 | `jshKickWatchDog` | 16<br>STM<br>NRF<br>ESP | `part` | `TBD` | `E.kickWatchdog` | `No` | no-op placeholder |
 | `jshKickSoftWatchDog` | 5<br>NRF | `unrev` | `TBD` | `?E.kickWatchdog` | `No` | review later |
