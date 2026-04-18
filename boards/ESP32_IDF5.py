@@ -64,7 +64,7 @@ info = {
      'CRYPTO', 'SHA256', 'SHA512',
 #     'TLS',
      'TELNET',
-#     'NEOPIXEL',
+     'NEOPIXEL',
 #     'FILESYSTEM',
 #     'BLUETOOTH'
    ],

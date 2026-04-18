@@ -417,72 +417,40 @@ static char *ipGetEvent(uint32_t event) {
 } 
 #endif
 
-static char *wifiGetEvent(uint32_t event) {
-  // jsDebug(DBG_INFO,"wifiGetEvent: Got event: %d\n", event);
-  ESP_LOGI(TAG,"wifiGetEvent: Got event: %d", event);
 #if ESP_IDF_VERSION_MAJOR>=5
-  switch(event) {
-    case WIFI_EVENT_AP_PROBEREQRECVED:
-      return "#onprobe_recv";
-    case WIFI_EVENT_AP_STACONNECTED:
-      return "#onsta_joined";
-    case WIFI_EVENT_AP_STADISCONNECTED:
-      return "#onsta_left";
-    case WIFI_EVENT_AP_START:
-      break;
-    case WIFI_EVENT_AP_STOP:
-      break;
-    case WIFI_EVENT_SCAN_DONE:
-      break;
-    case WIFI_EVENT_STA_AUTHMODE_CHANGE:
-      return "#onauth_change";
-    case WIFI_EVENT_STA_CONNECTED:
-      return "#onassociated";
-    case WIFI_EVENT_STA_DISCONNECTED:
-      return "#ondisconnected";
-    case WIFI_EVENT_STA_START:
-      return "#onsta_start";
-      break;
-    case WIFI_EVENT_STA_STOP:
-      break;
-    case WIFI_EVENT_WIFI_READY:
-      break;
-  }
+static const char *wifiEventNames[] = {
+    [WIFI_EVENT_WIFI_READY] = "#onwifi_ready",
+    [WIFI_EVENT_SCAN_DONE] = "#onscan_done", 
+    [WIFI_EVENT_STA_START] = "#onsta_start",
+    [WIFI_EVENT_STA_STOP] = "#onsta_stop",
+    [WIFI_EVENT_STA_CONNECTED] = "#onassociated",
+    [WIFI_EVENT_STA_DISCONNECTED] = "#ondisconnected",
+    [WIFI_EVENT_STA_AUTHMODE_CHANGE] = "#onauth_change",
+    [WIFI_EVENT_AP_START] = "#onap_start",
+    [WIFI_EVENT_AP_STOP] = "#onap_start",  // Note: same as AP_START in your code
+    [WIFI_EVENT_AP_STACONNECTED] = "#onsta_joined",
+    [WIFI_EVENT_AP_STADISCONNECTED] = "#onsta_left",
+    [WIFI_EVENT_AP_PROBEREQRECVED] = "#onprobe_recv",
+};
+#define getEventToString(e) (wifiEventNames[e] ? wifiEvents[e] : "unknown")
 #else
-  switch(event) {
-    case SYSTEM_EVENT_AP_PROBEREQRECVED:
-      return "#onprobe_recv";
-    case SYSTEM_EVENT_AP_STACONNECTED:
-      return "#onsta_joined";
-    case SYSTEM_EVENT_AP_STADISCONNECTED:
-      return "#onsta_left";
-    case SYSTEM_EVENT_AP_START:
-      break;
-    case SYSTEM_EVENT_AP_STOP:
-      break;
-    case SYSTEM_EVENT_SCAN_DONE:
-      break;
-    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
-      return "#onauth_change";
-    case SYSTEM_EVENT_STA_CONNECTED:
-      return "#onassociated";
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-      return "#ondisconnected";
-    case SYSTEM_EVENT_STA_GOT_IP:
-      return "#onconnected";
-    case SYSTEM_EVENT_STA_START:
-      return "#onsta_start";
-      break;
-    case SYSTEM_EVENT_STA_STOP:
-      break;
-    case SYSTEM_EVENT_WIFI_READY:
-      break;
-  }
-#endif  
-  //jsDebug(DBG_INFO, "Unhandled wifi event type: %d\n", event);
-  ESP_LOGI(TAG, "Unhandled wifi event type: %d", event);
-  return NULL;
-} // End of wifiGetEvent
+static const char *systemEventNames[] = {
+    [SYSTEM_EVENT_WIFI_READY] = "",
+    [SYSTEM_EVENT_SCAN_DONE] = "",
+    [SYSTEM_EVENT_STA_START] = "#onsta_start",
+    [SYSTEM_EVENT_STA_STOP] = "",
+    [SYSTEM_EVENT_STA_CONNECTED] = "#onassociated", 
+    [SYSTEM_EVENT_STA_DISCONNECTED] = "#ondisconnected",
+    [SYSTEM_EVENT_STA_GOT_IP] = "#onconnected",
+    [SYSTEM_EVENT_STA_AUTHMODE_CHANGE] = "#onauth_change",
+    [SYSTEM_EVENT_AP_START] = "",
+    [SYSTEM_EVENT_AP_STOP] = "",
+    [SYSTEM_EVENT_AP_STACONNECTED] = "#onsta_joined",
+    [SYSTEM_EVENT_AP_STADISCONNECTED] = "#onsta_left",
+    [SYSTEM_EVENT_AP_PROBEREQRECVED] = "#onprobe_recv",
+};
+#define getEventToString(e) (systemEventNames[e] ? wifiEvents[e] : "unknown")
+#endif
 
 #if ESP_IDF_VERSION_MAJOR>=5
 /**
@@ -532,7 +500,7 @@ static void sendWifiEvent(
   // get event name as string and compose param list
   JsVar *params[1];
   params[0] = jsDetails;
-  char *eventName = wifiGetEvent(eventType);
+  char *eventName = getEventToString(eventType);
   if (eventName == NULL) {
     return;
   }
@@ -553,7 +521,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
   //jsDebug(DBG_INFO, "Event: %s (%d)\n", event_base == WIFI_EVENT ? wifiEventToString(event_id) : "OTHER", event_id);
   ESP_LOGI(TAG, "Event: %s (%d)", event_base == WIFI_EVENT ? wifiEventToString(event_id) : "OTHER", event_id);
   
-  if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+  if (event_base == WIFI_EVENT && event_id >= WIFI_EVENT_MAX) {
+    jsDebug(DBG_INFO, "Internal event ");
+  }
+  else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
     wifi_event_sta_disconnected_t* disconnected = (wifi_event_sta_disconnected_t*)event_data;
     if (--s_retry_num > 0) {
       esp_wifi_connect();
