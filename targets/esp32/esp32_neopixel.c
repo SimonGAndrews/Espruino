@@ -89,11 +89,12 @@ int neopixelConfiguredGPIO = -1;
 #if ESP_IDF_VERSION_MAJOR >= 5
 
 static esp_err_t neopixel_rmt_init_v5(gpio_num_t gpio_num) {
-  if (neopixel_tx_chan != NULL && neopixel_gpio_num == gpio_num) {
-    return ESP_OK;
+  if (neopixelConfiguredGPIO == (int)gpio_num) {
+    if (neopixel_tx_chan != NULL && neopixel_gpio_num == gpio_num) {
+      return ESP_OK;
+    }
   }
   
-  // Cleanup previous
   if (neopixel_tx_chan != NULL) {
     rmt_disable(neopixel_tx_chan);
     rmt_del_channel(neopixel_tx_chan);
@@ -102,6 +103,7 @@ static esp_err_t neopixel_rmt_init_v5(gpio_num_t gpio_num) {
     }
     neopixel_tx_chan = NULL;
     neopixel_copy_encoder = NULL;
+    neopixel_gpio_num = GPIO_NUM_NC;
   }
 
   // Create TX channel (10MHz resolution)
@@ -124,6 +126,7 @@ static esp_err_t neopixel_rmt_init_v5(gpio_num_t gpio_num) {
   ESP_ERROR_CHECK(rmt_new_copy_encoder(&enc_config, &neopixel_copy_encoder));
   
   neopixel_gpio_num = gpio_num;
+  neopixelConfiguredGPIO = (int)gpio_num;
   return ESP_OK;
 }
 

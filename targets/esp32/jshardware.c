@@ -81,6 +81,10 @@
 
 #define UNUSED(x) (void)(x)
 
+#ifdef USE_NEOPIXEL
+extern int neopixelConfiguredGPIO; 
+#endif
+
 /**
  * Convert a pin id to the corresponding Pin Event id.
  */
@@ -217,9 +221,12 @@ void jshReset() {
  * Re-init the ESP32 after a soft-reset
  */
 void jshSoftInit() {
-  #ifdef NET
+#ifdef USE_NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_esp32_wifi_soft_init();
-  #endif
+#endif
+#ifdef USE_NEOPIXEL
+  neopixelConfiguredGPIO = -1;
+#endif
 }
 
 /**
