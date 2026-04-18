@@ -63,6 +63,7 @@ static bool rpFirstIdle = true;
 static bool rpUsbInitialised = false;
 static bool rpUsbConnected = false;
 static bool rpWatchdogEnabled = false;
+static bool rpWatchdogTickStarted = false;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
@@ -868,6 +869,13 @@ void jshInit() {
   gpio_disable_pulls(PICO_VBUS_PIN);
 #endif
 #endif
+  // Pico SDK expects the watchdog tick to be started so delay_ms values map
+  // onto a 1 MHz watchdog clock. RP2040 does not appear to do this for us.
+  if (!rpWatchdogTickStarted) {
+    watchdog_start_tick(XOSC_HZ / MHZ);
+    rpWatchdogTickStarted = true;
+  }
+  rpWatchdogEnabled = false;
   rpEarlyLogInit();
   rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
   if (!rpWatchIrqHandlerInstalled) {
@@ -1663,7 +1671,7 @@ void jshEnableWatchDog(JsVarFloat timeout) {
       timeoutMs = (uint32_t)timeoutMsFloat;
     }
   }
-  watchdog_enable(timeoutMs, true /* pause_on_debug */);
+  watchdog_enable(timeoutMs, false /* pause_on_debug */);
   rpWatchdogEnabled = true;
 }
 
