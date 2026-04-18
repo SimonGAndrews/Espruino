@@ -55,10 +55,12 @@ uintptr_t espruino_stackHighPtr = 0;
 volatile bool usbUARTIsNotFlushed;
 #endif
 
+#ifdef CONFIG_ESP_TASK_WDT_EN
 #if ESP_IDF_VERSION_MAJOR>=5
 #define TWDT_TICKS 10
 #else
 #define TWDT_TICKS 1
+#endif
 #endif
 
 void esp32USBUARTWasUsed() {
@@ -116,12 +118,15 @@ static void espruinoTask(void *data) {
 #ifdef BLUETOOTH
   bluetooth_initDeviceName();
 #endif  
+#ifdef CONFIG_ESP_TASK_WDT_EN
   esp_task_wdt_add(NULL);
-
+#endif
   while(1) {
     jsiLoop();   // Perform the primary loop processing
-    esp_task_wdt_reset();           
-    vTaskDelay(pdMS_TO_TICKS(TWDT_TICKS));
+    #ifdef CONFIG_ESP_TASK_WDT_EN
+      esp_task_wdt_reset();           
+      vTaskDelay(pdMS_TO_TICKS(TWDT_TICKS));
+   #endif
 #ifdef BLUETOOTH
     gatts_sendNUSNotificationIfNotEmpty();
 #endif

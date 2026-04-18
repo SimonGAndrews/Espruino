@@ -358,8 +358,7 @@ static void scanCB() {
   } // Number of access points > 0
 
   // We have now completed the scan callback, so now we can invoke the JS callback.
-  JsVar *params[1];
-  params[0] = jsAccessPointArray;
+  JsVar *params[] = {jsAccessPointArray};
   jsiQueueEvents(NULL, g_jsScanCallback, params, 1);
 
   jsvUnLock(jsAccessPointArray);
@@ -1536,6 +1535,30 @@ JsVar *jswrap_wifi_getAPDetails(JsVar *jsCallback) {
   return jsDetails;
 } // End of jswrap_wifi_getAPDetails
 
+
+#if DEBUG
+static void dumpJsVarObject(JsVar *o) {
+  JsvObjectIterator it;
+  jsvObjectIteratorNew(&it, o);
+  
+  while (jsvObjectIteratorHasValue(&it)) {
+    JsVar *key = jsvObjectIteratorGetKey(&it);
+    JsVar *val = jsvObjectIteratorGetValue(&it);
+    
+    char keyBuf[32], valBuf[64];
+    jsvGetString(key, keyBuf, sizeof(keyBuf));
+    jsvGetString(val, valBuf, sizeof(valBuf));  // ← Converts ANY type to string
+    
+    jsDebug(DBG_INFO, "  %s='%s'\n", keyBuf, valBuf);
+    
+    jsvUnLock(key);
+    jsvUnLock(val);
+    jsvObjectIteratorNext(&it);
+  }
+  jsvObjectIteratorFree(&it);
+}
+#endif
+
 void jswrap_wifi_save(JsVar *what) {
   jsDebug(DBG_INFO, "Wifi.save\n");
   JsVar *o = jsvNewObject();
@@ -1573,15 +1596,20 @@ void jswrap_wifi_save(JsVar *what) {
   jsvObjectSetChildAndUnLock(o, "hiddenAP", jsvNewFromInteger(ap_config.ssid_hidden));
   jsvObjectSetChildAndUnLock(o, "channelAP", jsvNewFromInteger(ap_config.channel));
 
-  const char * hostname;
+  const char * hostname = NULL;
 #if ESP_IDF_VERSION_MAJOR>=5
-  esp_err_t err = esp_netif_get_hostname(sta_netif, &hostname);
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_err_t err = esp_netif_get_hostname(netif, &hostname);
+  ESP_LOGI("WFIF","esp_netif_get_hostname: %s", wifiErrorToString(err));
+  ESP_LOGI("WIFI","hostname: %s", hostname);
 #else
   esp_err_t err = tcpip_adapter_get_hostname(TCPIP_ADAPTER_IF_STA, &hostname);
 #endif
   if (hostname) jsvObjectSetChildAndUnLock(o, "hostname", jsvNewFromString((char *) hostname));
-
   // save object
+#ifdef DEBUG
+  dumpJsVarObject(o);
+#endif
   JsVar *name = jsvNewFromString(WIFI_CONFIG_STORAGE_NAME);
   jswrap_storage_erase(name);
   jswrap_storage_write(name,o,0,0);
@@ -1694,25 +1722,6 @@ void jswrap_wifi_restore(void) {
   
   jsvUnLock2(name,o);
 }
-/*
-void dump_ip_info(esp_netif_t* netif) {
-  esp_netif_ip_info_t ipInfo;
-  char ip_str[16], mask_str[16], gw_str[16];
-  
-  if (esp_netif_get_ip_info(netif, &ipInfo) == ESP_OK) {
-    // Convert to dotted decimal (ip4addr_ntoa_r safe)
-    ip4addr_ntoa_r((const ip4_addr_t*)&ipInfo.ip, ip_str, sizeof(ip_str));
-    ip4addr_ntoa_r((const ip4_addr_t*)&ipInfo.netmask, mask_str, sizeof(mask_str));
-    ip4addr_ntoa_r((const ip4_addr_t*)&ipInfo.gw, gw_str, sizeof(gw_str));
-    
-    jsDebug(DBG_INFO, "=== IP INFO ===\n");
-    jsDebug(DBG_INFO, "IP:     %s\n", ip_str);
-    jsDebug(DBG_INFO, "Mask:   %s\n", mask_str);
-    jsDebug(DBG_INFO, "GW:     %s\n", gw_str);
-    jsDebug(DBG_INFO, "========\n");
-  }
-}
-*/
 
 /**
  * Get the ip info for the given interface.  The interfaces are:

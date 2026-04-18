@@ -491,6 +491,10 @@ void jshSetOutputValue(JshPinFunction func, int value) {
 }
 
 void jshEnableWatchDog(JsVarFloat timeout) {
+#ifndef CONFIG_ESP_TASK_WDT_EN
+  jsWarn("disable by sdconfig\n");
+  return;
+#else
 #ifdef QEMU_BUILD
 #else
   wdt_enabled = true;
@@ -506,14 +510,21 @@ void jshEnableWatchDog(JsVarFloat timeout) {
 #endif
   esp_task_wdt_add(NULL); // add current thread to WDT watch
 #endif
+#endif
 }
 // Kick the watchdog
 void jshKickWatchDog() {
+#ifndef CONFIG_ESP_TASK_WDT_EN
+  jsWarn("disable by sdconfig\n");
+  return;
+#else 
+
 #ifdef ESPR_DISABLE_KICKWATCHDOG_PIN // if this pin is asserted, don't kick the watchdog
   if (jshPinGetValue(ESPR_DISABLE_KICKWATCHDOG_PIN)) return;
 #endif
   if (wdt_enabled)
     esp_task_wdt_reset();
+#endif
 }
 
 
