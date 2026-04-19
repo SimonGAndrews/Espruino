@@ -28,7 +28,7 @@
 #include "mdns.h"
 #include "ping/ping.h"
 #include "esp_ping.h"
-#include "lwip/apps/sntp.h"
+#include "esp_sntp.h"
 #include "esp_mac.h"
 #include "nvs_flash.h"
 #elif ESP_IDF_VERSION_MAJOR>=4
@@ -1905,6 +1905,14 @@ void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
 
   setenv("TZ", zone, 1);
   tzset();
+
+  if (esp_sntp_enabled()) {
+  #if ESP_IDF_VERSION_MAJOR >= 5
+    esp_sntp_stop();
+  #else
+    sntp_stop();
+  #endif
+  }
   sntp_setoperatingmode(SNTP_OPMODE_POLL);
   sntp_setservername(0, server);
   sntp_init();
