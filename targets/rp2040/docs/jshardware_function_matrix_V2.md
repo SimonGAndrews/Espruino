@@ -197,7 +197,7 @@ Generated from `src/jshardware.h`.
 | `jshReset` | 10<br>STM<br>NRF<br>ESP | `impl` | `M1` | `reset()/boot` | `Yes` | reset/boot path exercised during persistence and power-cycle validation |
 | `jshIdle` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use; first-attach boot banner remains limited by shared `EV_LIMBO` / TX-buffer capacity rather than RP2040 polling logic |
 | `jshBusyIdle` | 5<br>NRF | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | USB runtime polling path proven by CDC REPL and Web IDE use |
-| `jshSleep` | 10<br>STM<br>NRF<br>ESP | `part` | `Later` | `jsiIdle / idle runtime` | `Yes` | implemented and bench-validated only for the narrow idle path needed by core `jsiIdle()`; fuller RP2040 sleep-mode design and related public API support are deferred to a later planned phase |
+| `jshSleep` | 10<br>STM<br>NRF<br>ESP | `part` | `Later` | `jsiIdle / idle runtime` | `Yes` | narrow RP2040 light-sleep path now uses Pico SDK WFE-style waiting plus normal Espruino sleep-indicator state transitions; no-USB `Serial1` bench validation has been re-proven, while deeper RP2040 sleep-mode design remains deferred |
 | `jshKill` | 15<br>STM<br>NRF<br>ESP | `impl` | `M1` | `?E.kill` | `No` | no-op cleanup |
 | `jshGetSerialNumber` | 9<br>STM<br>NRF<br>ESP | `impl` | `M1` | `getSerial()` | `Yes` | direct `getSerial()` saved test now proves the Pico unique-board-id path and Espruino string formatting |
 | `jshIsUSBSERIALConnected` | 13<br>STM<br>NRF<br>ESP | `impl` | `M1` | `USB REPL / Web IDE` | `Yes` | TinyUSB CDC state proven through repeated host connect/disconnect use |

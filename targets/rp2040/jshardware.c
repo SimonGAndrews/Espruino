@@ -64,6 +64,7 @@ static bool rpUsbInitialised = false;
 static bool rpUsbConnected = false;
 static bool rpWatchdogEnabled = false;
 static bool rpWatchdogTickStarted = false;
+static uint32_t rpWatchdogTimeoutMs = 0;
 static int64_t rpSystemTimeOffsetUs = 0;
 static bool rpEarlyLogInitialised = false;
 static bool rpWatchIrqHandlerInstalled = false;
@@ -876,6 +877,7 @@ void jshInit() {
     rpWatchdogTickStarted = true;
   }
   rpWatchdogEnabled = false;
+  rpWatchdogTimeoutMs = 0;
   rpEarlyLogInit();
   rp2040EarlyLog("RP2040 boot: jshInit ok\r\n");
   if (!rpWatchIrqHandlerInstalled) {
@@ -951,6 +953,20 @@ void jshIdle() {
     }
   }
 
+  // Do not rely solely on a CDC-session state transition for USB loss. On the
+  // real bench, VBUS can disappear while TinyUSB still reports the old session
+  // state for longer than we want, which leaves the active console stuck on
+  // USB. If the unforced console is still USB and VBUS is physically absent,
+  // move to Serial1 regardless of whether the CDC edge was observed above.
+  if (jsiGetConsoleDevice() != EV_LIMBO &&
+      !jsiIsConsoleDeviceForced() &&
+      jsiGetConsoleDevice() == EV_USBSERIAL &&
+      !rpUsbVbusPresent()) {
+    rpUsbConnected = false;
+    jsiSetConsoleDevice(EV_SERIAL1, false);
+    jshTransmitClearDevice(EV_USBSERIAL);
+  }
+
   if (tud_cdc_available()) {
     char rxbuf[64];
     while (tud_cdc_available()) {
@@ -1023,9 +1039,33 @@ void jshBusyIdle() {
 
 bool jshSleep(JsSysTime timeUntilWake) {
   jshIdle();
-  if (timeUntilWake == JSSYSTIME_MAX) return true;
-  JsVarFloat ms = jshGetMillisecondsFromTime(timeUntilWake);
-  if (ms > 0) sleep_ms((uint32_t)ms);
+  if ((jsiStatus & JSIS_WATCHDOG_AUTO) &&
+      rpWatchdogEnabled &&
+      rpWatchdogTimeoutMs > 0) {
+    JsSysTime maxSleep = jshGetTimeFromMilliseconds(((JsVarFloat)rpWatchdogTimeoutMs) / 2.0);
+    if (timeUntilWake == JSSYSTIME_MAX || timeUntilWake > maxSleep)
+      timeUntilWake = maxSleep;
+  }
+
+  // RP2040 UART RX is currently serviced by polling in jshIdle rather than by
+  // an IRQ-driven wake path. If any UART is active we therefore keep sleep in
+  // short slices so incoming Serial1/Serial2 data can be noticed promptly.
+  if (rpUartInitialised[0] || rpUartInitialised[1]) {
+    JsSysTime maxSleep = jshGetTimeFromMilliseconds(5.0);
+    if (timeUntilWake == JSSYSTIME_MAX || timeUntilWake > maxSleep)
+      timeUntilWake = maxSleep;
+  }
+
+  jsiSetSleep(JSI_SLEEP_ASLEEP);
+  if (timeUntilWake == JSSYSTIME_MAX) {
+    __wfe();
+  } else if (timeUntilWake > 0) {
+    absolute_time_t timeout = make_timeout_time_us((uint64_t)timeUntilWake);
+    while (!best_effort_wfe_or_timeout(timeout)) {
+      if (jshHasEvents()) break;
+    }
+  }
+  jsiSetSleep(JSI_SLEEP_AWAKE);
   return true;
 }
 
@@ -1673,6 +1713,7 @@ void jshEnableWatchDog(JsVarFloat timeout) {
   }
   watchdog_enable(timeoutMs, false /* pause_on_debug */);
   rpWatchdogEnabled = true;
+  rpWatchdogTimeoutMs = timeoutMs;
 }
 
 void jshKickWatchDog() {
