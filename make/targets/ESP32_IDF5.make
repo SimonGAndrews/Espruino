@@ -57,6 +57,7 @@ $(CMAKEFILE):
 		bt \
 		app_update \
 		esp_adc \
+		mbedtls \
 		driver; do \
 		echo "        $$d" >> $(CMAKEFILE); \
 	done

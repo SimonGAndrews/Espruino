@@ -1,12 +1,6 @@
 DEFINES += -DUSE_CRYPTO
 
 INCLUDE += -I$(ROOT)/libs/crypto
-INCLUDE += -I$(ROOT)/libs/crypto/mbedtls
-INCLUDE += -I$(ROOT)/libs/crypto/mbedtls/include
-
-#DEFINES += -DMBEDTLS_CIPHER_MODE_CTR \
-#-DMBEDTLS_CIPHER_MODE_CBC \
-#-DMBEDTLS_CIPHER_MODE_CFB
 
 WRAPPERSOURCES += libs/crypto/jswrap_crypto.c
  

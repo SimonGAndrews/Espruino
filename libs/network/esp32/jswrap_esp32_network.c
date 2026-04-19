@@ -31,7 +31,6 @@
 #include "lwip/apps/sntp.h"
 #include "esp_mac.h"
 #include "nvs_flash.h"
-#include "esp_log.h"
 #elif ESP_IDF_VERSION_MAJOR>=4
 #include "esp_event_loop.h"
 #include "tcpip_adapter.h"
@@ -122,8 +121,10 @@ static bool mdns_started = 0;
 
 void stopMDNS() {
   jsDebug(DBG_INFO, "Wifi:stopMDNS\n");
-  mdns_free();
-  mdns_started = false;
+  if (mdns_started) {
+    mdns_free();
+    mdns_started = false;
+  }
 }
 
 void startMDNS(const char *hostname) {
@@ -132,7 +133,7 @@ void startMDNS(const char *hostname) {
   // start mDNS and set hostname (required if you want to advertise services)
   ESP_ERROR_CHECK( mdns_init() );
   ESP_ERROR_CHECK( mdns_hostname_set(hostname) );
-  mdns_service_add(NULL, "_telnet", "_tcp", 23, NULL, 0);
+  ESP_ERROR_CHECK( mdns_service_add(NULL, "_telnet", "_tcp", 23, NULL, 0) );
   mdns_started = true;
 }
 
@@ -405,14 +406,14 @@ static int s_retry_num = 0;
 
 #if ESP_IDF_VERSION_MAJOR>=5
 static char *ipGetEvent(uint32_t event) {
-  ESP_LOGI(TAG,"ipGetEvent: Got event: %d", event);
+  jsDebug(DBG_INFO,"ipGetEvent: Got event: %d\n", event);
 
   switch(event) {
-    case IP_EVENT_STA_GOT_IP: ESP_LOGI(TAG,"%d : #onconnected", event);
+    case IP_EVENT_STA_GOT_IP: jsDebug(DBG_INFO,"%d : #onconnected\n", event);
                               return "#onconnected";
   }
   //jsDebug(DBG_INFO, "Unhandled wifi event type: %d\n", event);
-  ESP_LOGI(DBG_INFO, "Unhandled ip event type: %d\n", event);
+  jsDebug(DBG_INFO, "Unhandled ip event type: %d\n", event);
   return NULL;
 } 
 #endif
@@ -464,7 +465,7 @@ static void sendIPEvent(
 
   JsVar *module = getWifiModule();
   if (!module) {
-     ESP_LOGI(TAG, "!module -> return");
+    jsDebug(DBG_INFO, "!module -> return\n");
     return; // out of memory?
   }
 
@@ -473,11 +474,11 @@ static void sendIPEvent(
   params[0] = jsDetails;
   char *eventName = ipGetEvent(eventType);
   if (eventName == NULL) {
-    ESP_LOGI(TAG, "eventName == NULL -> return");
+    jsDebug(DBG_INFO, "eventName == NULL -> return\n");
     return;
   }
   //jsDebug(DBG_INFO, "sendIPEvent %s\n", eventName);
-  ESP_LOGI(TAG, "sendIPEvent %s", eventName);
+  jsDebug(DBG_INFO, "sendIPEvent %s\n", eventName);
   jsiQueueObjectCallbacks(module, eventName, params, 1);
   jsvUnLock(module);
   return;
@@ -504,8 +505,7 @@ static void sendWifiEvent(
   if (eventName == NULL) {
     return;
   }
-  //jsDebug(DBG_INFO, "sendWifiEvent %s\n", eventName);
-  ESP_LOGI(TAG, "sendWifiEvent %s", eventName);
+  jsDebug(DBG_INFO, "sendWifiEvent %s\n", eventName);
   jsiQueueObjectCallbacks(module, eventName, params, 1);
   jsvUnLock(module);
   return;
@@ -519,7 +519,7 @@ static void sendWifiEvent(
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
 
   //jsDebug(DBG_INFO, "Event: %s (%d)\n", event_base == WIFI_EVENT ? wifiEventToString(event_id) : "OTHER", event_id);
-  ESP_LOGI(TAG, "Event: %s (%d)", event_base == WIFI_EVENT ? wifiEventToString(event_id) : "OTHER", event_id);
+  jsDebug(DBG_INFO, "Event: %s (%d)\n", event_base == WIFI_EVENT ? wifiEventToString(event_id) : "OTHER", event_id);
   
   if (event_base == WIFI_EVENT && event_id >= WIFI_EVENT_MAX) {
     jsDebug(DBG_INFO, "Internal event ");
@@ -596,8 +596,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     jsvObjectSetChildAndUnLock(jsDetails, "netmask", jsvNewFromString(temp));
     sprintf(temp, IPSTR, IP2STR(&event->ip_info.gw));
     jsvObjectSetChildAndUnLock(jsDetails, "gw", jsvNewFromString(temp));
-    // jsDebug(DBG_INFO, "Wifi: About to emit connect!\n");
-    ESP_LOGI(TAG, "Wifi: About to emit connect!");
+    jsDebug(DBG_INFO, "Wifi: About to emit connect!\n");
     sendIPEvent(IP_EVENT_STA_GOT_IP, jsDetails);
     // mDNS unchanged
     const char *hostname;
@@ -838,8 +837,7 @@ static void sendWifiCompletionCB(
     JsVar **g_jsCallback, //!< Pointer to the global callback variable
     char *reason          //!< NULL if successful, error string otherwise
 ) {
-  // jsDebug(DBG_INFO, "sendWifiCompletionCB\n");
-  ESP_LOGI(TAG, "sendWifiCompletionCB");
+  jsDebug(DBG_INFO, "sendWifiCompletionCB\n");
   // Check that we have a callback function.
   if (!jsvIsFunction(*g_jsCallback)) {
     return; // we have not got a function pointer: nothing to do
@@ -892,8 +890,7 @@ void jswrap_wifi_disconnect(JsVar *jsCallback) {
   g_jsDisconnectCallback = jsvLockAgainSafe(jsCallback);
 
   // Call the ESP-IDF to disconnect us from the access point.
-  //jsDebug(DBG_INFO, "Disconnecting.....\n");
-  ESP_LOGI(TAG, "Disconnecting.....");
+  jsDebug(DBG_INFO, "Disconnecting.....\n");
 
   // turn off auto-connect
 #if !(ESP_IDF_VERSION_MAJOR>=4)
@@ -902,8 +899,7 @@ void jswrap_wifi_disconnect(JsVar *jsCallback) {
   s_retry_num = 0; // flag so we don't attempt to reconnect
   err = esp_wifi_disconnect();
   if (err != ESP_OK) {
-    //jsDebug(DBG_INFO, "jswrap_wifi_disconnect: esp_wifi_disconnect rc=%d(%s)\n", err,wifiErrorToString(err));
-    ESP_LOGI(TAG, "jswrap_wifi_disconnect: esp_wifi_disconnect rc=%d(%s)", err,wifiErrorToString(err));
+    jsDebug(DBG_INFO, "jswrap_wifi_disconnect: esp_wifi_disconnect rc=%d(%s)\n", err,wifiErrorToString(err));
   }
   if (jsvIsFunction(jsCallback)) {
     jsiQueueEvents(NULL, jsCallback, NULL, 0);
@@ -1036,8 +1032,7 @@ void jswrap_wifi_connect(
     jsError( "jswrap_wifi_connect: esp_wifi_set_mode: %d(%s), mode=%d", err,wifiErrorToString(err), mode);
     return;
   }
-  //jsDebug(DBG_INFO, "jswrap_wifi_connect: esp_wifi_set_mode done\n");
-  ESP_LOGI(TAG, "jswrap_wifi_connect: esp_wifi_set_mode done");
+  jsDebug(DBG_INFO, "jswrap_wifi_connect: esp_wifi_set_mode done\n");
 
   // Perform a an esp_wifi_set_config
   wifi_config_t staConfig;
@@ -1571,8 +1566,8 @@ void jswrap_wifi_save(JsVar *what) {
 #if ESP_IDF_VERSION_MAJOR>=5
   esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   esp_err_t err = esp_netif_get_hostname(netif, &hostname);
-  ESP_LOGI("WFIF","esp_netif_get_hostname: %s", wifiErrorToString(err));
-  ESP_LOGI("WIFI","hostname: %s", hostname);
+  jsDebug(DBG_INFO,"esp_netif_get_hostname: %s\n", wifiErrorToString(err));
+  jsDebug(DBG_INFO,"hostname: %s\n", hostname);
 #else
   esp_err_t err = tcpip_adapter_get_hostname(TCPIP_ADAPTER_IF_STA, &hostname);
 #endif
@@ -1950,6 +1945,19 @@ void jswrap_wifi_getHostByName(
   ip_addr_t ipAddr;
   char hostname[256];
 
+  esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_netif_dns_info_t dns_info;
+  esp_err_t ret = esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns_info);
+
+  if (ret == ESP_OK) {
+    if (dns_info.ip.type == IPADDR_TYPE_V4) {
+      uint32_t addr = dns_info.ip.u_addr.ip4.addr;
+      jsDebug(DBG_INFO,"DNS server: %d.%d.%d.%d\n",(addr>>0)&0xff, (addr>>8)&0xff, (addr>>16)&0xff, (addr>>24)&0xff);
+    }
+  } else {
+    jsDebug(DBG_INFO, "esp_netif_get_dns_info: %d\n", ret); 
+  }
+
   jsDebug(DBG_INFO, "Wifi.getHostByName\n");
 
   if (!jsvIsString(jsHostname)) {
@@ -1966,14 +1974,23 @@ void jswrap_wifi_getHostByName(
   jsvLockAgainSafe(g_jsHostByNameCallback);
 
   jsvGetString(jsHostname, hostname, sizeof(hostname));
-  jsDebug(DBG_INFO, "Wifi.getHostByName: %s\n", hostname);
   esp_err_t err = dns_gethostbyname(hostname, &ipAddr, dnsFoundCallback, NULL);
+  jsDebug(DBG_INFO,"err = %d (%s)\n", err, esp_err_to_name(err));
   if (err == ESP_OK) {
     jsDebug(DBG_INFO, "Already resolved\n");
     dnsFoundCallback(hostname, &ipAddr, NULL);
+  } else if (err == ERR_INPROGRESS) {
+    jsDebug(DBG_INFO,"DNS query in progress (ERR_INPROGRESS)\n");
   } else {
-    jsDebug(DBG_INFO, "Error: %d from dns_gethostbyname\n", err);
-    dnsFoundCallback(hostname, NULL, NULL);
+    jsDebug(DBG_INFO,"DNS lookup failed: %d from dns_gethostbyname\n", err);
+    // no callback will come
+    if (g_jsHostByNameCallback != NULL) {
+      JsVar *params[1] = { jsvNewNull() };
+      jsiQueueEvents(NULL, g_jsHostByNameCallback, params, 1);
+      jsvUnLock(params[0]);
+      jsvUnLock(g_jsHostByNameCallback);
+      g_jsHostByNameCallback = NULL;
+    }
   }
 }
 

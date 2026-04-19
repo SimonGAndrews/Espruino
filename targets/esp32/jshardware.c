@@ -499,7 +499,6 @@ void jshSetOutputValue(JshPinFunction func, int value) {
 
 void jshEnableWatchDog(JsVarFloat timeout) {
 #ifndef CONFIG_ESP_TASK_WDT_EN
-  jsWarn("disable by sdconfig\n");
   return;
 #else
 #ifdef QEMU_BUILD
@@ -522,7 +521,6 @@ void jshEnableWatchDog(JsVarFloat timeout) {
 // Kick the watchdog
 void jshKickWatchDog() {
 #ifndef CONFIG_ESP_TASK_WDT_EN
-  jsWarn("disable by sdconfig\n");
   return;
 #else 
 
