@@ -22,6 +22,7 @@
 
 // Includes from ESP-IDF
 #include "esp_wifi.h"
+#include "esp_event_loop.h"
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -32,14 +33,14 @@
 #include "esp_mac.h"
 #include "nvs_flash.h"
 #elif ESP_IDF_VERSION_MAJOR>=4
-#include "esp_event_loop.h"
+
 #include "tcpip_adapter.h"
 #include "mdns.h"
 #include "ping/ping.h"
 #include "esp_ping.h"
 #include "sntp/sntp.h"
 #else
-#include "esp_event_loop.h"
+
 #include "tcpip_adapter.h"
 #include "mdns/include/mdns.h"
 #include "lwip/include/apps/ping/ping.h"
@@ -138,8 +139,18 @@ void startMDNS(const char *hostname) {
 }
 
 // Convert an wifi_auth_mode_t data type to a string value.
-static const char *authModes[] = {"open", "wep", "wpa", "wpa2", "wpa_wpa2", "unknown"};
-#define authModeToString(m) (m < 5 ? authModes[m] : authModes[5])
+static char *authModeToString(wifi_auth_mode_t authMode) {
+  switch(authMode) {
+    case WIFI_AUTH_OPEN: return "open";
+    case WIFI_AUTH_WEP: return "wep";
+    case WIFI_AUTH_WPA_PSK: return "wpa";
+    case WIFI_AUTH_WPA2_PSK: return "wpa2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "wpa_wpa2";
+    default:  return "unknown";
+  }
+} // End of authModeToString
+
+//Convert an wifi_cipher_type_t data type to a string value.
 
 /**
  * Convert an wifi_cipher_type_t data type to a string value.
@@ -168,78 +179,98 @@ static char *cipherTypeToString(wifi_cipher_type_t cipherType) {
  * check esp function
 */
 
-// Convert an wifi_second_chan_t data type to a string value.
-static const char *htModes[] = {"HT20", "HT40+", "HT40-", "unknown"};
-#define htModeToString(m) (m < 3 ? htModes[m] : htModes[3])
+/**
+ * Convert an wifi_second_chan_t data type to a string value.
+ */
+static char *htModeToString(wifi_second_chan_t htMode) {
+  switch(htMode) {
+    case WIFI_SECOND_CHAN_NONE: return "HT20";
+    case WIFI_SECOND_CHAN_ABOVE: return "HT40+";
+    case WIFI_SECOND_CHAN_BELOW: return "HT40-";
+    default: return "unknown";
+  }
+} // End of htModeToString
 
 // Convert a Wifi reason code to a string representation.
-static const char *wifiReasons[] = {
-    [WIFI_REASON_UNSPECIFIED] = "UNSPECIFIED",
-    [WIFI_REASON_AUTH_EXPIRE] = "AUTH_EXPIRE",
-    [WIFI_REASON_AUTH_LEAVE] = "AUTH_LEAVE",
-    [WIFI_REASON_ASSOC_EXPIRE] = "ASSOC_EXPIRE",
-    [WIFI_REASON_ASSOC_TOOMANY] = "ASSOC_TOOMANY",
-    [WIFI_REASON_NOT_AUTHED] = "NOT_AUTHED",
-    [WIFI_REASON_NOT_ASSOCED] = "NOT_ASSOCED",
-    [WIFI_REASON_ASSOC_LEAVE] = "ASSOC_LEAVE",
-    [WIFI_REASON_ASSOC_NOT_AUTHED] = "ASSOC_NOT_AUTHED",
-    [WIFI_REASON_DISASSOC_PWRCAP_BAD] = "DISASSOC_PWRCAP_BAD",
-    [WIFI_REASON_DISASSOC_SUPCHAN_BAD] = "DISASSOC_SUPCHAN_BAD",
-    [WIFI_REASON_IE_INVALID] = "IE_INVALID",
-    [WIFI_REASON_MIC_FAILURE] = "MIC_FAILURE",
-    [WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT] = "4WAY_HANDSHAKE_TIMEOUT",
-    [WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT] = "GROUP_KEY_UPDATE_TIMEOUT",
-    [WIFI_REASON_IE_IN_4WAY_DIFFERS] = "IE_IN_4WAY_DIFFERS",
-    [WIFI_REASON_GROUP_CIPHER_INVALID] = "GROUP_CIPHER_INVALID",
-    [WIFI_REASON_PAIRWISE_CIPHER_INVALID] = "PAIRWISE_CIPHER_INVALID",
-    [WIFI_REASON_AKMP_INVALID] = "AKMP_INVALID",
-    [WIFI_REASON_UNSUPP_RSN_IE_VERSION] = "UNSUPP_RSN_IE_VERSION",
-    [WIFI_REASON_INVALID_RSN_IE_CAP] = "INVALID_RSN_IE_CAP",
-    [WIFI_REASON_802_1X_AUTH_FAILED] = "802_1X_AUTH_FAILED",
-    [WIFI_REASON_CIPHER_SUITE_REJECTED] = "CIPHER_SUITE_REJECTED",
-    [WIFI_REASON_BEACON_TIMEOUT] = "BEACON_TIMEOUT",
-    [WIFI_REASON_NO_AP_FOUND] = "NO_AP_FOUND",
-    [WIFI_REASON_HANDSHAKE_TIMEOUT] = "HANDSHAKE_TIMEOUT",
-    [WIFI_REASON_AUTH_FAIL] = "AUTH_FAIL"
-};
-#define wifiReasonToString(r) (wifiReasons[r] ? wifiReasons[r] : "Unknown reason")
-
-// Convery a wifi_mode_t data type to a string value.
-static const char *wifiModes[] = {"NULL", "STA", "AP", "APSTA", "UNKNOWN"};
-#define wifiModeToString(m) (m < 4 ? wifiModes[m] : wifiModes[4])
+const char *wifiReasonToString(int r) {
+  switch (r) {
+    case WIFI_REASON_UNSPECIFIED: return "UNSPECIFIED";
+    case WIFI_REASON_AUTH_EXPIRE: return "AUTH_EXPIRE";
+    case WIFI_REASON_AUTH_LEAVE: return "AUTH_LEAVE";
+    case WIFI_REASON_ASSOC_EXPIRE: return "ASSOC_EXPIRE";
+    case WIFI_REASON_ASSOC_TOOMANY: return "ASSOC_TOOMANY";
+    case WIFI_REASON_NOT_AUTHED: return "NOT_AUTHED";
+    case WIFI_REASON_NOT_ASSOCED: return "NOT_ASSOCED";
+    case WIFI_REASON_ASSOC_LEAVE: return "ASSOC_LEAVE";
+    case WIFI_REASON_ASSOC_NOT_AUTHED: return "ASSOC_NOT_AUTHED";
+    case WIFI_REASON_DISASSOC_PWRCAP_BAD: return "DISASSOC_PWRCAP_BAD";
+    case WIFI_REASON_DISASSOC_SUPCHAN_BAD: return "DISASSOC_SUPCHAN_BAD";
+    case WIFI_REASON_IE_INVALID: return "IE_INVALID";
+    case WIFI_REASON_MIC_FAILURE: return "MIC_FAILURE";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4WAY_HANDSHAKE_TIMEOUT";
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT: return "GROUP_KEY_UPDATE_TIMEOUT";
+    case WIFI_REASON_IE_IN_4WAY_DIFFERS: return "IE_IN_4WAY_DIFFERS";
+    case WIFI_REASON_GROUP_CIPHER_INVALID: return "GROUP_CIPHER_INVALID";
+    case WIFI_REASON_PAIRWISE_CIPHER_INVALID: return "PAIRWISE_CIPHER_INVALID";
+    case WIFI_REASON_AKMP_INVALID: return "AKMP_INVALID";
+    case WIFI_REASON_UNSUPP_RSN_IE_VERSION: return "UNSUPP_RSN_IE_VERSION";
+    case WIFI_REASON_INVALID_RSN_IE_CAP: return "INVALID_RSN_IE_CAP";
+    case WIFI_REASON_802_1X_AUTH_FAILED: return "802_1X_AUTH_FAILED";
+    case WIFI_REASON_CIPHER_SUITE_REJECTED: return "CIPHER_SUITE_REJECTED";
+    case WIFI_REASON_BEACON_TIMEOUT: return "BEACON_TIMEOUT";
+    case WIFI_REASON_NO_AP_FOUND: return "NO_AP_FOUND";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "HANDSHAKE_TIMEOUT";
+    case WIFI_REASON_AUTH_FAIL: return "AUTH_FAIL";
+    default: return "Unknown reason";
+  }
+}
+/**
+ * Convery a wifi_mode_t data type to a string value.
+ */
+static char *wifiModeToString(wifi_mode_t mode) {
+  switch(mode) {
+    case WIFI_MODE_NULL: return "NULL";
+    case WIFI_MODE_STA: return "STA";
+    case WIFI_MODE_AP: return "AP";
+    case WIFI_MODE_APSTA: return "APSTA";
+    default: return "UNKNOWN";
+  }
+} // End of wifiModeToString
 
 #if ESP_IDF_VERSION_MAJOR>=5
 // Convert an wifi event to a string value.
- static const char *wifiEvents[] = {
-    [WIFI_EVENT_STA_CONNECTED] = "STA_CONNECTED",
-    [WIFI_EVENT_STA_DISCONNECTED] = "STA_DISCONNECTED", 
-    [WIFI_EVENT_STA_AUTHMODE_CHANGE] = "STA_AUTHMODE_CHANGE",
-    [WIFI_EVENT_AP_STACONNECTED] = "AP_STACONNECTED",
-    [WIFI_EVENT_AP_STADISCONNECTED] = "AP_STADISCONNECTED",
-    [WIFI_EVENT_AP_PROBEREQRECVED] = "AP_PROBEREQRECVED",
-    [WIFI_EVENT_WIFI_READY] = "WIFI_READY",
-    [WIFI_EVENT_SCAN_DONE] = "SCAN_DONE",
-    [WIFI_EVENT_STA_START] = "STA_START",
-    [WIFI_EVENT_STA_STOP] = "STA_STOP",
-    [WIFI_EVENT_STA_WPS_ER_SUCCESS] = "STA_WPS_ER_SUCCESS",
-    [WIFI_EVENT_STA_WPS_ER_FAILED] = "STA_WPS_ER_FAILED",
-    [WIFI_EVENT_STA_WPS_ER_TIMEOUT] = "STA_WPS_ER_TIMEOUT",
-    [WIFI_EVENT_STA_WPS_ER_PIN] = "STA_WPS_ER_PIN",
-    [WIFI_EVENT_AP_START] = "AP_START",
-    [WIFI_EVENT_AP_STOP] = "AP_STOP",
-    [WIFI_EVENT_MAX] = "MAX",
-    [WIFI_REASON_IE_IN_4WAY_DIFFERS] = "IEs in 4-way handshake differ"
-};
-#define wifiEventToString(e) (wifiEvents[e] ? wifiEvents[e] : "unknown")
-
-static const char *ipEvents[] = {
-    [IP_EVENT_STA_GOT_IP] = "STA_GOT_IP",
-    [IP_EVENT_STA_LOST_IP] = "LOST_IP",
-    [IP_EVENT_GOT_IP6] = "GOT_IP6",
-    [IP_EVENT_ETH_GOT_IP] = "ETH_GOT_IP"
-};
-#define ipEventToString(e) (ipEvents[e] ? ipEvents[e] : "unknown")
-  
+const char *wifiEventToString(int e) {
+  switch (e) {
+    case WIFI_EVENT_STA_CONNECTED: return "STA_CONNECTED";
+    case WIFI_EVENT_STA_DISCONNECTED: return "STA_DISCONNECTED";
+    case WIFI_EVENT_STA_AUTHMODE_CHANGE: return "STA_AUTHMODE_CHANGE";
+    case WIFI_EVENT_AP_STACONNECTED: return "AP_STACONNECTED";
+    case WIFI_EVENT_AP_STADISCONNECTED: return "AP_STADISCONNECTED";
+    case WIFI_EVENT_AP_PROBEREQRECVED: return "AP_PROBEREQRECVED";
+    case WIFI_EVENT_WIFI_READY: return "WIFI_READY";
+    case WIFI_EVENT_SCAN_DONE: return "SCAN_DONE";
+    case WIFI_EVENT_STA_START: return "STA_START";
+    case WIFI_EVENT_STA_STOP: return "STA_STOP";
+    case WIFI_EVENT_STA_WPS_ER_SUCCESS: return "STA_WPS_ER_SUCCESS";
+    case WIFI_EVENT_STA_WPS_ER_FAILED: return "STA_WPS_ER_FAILED";
+    case WIFI_EVENT_STA_WPS_ER_TIMEOUT: return "STA_WPS_ER_TIMEOUT";
+    case WIFI_EVENT_STA_WPS_ER_PIN: return "STA_WPS_ER_PIN";
+    case WIFI_EVENT_AP_START: return "AP_START";
+    case WIFI_EVENT_AP_STOP: return "AP_STOP";
+    case WIFI_EVENT_MAX: return "MAX";
+    case WIFI_REASON_IE_IN_4WAY_DIFFERS: return "IEs in 4-way handshake differ";
+    default: return "unknown";
+  }
+}
+const char *ipEventToString(int e) {
+  switch (e) {
+    case IP_EVENT_STA_GOT_IP: return "STA_GOT_IP";
+    case IP_EVENT_STA_LOST_IP: return "LOST_IP";
+    case IP_EVENT_GOT_IP6: return "GOT_IP6";
+    case IP_EVENT_ETH_GOT_IP: return "ETH_GOT_IP";
+    default: return "unknown";
+  }
+}
 #else
 /**
  * Convert an wifi event to a string value.
@@ -247,31 +278,31 @@ static const char *ipEvents[] = {
 static char *wifiEventToString(uint32_t event){
   jsDebug(DBG_INFO, "wifiReasonToString %d\n",event);
   switch(event){
-    case WIFI_EVENT_STA_CONNECTED:return "STA_CONNECTED";
-    case WIFI_EVENT_STA_DISCONNECTED:return "STA_DISCONNECTED";
-    case WIFI_EVENT_STA_AUTHMODE_CHANGE:return "STA_AUTHMODE_CHANGE";
+    case SYSTEM_EVENT_STA_CONNECTED:return "STA_CONNECTED";
+    case SYSTEM_EVENT_STA_DISCONNECTED:return "STA_DISCONNECTED";
+    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:return "STA_AUTHMODE_CHANGE";
     case SYSTEM_EVENT_STA_GOT_IP:return "STA_GOT_IP";
-    case WIFI_EVENT_AP_STACONNECTED:return "AP_STACONNECTED";
-    case WIFI_EVENT_AP_STADISCONNECTED: return "AP_STADISCONNECTED";
-    case WIFI_EVENT_AP_PROBEREQRECVED:return "AP_PROBEREQRECVED";
-    case WIFI_EVENT_WIFI_READY: return "WIFI_READY";
-    case WIFI_EVENT_SCAN_DONE: return "SCAN_DONE";
-    case WIFI_EVENT_STA_START: return "STA_START";
-    case WIFI_EVENT_STA_STOP: return "STA_STOP";
+    case SYSTEM_EVENT_AP_STACONNECTED:return "AP_STACONNECTED";
+    case SYSTEM_EVENT_AP_STADISCONNECTED: return "AP_STADISCONNECTED";
+    case SYSTEM_EVENT_AP_PROBEREQRECVED:return "AP_PROBEREQRECVED";
+    case SYSTEM_EVENT_WIFI_READY: return "WIFI_READY";
+    case SYSTEM_EVENT_SCAN_DONE: return "SCAN_DONE";
+    case SYSTEM_EVENT_STA_START: return "STA_START";
+    case SYSTEM_EVENT_STA_STOP: return "STA_STOP";
     case SYSTEM_EVENT_STA_LOST_IP: return "LOST_IP";
-    case WIFI_EVENT_STA_WPS_ER_SUCCESS: return "STA_WPS_ER_SUCCESS";
-    case WIFI_EVENT_STA_WPS_ER_FAILED: return "STA_WPS_ER_FAILED";
-    case WIFI_EVENT_STA_WPS_ER_TIMEOUT: return "STA_WPS_ER_TIMEOUT";
+    case SYSTEM_EVENT_STA_WPS_ER_SUCCESS: return "STA_WPS_ER_SUCCESS";
+    case SYSTEM_EVENT_STA_WPS_ER_FAILED: return "STA_WPS_ER_FAILED";
+    case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT: return "STA_WPS_ER_TIMEOUT";
     case SYSTEM_EVENT_STA_WPS_ER_PIN: return "STA_WPS_ER_PIN";
-    case WIFI_EVENT_AP_START: return "AP_START";
-    case WIFI_EVENT_AP_STOP: return "AP_STOP";
+    case SYSTEM_EVENT_AP_START: return "AP_START";
+    case SYSTEM_EVENT_AP_STOP: return "AP_STOP";
     case SYSTEM_EVENT_GOT_IP6: return "GOT_IP6";
-    case WIFI_EVENT_ETH_START: return "ETH_START";
-    case WIFI_EVENT_ETH_STOP: return "ETH_STOP";
-    case WIFI_EVENT_ETH_CONNECTED: return "ETH_CONNECTED";
-    case WIFI_EVENT_ETH_DISCONNECTED: return "ETH_DISCONNECTED";
+    case SYSTEM_EVENT_ETH_START: return "ETH_START";
+    case SYSTEM_EVENT_ETH_STOP: return "ETH_STOP";
+    case SYSTEM_EVENT_ETH_CONNECTED: return "ETH_CONNECTED";
+    case SYSTEM_EVENT_ETH_DISCONNECTED: return "ETH_DISCONNECTED";
     case SYSTEM_EVENT_ETH_GOT_IP: return "ETH_GOT_IP";
-    case WIFI_EVENT_MAX: return "MAX";
+    case SYSTEM_EVENT_MAX: return "MAX";
     default: return "unknown event, see wifiEventToString";
   }
 }
@@ -284,27 +315,6 @@ static char *wifiErrorToString(esp_err_t err){
   jsDebug(DBG_INFO, "wifiErrorToString %d: %s \n", err,esp_err_to_name(err));
   return (char *) esp_err_to_name(err);
 }
-/*
-  switch(err){
-    case 0x3001: return "WiFi driver was not installed by esp_wifi_init";
-    case 0x3002: return "WiFi driver was not started by esp_wifi_start";
-    case 0x3003: return "WiFi driver was not stopped by esp_wifi_stop";
-    case 0x3004: return "WiFi interface error";
-    case 0x3005: return "WiFi mode error";
-    case 0x3006: return "WiFi internal state error";
-    case 0x3007: return "WiFi internal control block of station or soft-AP error";
-    case 0x3008: return "WiFi internal NVS module error";
-    case 0x3009: return "MAC address is invalid";
-    case 0x300A: return "SSID is invalid";
-    case 0x300B: return "Password is invalid";
-    case 0x300C: return "Timeout error";
-    case 0x300D: return "WiFi is in sleep state(RF closed) and wakeup fail";
-    case 0x300E: return "The caller would block";
-    case 0x300F: return "Station still in disconnect status";
-    default: return "unknown WiFi error, see wifiErrorToString";
-  }
-}
-*/
 
 /**
  * Callback function that is invoked at the culmination of a scan.
@@ -419,38 +429,43 @@ static char *ipGetEvent(uint32_t event) {
 #endif
 
 #if ESP_IDF_VERSION_MAJOR>=5
-static const char *wifiEventNames[] = {
-    [WIFI_EVENT_WIFI_READY] = "#onwifi_ready",
-    [WIFI_EVENT_SCAN_DONE] = "#onscan_done", 
-    [WIFI_EVENT_STA_START] = "#onsta_start",
-    [WIFI_EVENT_STA_STOP] = "#onsta_stop",
-    [WIFI_EVENT_STA_CONNECTED] = "#onassociated",
-    [WIFI_EVENT_STA_DISCONNECTED] = "#ondisconnected",
-    [WIFI_EVENT_STA_AUTHMODE_CHANGE] = "#onauth_change",
-    [WIFI_EVENT_AP_START] = "#onap_start",
-    [WIFI_EVENT_AP_STOP] = "#onap_start",  // Note: same as AP_START in your code
-    [WIFI_EVENT_AP_STACONNECTED] = "#onsta_joined",
-    [WIFI_EVENT_AP_STADISCONNECTED] = "#onsta_left",
-    [WIFI_EVENT_AP_PROBEREQRECVED] = "#onprobe_recv",
-};
-#define getEventToString(e) (wifiEventNames[e] ? wifiEvents[e] : "unknown")
+const char *getEventToString(int e) {
+  switch (e) {
+    case WIFI_EVENT_WIFI_READY: return "#onwifi_ready";
+    case WIFI_EVENT_SCAN_DONE: return "#onscan_done";
+    case WIFI_EVENT_STA_START: return "#onsta_start";
+    case WIFI_EVENT_STA_STOP: return "#onsta_stop";
+    case WIFI_EVENT_STA_CONNECTED: return "#onassociated";
+    case WIFI_EVENT_STA_DISCONNECTED: return "#ondisconnected";
+    case WIFI_EVENT_STA_AUTHMODE_CHANGE: return "#onauth_change";
+    case WIFI_EVENT_AP_START: return "#onap_start";
+    case WIFI_EVENT_AP_STOP: return "#onap_stop";  
+    case WIFI_EVENT_AP_STACONNECTED: return "#onsta_joined";
+    case WIFI_EVENT_AP_STADISCONNECTED: return "#onsta_left";
+    case WIFI_EVENT_AP_PROBEREQRECVED: return "#onprobe_recv";
+    default: return "unknown";
+  }
+}
 #else
-static const char *systemEventNames[] = {
-    [SYSTEM_EVENT_WIFI_READY] = "",
-    [SYSTEM_EVENT_SCAN_DONE] = "",
-    [SYSTEM_EVENT_STA_START] = "#onsta_start",
-    [SYSTEM_EVENT_STA_STOP] = "",
-    [SYSTEM_EVENT_STA_CONNECTED] = "#onassociated", 
-    [SYSTEM_EVENT_STA_DISCONNECTED] = "#ondisconnected",
-    [SYSTEM_EVENT_STA_GOT_IP] = "#onconnected",
-    [SYSTEM_EVENT_STA_AUTHMODE_CHANGE] = "#onauth_change",
-    [SYSTEM_EVENT_AP_START] = "",
-    [SYSTEM_EVENT_AP_STOP] = "",
-    [SYSTEM_EVENT_AP_STACONNECTED] = "#onsta_joined",
-    [SYSTEM_EVENT_AP_STADISCONNECTED] = "#onsta_left",
-    [SYSTEM_EVENT_AP_PROBEREQRECVED] = "#onprobe_recv",
-};
-#define getEventToString(e) (systemEventNames[e] ? wifiEvents[e] : "unknown")
+const char *getEventToString(int e) {
+  switch (e) {
+    // no handler name; treat as invalid / no script 
+    case SYSTEM_EVENT_WIFI_READY: return NULL;  
+    case SYSTEM_EVENT_SCAN_DONE: return NULL;
+    case SYSTEM_EVENT_STA_START: return "#onsta_start";
+    case SYSTEM_EVENT_STA_STOP: return NULL;
+    case SYSTEM_EVENT_STA_CONNECTED: return "#onassociated";
+    case SYSTEM_EVENT_STA_DISCONNECTED: return "#ondisconnected";
+    case SYSTEM_EVENT_STA_GOT_IP: return "#onconnected";
+    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE: return "#onauth_change";
+    case SYSTEM_EVENT_AP_START: return NULL;
+    case SYSTEM_EVENT_AP_STOP: return NULL;
+    case SYSTEM_EVENT_AP_STACONNECTED: return "#onsta_joined";
+    case SYSTEM_EVENT_AP_STADISCONNECTED: return "#onsta_left";
+    case SYSTEM_EVENT_AP_PROBEREQRECVED: return "#onprobe_recv";
+    default: return "unknown";
+  }
+}
 #endif
 
 #if ESP_IDF_VERSION_MAJOR>=5
@@ -1905,13 +1920,12 @@ void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
 
   setenv("TZ", zone, 1);
   tzset();
-
+#if ESP_IDF_VERSION_MAJOR >= 4
   if (esp_sntp_enabled()) {
-  #if ESP_IDF_VERSION_MAJOR >= 5
     esp_sntp_stop();
-  #else
+#else
     sntp_stop();
-  #endif
+#endif
   }
   sntp_setoperatingmode(SNTP_OPMODE_POLL);
   sntp_setservername(0, server);
@@ -1953,19 +1967,6 @@ void jswrap_wifi_getHostByName(
   ip_addr_t ipAddr;
   char hostname[256];
 
-  esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  esp_netif_dns_info_t dns_info;
-  esp_err_t ret = esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns_info);
-
-  if (ret == ESP_OK) {
-    if (dns_info.ip.type == IPADDR_TYPE_V4) {
-      uint32_t addr = dns_info.ip.u_addr.ip4.addr;
-      jsDebug(DBG_INFO,"DNS server: %d.%d.%d.%d\n",(addr>>0)&0xff, (addr>>8)&0xff, (addr>>16)&0xff, (addr>>24)&0xff);
-    }
-  } else {
-    jsDebug(DBG_INFO, "esp_netif_get_dns_info: %d\n", ret); 
-  }
-
   jsDebug(DBG_INFO, "Wifi.getHostByName\n");
 
   if (!jsvIsString(jsHostname)) {
@@ -1976,12 +1977,32 @@ void jswrap_wifi_getHostByName(
     jsExceptionHere(JSET_ERROR, "Callback is not a function");
     return;
   }
-  // Save the callback unlocking an old callback if needed.
-  if (g_jsHostByNameCallback != NULL) jsvUnLock(g_jsHostByNameCallback);
+  // Save the callback, unlocking an old one if needed.
+  if (g_jsHostByNameCallback != NULL)
+    jsvUnLock(g_jsHostByNameCallback);
   g_jsHostByNameCallback = jsCallback;
   jsvLockAgainSafe(g_jsHostByNameCallback);
 
   jsvGetString(jsHostname, hostname, sizeof(hostname));
+
+#if ESP_IDF_VERSION_MAJOR >= 4
+  // IDF 4/5: show current DNS server via ESP‑NETIF
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_dns_info_t dns_info;
+    esp_err_t ret = esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns_info);
+    if (ret == ESP_OK) {
+      if (dns_info.ip.type == IPADDR_TYPE_V4) {
+        uint32_t addr = dns_info.ip.u_addr.ip4.addr;
+        jsDebug(DBG_INFO,"DNS server: %d.%d.%d.%d\n",
+          (addr>>0)&0xff, (addr>>8)&0xff,
+          (addr>>16)&0xff, (addr>>24)&0xff);
+      }
+    } else {
+    jsDebug(DBG_INFO, "esp_netif_get_dns_info: %d\n", ret);
+  }
+#endif
+
+  jsDebug(DBG_INFO, "Wifi.getHostByName: %s\n", hostname);
   esp_err_t err = dns_gethostbyname(hostname, &ipAddr, dnsFoundCallback, NULL);
   jsDebug(DBG_INFO,"err = %d (%s)\n", err, esp_err_to_name(err));
   if (err == ESP_OK) {
