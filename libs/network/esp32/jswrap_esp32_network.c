@@ -1901,7 +1901,6 @@ void jswrap_wifi_ping(
   ping_init();
   #endif
 }
-
 void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
   if (!jsvIsString(jsZone)) {
     jsExceptionHere(JSET_ERROR, "Zone is not a string");
@@ -1926,7 +1925,6 @@ void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
 #else
     sntp_stop();
 #endif
-  }
   sntp_setoperatingmode(SNTP_OPMODE_POLL);
   sntp_setservername(0, server);
   sntp_init();
