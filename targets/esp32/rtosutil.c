@@ -29,27 +29,36 @@ ESP32Timer_t ESP32Timers[timerMax];
 #endif
 
 #define TIMER_DIVIDER 80
-#define TIMER_FINE_ADJ   (1.4*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000)
+#define TIMER_FINE_ADJ   (1.4f*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000.0f)
 #define TIMER_INTR_SEL   TIMER_INTR_LEVEL
 
-// Timer register macros - FIXED for all IDF versions
-#if CONFIG_IDF_TARGET_ESP32C3
+// Universal ESP32 timer macros - IDF 3.x/4.x/5.x compatible
+#if CONFIG_IDF_TARGET_ESP32
+  #define TIMER_FINE_ADJ   (1.4f*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000.0f)
+  #if ESP_IDF_VERSION_MAJOR>=5
+    // IDF5 ESP32 - CORRECT field names from compiler hint
+    #define TIMER_TX_UPDATE(TIMER_N)  (TIMERG0.hw_timer[TIMER_N].update.tx_update = 1)
+    #define TIMER_ALARM_EN(TIMER_N)   (TIMERG0.hw_timer[TIMER_N].config.tx_alarm_en = 1)
+    #define TIMER_0_INT_CLR()         (TIMERG0.int_clr_timers.t0_int_clr = 1)
+    #define TIMER_1_INT_CLR()         (TIMERG0.int_clr_timers.t1_int_clr = 1)
+  #else
+    // IDF3/4 ESP32 - legacy fields
+    #define TIMER_TX_UPDATE(TIMER_N)  (TIMERG0.hw_timer[TIMER_N].update = 1)
+    #define TIMER_ALARM_EN(TIMER_N)   (TIMERG0.hw_timer[TIMER_N].config.alarm_en = 1)
+    #define TIMER_0_INT_CLR()         (TIMERG0.int_clr_timers.t0 = 1)
+    #define TIMER_1_INT_CLR()         (TIMERG0.int_clr_timers.t1 = 1)
+  #endif
+#elif CONFIG_IDF_TARGET_ESP32C3
   #define TIMER_FINE_ADJ   (1.4*(esp_clk_apb_freq() / TIMER_DIVIDER)/1000000)
-  #define TIMER_TX_UPDATE(TIMER_N) TIMERG0.hw_timer[TIMER_N].update.tx_update = 1
-  #define TIMER_ALARM_EN(TIMER_N)  TIMERG0.hw_timer[TIMER_N].config.tx_alarm_en = 1
-  #define TIMER_0_INT_CLR()        TIMERG0.int_clr_timers.t0_int_clr = 1
+  #define TIMER_TX_UPDATE(TIMER_N) (TIMERG0.hw_timer[TIMER_N].update.tx_update = 1)
+  #define TIMER_ALARM_EN(TIMER_N)  (TIMERG0.hw_timer[TIMER_N].config.tx_alarm_en = 1)
+  #define TIMER_0_INT_CLR()        (TIMERG0.int_clr_timers.t0_int_clr = 1)
 #elif CONFIG_IDF_TARGET_ESP32S3
   #define TIMER_FINE_ADJ   (1.4*(esp_clk_apb_freq() / TIMER_DIVIDER)/1000000)
-  #define TIMER_TX_UPDATE(TIMER_N) TIMERG0.hw_timer[TIMER_N].update.tn_update = 1
-  #define TIMER_ALARM_EN(TIMER_N)  TIMERG0.hw_timer[TIMER_N].config.tn_alarm_en = 1
-  #define TIMER_0_INT_CLR()        TIMERG0.int_clr_timers.t0_int_clr = 1
-  #define TIMER_1_INT_CLR()        TIMERG0.int_clr_timers.t1_int_clr = 1
-#elif CONFIG_IDF_TARGET_ESP32
-  #define TIMER_FINE_ADJ   (1.4f*(TIMER_BASE_CLK / TIMER_DIVIDER)/1000000.0f)
-  #define TIMER_TX_UPDATE(TIMER_N) TIMERG0.hw_timer[TIMER_N].update = 1
-  #define TIMER_ALARM_EN(TIMER_N)  TIMERG0.hw_timer[TIMER_N].config.alarm_en = 1
-  #define TIMER_0_INT_CLR()        TIMERG0.int_clr_timers.t0 = 1
-  #define TIMER_1_INT_CLR()        TIMERG0.int_clr_timers.t1 = 1
+  #define TIMER_TX_UPDATE(TIMER_N) (TIMERG0.hw_timer[TIMER_N].update.tn_update = 1)
+  #define TIMER_ALARM_EN(TIMER_N)  (TIMERG0.hw_timer[TIMER_N].config.tn_alarm_en = 1)
+  #define TIMER_0_INT_CLR()        (TIMERG0.int_clr_timers.t0_int_clr = 1)
+  #define TIMER_1_INT_CLR()        (TIMERG0.int_clr_timers.t1_int_clr = 1)
 #else
   #error Unsupported target
 #endif
