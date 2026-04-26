@@ -50,7 +50,9 @@
 #include "jsparse.h"
 #include "jsinteractive.h"
 #include "jspininfo.h"
+#ifdef USE_NET
 #include "jswrap_esp32_network.h"
+#endif
 #if ESP_IDF_VERSION_MAJOR>=4
 #include "soc/uart_reg.h"
 #include "esp_mac.h"
@@ -180,7 +182,9 @@ void jshInit() {
 #ifdef CONFIG_ESP_TASK_WDT
   ESP_LOGW("Espruino", "ESP-IDF task watchdog enabled in sdkconfig; E.enableWatchdog may behave inconsistently");
 #endif
+#ifdef USE_NET
   esp32_wifi_init();
+#endif
   // Auto-reconnect if saved creds exist
   //if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) {
   //  jswrap_wifi_restore();  // Loads SSID/pass from NVS → auto-connect

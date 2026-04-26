@@ -39,7 +39,7 @@ jobs:
     strategy:
       # devices to build for
       matrix:
-        board: [ESP32, ESP32C3_IDF4, ESP32S3_IDF4, ESP32_IDF4]
+        board: [ESP32, ESP32C3_IDF4, ESP32S3_IDF4, ESP32_IDF4, ESP32_IDF5, ESP32S3_IDF5, ESP32C3_IDF5]
       # try and build for all devices even if one fails
       fail-fast: false 
     steps:
@@ -67,42 +67,4 @@ jobs:
           bin/*.tgz
           bin/*.zip
 
-  # emulator builds
-  build_emulator:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.enable_emulator }}
-    runs-on: ubuntu-24.04
-    strategy:
-      # devices to build for
-      matrix:  # banglejs,   banglejs2
-        board: [EMSCRIPTEN, EMSCRIPTEN2]
-      # try and build for all devices even if one fails
-      fail-fast: false 
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-    - name: make ${{ matrix.board }}
-      env:
-        TRAVIS: 1
-        RELEASE: 1
-        BOARD: ${{ matrix.board }} 
-        UPLOADTOKEN: ${{ secrets.UPLOADTOKEN }}  
-      run: |
-        source ./scripts/provision.sh  ${{ matrix.board }}
-        make
-        ./scripts/ci_upload.sh
-    - name: Upload ${{ matrix.board }} build artifact
-      uses: actions/upload-artifact@v5.0.0
-      with:
-        name: ${{ matrix.board }}
-        path: |
-          bin/*.js
- 
-# Disable doc building for now 
-#  docs:
-#    runs-on: ubuntu-24.04      
-#    steps:
-#    - name: makedocs
-#      run: make docs
-
-
+  

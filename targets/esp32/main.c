@@ -22,7 +22,9 @@
 #include "jshardwarePulse.h"
 #include "jshardwareSpi.h"
 #include "jshardwareESP32.h"
+#ifdef USE_NET
 #include "jswrap_wifi.h"
+#endif
 #include "jswrapper.h"
 
 uintptr_t espruino_stackHighPtr = 0;
@@ -51,7 +53,12 @@ uintptr_t espruino_stackHighPtr = 0;
 #endif
 
 #ifdef ESPR_USE_USB_SERIAL_JTAG
+#if ESP_IDF_VERSION_MAJOR >= 5
+#include "driver/usb_serial_jtag.h"
+#include <unistd.h>
+#else
 #include "hal/usb_serial_jtag_ll.h"
+#endif
 volatile bool usbUARTIsNotFlushed;
 #endif
 
@@ -80,8 +87,13 @@ static void uartTask(void *data) {
     /* The USB CDC UART on the C3 only writes the data to USB after a newline.
     We don't want that, so we call flush in this uart task if any data has been sent. */
     if (usbUARTIsNotFlushed) {
+    #if ESP_IDF_VERSION_MAJOR >= 5
+      fflush(stdout);
+    #else
       usb_serial_jtag_ll_txfifo_flush();
+    #endif
       usbUARTIsNotFlushed = false;
+
     }
 #endif
   }
@@ -114,7 +126,9 @@ static void espruinoTask(void *data) {
   jsvInit(heapVars);     // Initialize the variables
 
   jsiInit(true); // Initialize the interactive subsystem
+#ifdef USE_NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_wifi_restore();
+#endif
 #ifdef BLUETOOTH
   bluetooth_initDeviceName();
 #endif  

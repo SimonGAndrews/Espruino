@@ -131,10 +131,22 @@ void stopMDNS() {
 void startMDNS(const char *hostname) {
   jsDebug(DBG_INFO, "Wifi:startMDNS - %s\n", hostname);
   if (mdns_started) stopMDNS();
-  // start mDNS and set hostname (required if you want to advertise services)
-  ESP_ERROR_CHECK( mdns_init() );
-  ESP_ERROR_CHECK( mdns_hostname_set(hostname) );
-  ESP_ERROR_CHECK( mdns_service_add(NULL, "_telnet", "_tcp", 23, NULL, 0) );
+  esp_err_t err;
+  err = mdns_init();
+  if (err != ESP_OK) {
+    jsDebug(DBG_ERROR, "mDNS init failed: %d\n", err);
+    return;
+  }
+  err = mdns_hostname_set(hostname);
+  if (err != ESP_OK) {
+    jsDebug(DBG_ERROR, "mDNS hostname_set failed: %d\n", err);
+    return;
+  }
+  err = mdns_service_add(NULL, "_telnet", "_tcp", 23, NULL, 0);
+  if (err != ESP_OK) {
+    jsDebug(DBG_ERROR, "mDNS service_add failed: %d\n", err);
+    return;
+  }
   mdns_started = true;
 }
 
@@ -756,7 +768,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     // 12345678901234567_8
     // xx:xx:xx:xx:xx:xx\0
     char temp[18];
-    sprintf(temp, MACSTR, MAC2STR(&event->event_info.sta_connected.mac));
+    sprintf(temp, MACSTR, MAC2STR(event->event_info.sta_connected.mac));
     jsvObjectSetChildAndUnLock(jsDetails, "mac", jsvNewFromString(temp));
     sendWifiEvent(event->event_id, jsDetails);
     return ESP_OK;
@@ -773,7 +785,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     // 12345678901234567_8
     // xx:xx:xx:xx:xx:xx\0
     char temp[18];
-    sprintf(temp, MACSTR, MAC2STR(&event->event_info.sta_disconnected.mac));
+    sprintf(temp, MACSTR, MAC2STR(event->event_info.sta_disconnected.mac));
     jsvObjectSetChildAndUnLock(jsDetails, "mac", jsvNewFromString(temp));
     sendWifiEvent(event->event_id, jsDetails);
     return ESP_OK;
@@ -1919,12 +1931,15 @@ void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
 
   setenv("TZ", zone, 1);
   tzset();
-#if ESP_IDF_VERSION_MAJOR >= 4
+
+#if ESP_IDF_VERSION_MAJOR < 4
+  // Do nothing - SNTP stops with WiFi disconnect
+#elif ESP_IDF_VERSION_MAJOR >= 4
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
-#else
-    sntp_stop();
+  }
 #endif
+
   sntp_setoperatingmode(SNTP_OPMODE_POLL);
   sntp_setservername(0, server);
   sntp_init();
