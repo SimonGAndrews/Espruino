@@ -7,6 +7,7 @@
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_event.h"
 #include "esp_task_wdt.h"
+#include "hal/usb_serial_jtag_ll.h"
 #else
 #include "esp_event_loop.h"
 #endif
@@ -87,13 +88,8 @@ static void uartTask(void *data) {
     /* The USB CDC UART on the C3 only writes the data to USB after a newline.
     We don't want that, so we call flush in this uart task if any data has been sent. */
     if (usbUARTIsNotFlushed) {
-    #if ESP_IDF_VERSION_MAJOR >= 5
-      fflush(stdout);
-    #else
       usb_serial_jtag_ll_txfifo_flush();
-    #endif
       usbUARTIsNotFlushed = false;
-
     }
 #endif
   }

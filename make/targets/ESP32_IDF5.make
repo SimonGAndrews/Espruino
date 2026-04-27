@@ -51,6 +51,7 @@ $(CMAKEFILE):
 		esp_event \
 		esp_netif \
 		esp_wifi \
+		hal \
 		lwip \
 		mdns \
 		nvs_flash \
@@ -77,7 +78,7 @@ $(CMAKEFILE):
 	@echo "target_compile_options(\$${COMPONENT_LIB} PRIVATE -Wno-format)" >> $(CMAKEFILE)
 
 $(PROJ_NAME).bin: $(CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININFOFILE).c $(WRAPPERFILE)
-	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)
+	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)/sdkconfig.defaults
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/CMakeLists.txt $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/partitions.csv $(BINDIR)
 	$(Q)mkdir -p $(BINDIR)/main
