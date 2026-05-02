@@ -28,6 +28,7 @@ node_modules
 /app
 /esp-idf
 /esp-idf-4
+/esp-idf-5
 xtensa-esp32-elf
 gcc-arm-none-eabi*
 arm-gnu-toolchain*

@@ -59,6 +59,8 @@ $(CMAKEFILE):
 		app_update \
 		esp_adc \
 		mbedtls \
+		vfs \
+		heap \
 		driver; do \
 		echo "        $$d" >> $(CMAKEFILE); \
 	done

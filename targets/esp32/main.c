@@ -7,10 +7,16 @@
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_event.h"
 #include "esp_task_wdt.h"
-#include "hal/usb_serial_jtag_ll.h"
 #else
 #include "esp_event_loop.h"
 #endif
+
+#if ESP_IDF_VERSION_MAJOR==5
+#include "driver/usb_serial_jtag.h"
+#elif ESP_IDF_VERSION_MAJOR==4
+#include "hal/usb_serial_jtag_ll.h"
+#endif
+
 #include "nvs_flash.h"
 
 #include <jsdevices.h>
@@ -88,11 +94,29 @@ static void uartTask(void *data) {
     /* The USB CDC UART on the C3 only writes the data to USB after a newline.
     We don't want that, so we call flush in this uart task if any data has been sent. */
     if (usbUARTIsNotFlushed) {
+    #if ESP_IDF_VERSION_MAJOR >= 5
+      fflush(stdout);  // Or fsync(1);
+    #else
       usb_serial_jtag_ll_txfifo_flush();
+    #endif
       usbUARTIsNotFlushed = false;
     }
 #endif
   }
+}
+
+#include "esp_heap_caps.h"  // Required header
+void printHeapDebug(int i ) {
+  printf("%d DRAM Free: %6d | Largest: %6d | Min: %6d\n", 
+         i,
+         heap_caps_get_free_size(MALLOC_CAP_8BIT),
+         heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+         heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+  
+  multi_heap_info_t info;
+  heap_caps_get_info(&info, MALLOC_CAP_8BIT);
+  printf("%d Blocks: %d total (%d alloc, %d free)\n", 
+         i, info.total_blocks, info.allocated_blocks, info.free_blocks);
 }
 
 static void espruinoTask(void *data) {
@@ -100,6 +124,9 @@ static void espruinoTask(void *data) {
   espruino_stackHighPtr = (uintptr_t)&heapVars; //Ignore the name, 'heapVars' is on the stack!
                         //I didn't use another variable becaue this function never ends so
                         //all variables declared here consume stack space that is never freed.
+  
+  printHeapDebug(1);
+  
   PWMInit();
   RMTInit();
   initADC(1);
@@ -118,10 +145,13 @@ static void espruinoTask(void *data) {
       heapVars = maxVars;
     }
   }
+  printHeapDebug(2);
 
   jsvInit(heapVars);     // Initialize the variables
 
   jsiInit(true); // Initialize the interactive subsystem
+
+  printHeapDebug(3);
 #ifdef USE_NET
   if(ESP32_Get_NVS_Status(ESP_NETWORK_WIFI)) jswrap_wifi_restore();
 #endif

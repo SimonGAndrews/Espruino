@@ -51,7 +51,7 @@ $(CMAKEFILE):
 
 
 $(PROJ_NAME).bin: $(CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININFOFILE).c $(WRAPPERFILE)
-	$(Q)cp ${ROOT}/targets/esp32/IDF4/${SDKCONFIG} $(BINDIR)
+	$(Q)cp ${ROOT}/targets/esp32/IDF4/${SDKCONFIG} $(BINDIR)/sdkconfig.defaults
 	$(Q)cp ${ROOT}/targets/esp32/IDF4/CMakeLists.txt $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF4/partitions.csv $(BINDIR)
 	cd $(BINDIR) && idf.py build

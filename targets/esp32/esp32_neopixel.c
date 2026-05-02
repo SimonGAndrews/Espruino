@@ -197,6 +197,7 @@ static bool neopixel_write_v5(gpio_num_t gpio_num, unsigned char *rgbData, size_
 
 #if ESP_IDF_VERSION_MAJOR < 5
 
+#if ESP_IDF_VERSION_MAJOR == 4
 static void IRAM_ATTR ws2812_rmt_adapter(const void *src, rmt_item32_t *dest, size_t src_size,
                                         size_t wanted_num, size_t *translated_size, size_t *item_num) {
   if (src == NULL || dest == NULL) {
@@ -220,6 +221,27 @@ static void IRAM_ATTR ws2812_rmt_adapter(const void *src, rmt_item32_t *dest, si
   *translated_size = size;
   *item_num = num;
 }
+
+#else 
+
+void neopixel_initRMTChannel(int rmtChannel){
+  RMT.apb_conf.fifo_mask = 1;  //enable memory access, instead of FIFO mode.
+  RMT.apb_conf.mem_tx_wrap_en = 1; //wrap around when hitting end of buffer
+  RMT.conf_ch[rmtChannel].conf0.div_cnt = DIVIDER;
+  RMT.conf_ch[rmtChannel].conf0.mem_size = BUFFERS;//1;
+  RMT.conf_ch[rmtChannel].conf0.carrier_en = 0;
+  RMT.conf_ch[rmtChannel].conf0.carrier_out_lv = 1;
+  RMT.conf_ch[rmtChannel].conf0.mem_pd = 0;
+
+  RMT.conf_ch[rmtChannel].conf1.rx_en = 0;
+  RMT.conf_ch[rmtChannel].conf1.mem_owner = 0;
+  RMT.conf_ch[rmtChannel].conf1.tx_conti_mode = 0;    //loop back mode.
+  RMT.conf_ch[rmtChannel].conf1.ref_always_on = 1;    // use apb clock: 80M
+  RMT.conf_ch[rmtChannel].conf1.idle_out_en = 1;
+  RMT.conf_ch[rmtChannel].conf1.idle_out_lv = 0;
+}
+
+#endif // ESP_IDF_VERSION_MAJOR == 4
 
 void neopixel_copy() {
   unsigned int i, j, offset, offset2, len, bit;
@@ -261,22 +283,6 @@ void neopixel_handleInterrupt(void *arg) {
     RMT.int_clr.ch0_tx_end = 1;
   }
 #endif
-}
-
-void neopixel_initRMTChannel(int rmtChannel) {
-  RMT.apb_conf.fifo_mask = 1;
-  RMT.apb_conf.mem_tx_wrap_en = 1;
-  RMT.conf_ch[rmtChannel].conf0.div_cnt = DIVIDER;
-  RMT.conf_ch[rmtChannel].conf0.mem_size = BUFFERS;
-  RMT.conf_ch[rmtChannel].conf0.carrier_en = 0;
-  RMT.conf_ch[rmtChannel].conf0.carrier_out_lv = 1;
-  RMT.conf_ch[rmtChannel].conf0.mem_pd = 0;
-  RMT.conf_ch[rmtChannel].conf1.rx_en = 0;
-  RMT.conf_ch[rmtChannel].conf1.mem_owner = 0;
-  RMT.conf_ch[rmtChannel].conf1.tx_conti_mode = 0;
-  RMT.conf_ch[rmtChannel].conf1.ref_always_on = 1;
-  RMT.conf_ch[rmtChannel].conf1.idle_out_en = 1;
-  RMT.conf_ch[rmtChannel].conf1.idle_out_lv = 0;
 }
 
 #endif  // ESP_IDF_VERSION_MAJOR < 5
