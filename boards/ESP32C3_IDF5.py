@@ -75,7 +75,7 @@ info = {
      'TLS',
      'TELNET',
      'FILESYSTEM',
-#     'BLUETOOTH',
+     'BLUETOOTH',
 #     'NEOPIXEL'
    ],
    'makefile' : [

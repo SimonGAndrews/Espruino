@@ -67,7 +67,7 @@ info = {
      'TELNET',
      'NEOPIXEL',
 #     'FILESYSTEM',
-#     'BLUETOOTH'
+     'BLUETOOTH'
    ],
    'makefile' : [
      'DEFINES+=-DESP_PLATFORM -DESP32=1',

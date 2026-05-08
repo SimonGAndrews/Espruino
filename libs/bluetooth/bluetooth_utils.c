@@ -23,7 +23,6 @@
 #include "app_error.h"
 #endif
 #ifdef ESP32
-#include "esp_bt.h"
 #include "esp_gattc_api.h"
 #include "BLE/esp32_bluetooth_utils.h"
 #endif
@@ -71,7 +70,7 @@ JsVar *bleUUIDToStr(ble_uuid_t uuid) {
   assert(dataLen==16); // it should always be 16 as we checked above
   return bleUUID128ToStr(&data[0]);
 #else
-  return bleUUID128ToStr(&uuid.uuid128);
+  return bleUUID128ToStr(uuid.uuid128);
 #endif
 }
 

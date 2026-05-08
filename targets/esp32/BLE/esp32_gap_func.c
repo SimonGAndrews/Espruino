@@ -26,6 +26,10 @@
 #include "jshardwareESP32.h"
 #include "bluetooth_utils.h"
 
+#if ESP_IDF_VERSION_MAJOR==5
+#include "esp_mac.h"
+#endif
+
 #define adv_config_flag      (1 << 0)
 #define scan_rsp_config_flag (1 << 1)
 #define BT_BD_ADDR_HEX(addr)   addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
@@ -64,8 +68,8 @@ static esp_ble_adv_data_t adv_data = {
     .service_data_len = 0,
     .p_service_data = NULL,
     .service_uuid_len = 0,  //needs to be set before used
-    .p_service_uuid = &adv_service_uuid128,
-    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
+    .p_service_uuid = NULL,
+    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT)
 };
 
 void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param){
@@ -227,14 +231,14 @@ JsVar *bluetooth_gap_getAdvertisingData(JsVar *data, JsVar *options){
       while(jsvObjectIteratorHasValue(&it)){
         JsVar *value = jsvObjectIteratorGetValue(&it);
         int idx = jsvGetIntegerAndUnLock(jsvObjectIteratorGetKey(&it));
-        i = i + addAdvertisingData(&encoded_advdata,i,idx,value);
+        i = i + addAdvertisingData(encoded_advdata,i,idx,value);
         jsvUnLock(value);
         jsvObjectIteratorNext(&it);
       }
       jsvObjectIteratorFree(&it);
     }
     //todo add support of manufacturerData
-    i = i + addAdvertisingDeviceName(&encoded_advdata,i);
+    i = i + addAdvertisingDeviceName(encoded_advdata,i);
 
     // This doesn't work - UART service needs to be in the scan response like we do for nRF52 (there's no space in the main packet)
     /*JsVar *uartVar = jsvObjectGetChildIfExists(options, "uart"); // this is not ideal - we should be checking BLE_NAME_NUS

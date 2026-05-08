@@ -5,17 +5,17 @@ CMAKEFILE = $(BINDIR)/main/CMakeLists.txt
 INCLUDE_WITHOUT_GEN = $(subst -Igen,,$(INCLUDE)) -I$(ROOT)/gen
 
 ifeq ($(CHIP),ESP32C3)
-	SDKCONFIG = sdkconfig_c3
+	SDKCONFIG = sdkconfig.defaults.esp32c3
 	FMW_BIN_NAME = espruino-esp32c3
 	PORT ?= /dev/ttyACM0
 else 
 	ifeq ($(CHIP),ESP32)
-		SDKCONFIG = sdkconfig
+		SDKCONFIG = sdkconfig.defaults.esp32
 		FMW_BIN_NAME = espruino-esp32
 		PORT ?= /dev/ttyUSB0
 	else
 		ifeq ($(CHIP),ESP32S3)
-			SDKCONFIG = sdkconfig_s3
+			SDKCONFIG = sdkconfig.defaults.esp32s3
 			FMW_BIN_NAME = espruino-esp32s3
 			PORT ?= /dev/ttyUSB0
 		else
@@ -29,7 +29,7 @@ $(CMAKEFILE):
 	@echo "INCLUDE_WITHOUT_GEN: $(INCLUDE_WITHOUT_GEN)"
 	@mkdir -p $(BINDIR)/main
 	@touch $(CMAKEFILE)
-	@echo 'set(SDKCONFIG_DEFAULTS sdkconfig.defaults)' >> $(CMAKEFILE)
+	@echo 'set(SDKCONFIG_DEFAULTS "sdkconfig.defaults $(SDKCONFIG)")' >> $(CMAKEFILE)
 	@echo "idf_component_register(" >> $(CMAKEFILE)
 	@echo "    SRCS" >> $(CMAKEFILE)
 	@for s in $(SOURCES); do \
@@ -61,6 +61,7 @@ $(CMAKEFILE):
 		mbedtls \
 		vfs \
 		heap \
+		efuse \
 		driver; do \
 		echo "        $$d" >> $(CMAKEFILE); \
 	done
@@ -80,7 +81,9 @@ $(CMAKEFILE):
 	@echo "target_compile_options(\$${COMPONENT_LIB} PRIVATE -Wno-format)" >> $(CMAKEFILE)
 
 $(PROJ_NAME).bin: $(CMAKEFILE) $(PLATFORM_CONFIG_FILE) $(PININFOFILE).h $(PININFOFILE).c $(WRAPPERFILE)
-	$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG}.defaults $(BINDIR)/sdkconfig.defaults
+	$(Q)cp ${ROOT}/targets/esp32/IDF5/sdkconfig.defaults $(BINDIR)
+	$(Q)cat ${ROOT}/targets/esp32/IDF5/${SDKCONFIG} >> $(BINDIR)/sdkconfig.defaults
+	##$(Q)cp ${ROOT}/targets/esp32/IDF5/${SDKCONFIG} $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/CMakeLists.txt $(BINDIR)
 	$(Q)cp ${ROOT}/targets/esp32/IDF5/partitions.csv $(BINDIR)
 	$(Q)mkdir -p $(BINDIR)/main

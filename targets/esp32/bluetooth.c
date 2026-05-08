@@ -78,7 +78,7 @@ int jsble_exec_pending(uint8_t *buffer, int bufferLen) {
   assert(IOEVENT_MAX_LEN >= sizeof(BLEAdvReportData));
   int eventBytesHandled = 2+bufferLen;
   // Now handle the actual event
-  if (bufferLen<3) return;
+  if (bufferLen<3) return 0;
   BLEPending blep = (BLEPending)buffer[0];
   uint16_t data = (uint16_t)(buffer[1] | (buffer[2]<<8));
   // skip first 3 bytes
@@ -108,14 +108,15 @@ uint32_t jsble_advertising_start() {
   if(!ESP32_Get_NVS_Status(ESP_NETWORK_BLE))
     return ESP_ERR_INVALID_STATE; // ESP32.enableBLE(false)
   esp_err_t status;
-  if (bleStatus & BLE_IS_ADVERTISING) return;
+  if (bleStatus & BLE_IS_ADVERTISING) return 0;
   status = bluetooth_gap_startAdvertising(true);
   bleStatus |= BLE_IS_ADVERTISING;
   return status;
 }
+
 void jsble_advertising_stop() {
   if(!ESP32_Get_NVS_Status(ESP_NETWORK_BLE))
-    return ESP_ERR_INVALID_STATE; // ESP32.enableBLE(false)
+    return;
 
   esp_err_t status;
   if (!(bleStatus & BLE_IS_ADVERTISING)) return;

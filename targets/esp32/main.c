@@ -11,10 +11,12 @@
 #include "esp_event_loop.h"
 #endif
 
+#ifdef ESPR_USE_USB_SERIAL_JTAG
 #if ESP_IDF_VERSION_MAJOR==5
 #include "driver/usb_serial_jtag.h"
 #elif ESP_IDF_VERSION_MAJOR==4
 #include "hal/usb_serial_jtag_ll.h"
+#endif
 #endif
 
 #include "nvs_flash.h"
