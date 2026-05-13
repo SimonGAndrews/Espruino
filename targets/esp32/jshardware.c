@@ -66,6 +66,9 @@
 #include "rom/uart.h"
 #include "driver/gpio.h"
 #include "soc/gpio_sig_map.h"
+#ifdef ESPR_USE_USB_SERIAL_JTAG
+#include "driver/usb_serial_jtag.h"
+#endif
 
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_flash.h"
@@ -631,7 +634,11 @@ void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
 }
 
 bool jshIsUSBSERIALConnected() {
+#ifdef ESPR_USE_USB_SERIAL_JTAG
+  return usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected();
+#else
   return false; // "On non-USB boards this just returns false"
+#endif
 }
 
 /**
@@ -648,9 +655,20 @@ void jshUSARTKick(IOEventFlags device) {
       break;
 #endif
     case EV_SERIAL1:
-      uart_tx_one_char((uint8_t)c);
 #ifdef ESPR_USE_USB_SERIAL_JTAG
-      // The USB CDC UART on the C3 only writes the data to USB after a newline. Ensure uartTask in main.c knows to flush the UART next time
+      {
+        uint8_t ch = (uint8_t)c;
+        if (usb_serial_jtag_is_driver_installed()) {
+          usb_serial_jtag_write_bytes(&ch, 1, 0);
+        } else {
+          uart_tx_one_char(ch);
+        }
+      }
+#else
+      uart_tx_one_char((uint8_t)c);
+#endif
+#ifdef ESPR_USE_USB_SERIAL_JTAG
+      // Ensure uartTask in main.c knows to wait for pending USB Serial/JTAG TX to complete.
       extern void esp32USBUARTWasUsed();
       esp32USBUARTWasUsed();
 #endif
