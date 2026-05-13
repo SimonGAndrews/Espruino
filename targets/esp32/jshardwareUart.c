@@ -104,12 +104,14 @@ void initSerial(IOEventFlags device, JshUSARTInfo *inf){
 void initConsole(){
 #ifdef ESPR_USE_USB_SERIAL_JTAG
   /* Configure USB-CDC driver */
-  usb_serial_jtag_driver_config_t usb_serial_config = {
-    .tx_buffer_size = 128,
-    .rx_buffer_size = 128
-  };
-  jsDebug(DBG_INFO, "initConsole: Installing usb_serial_jtag_driver\n");
-  ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_serial_config));
+  if (!usb_serial_jtag_is_driver_installed()) {
+    usb_serial_jtag_driver_config_t usb_serial_config = {
+      .tx_buffer_size = 128,
+      .rx_buffer_size = 128
+    };
+    jsDebug(DBG_INFO, "initConsole: Installing usb_serial_jtag_driver\n");
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_serial_config));
+  }
 #endif
   uart_config_t uart_config = {
     .baud_rate = 115200,
