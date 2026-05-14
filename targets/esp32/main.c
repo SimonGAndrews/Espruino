@@ -93,11 +93,11 @@ static void uartTask(void *data) {
     consoleToEspruino();
     serialToEspruino();
 #ifdef ESPR_USE_USB_SERIAL_JTAG
-    /* The USB CDC UART on the C3 only writes the data to USB after a newline.
-    We don't want that, so we call flush in this uart task if any data has been sent. */
+    /* Espruino writes console output outside stdio, so explicitly wait for the
+    USB Serial/JTAG driver to drain any queued TX bytes. */
     if (usbUARTIsNotFlushed) {
     #if ESP_IDF_VERSION_MAJOR >= 5
-      fflush(stdout);  // Or fsync(1);
+      usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(10));
     #else
       usb_serial_jtag_ll_txfifo_flush();
     #endif
