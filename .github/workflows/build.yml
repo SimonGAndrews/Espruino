@@ -51,7 +51,8 @@ jobs:
         TRAVIS: 1
         RELEASE: 1
         BOARD: ${{ matrix.board }} 
-        UPLOADTOKEN: ${{ secrets.UPLOADTOKEN }}  
+        UPLOADTOKEN: ${{ secrets.UPLOADTOKEN }}
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
         source ./scripts/provision.sh  ${{ matrix.board }}
         make
