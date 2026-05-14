@@ -67,7 +67,11 @@
 #include "driver/gpio.h"
 #include "soc/gpio_sig_map.h"
 #ifdef ESPR_USE_USB_SERIAL_JTAG
+#if ESP_IDF_VERSION_MAJOR>=5
 #include "driver/usb_serial_jtag.h"
+#elif ESP_IDF_VERSION_MAJOR==4
+#include "hal/usb_serial_jtag_ll.h"
+#endif
 #endif
 
 #if ESP_IDF_VERSION_MAJOR>=5
@@ -635,7 +639,11 @@ void jshUSARTSetup(IOEventFlags device, JshUSARTInfo *inf) {
 
 bool jshIsUSBSERIALConnected() {
 #ifdef ESPR_USE_USB_SERIAL_JTAG
+#if ESP_IDF_VERSION_MAJOR>=5
   return usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected();
+#else
+  return false;
+#endif
 #else
   return false; // "On non-USB boards this just returns false"
 #endif
@@ -658,11 +666,15 @@ void jshUSARTKick(IOEventFlags device) {
 #ifdef ESPR_USE_USB_SERIAL_JTAG
       {
         uint8_t ch = (uint8_t)c;
+#if ESP_IDF_VERSION_MAJOR>=5
         if (usb_serial_jtag_is_driver_installed()) {
           usb_serial_jtag_write_bytes(&ch, 1, 0);
         } else {
           uart_tx_one_char(ch);
         }
+#else
+        uart_tx_one_char(ch);
+#endif
       }
 #else
       uart_tx_one_char((uint8_t)c);
