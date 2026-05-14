@@ -133,7 +133,7 @@ void IRAM_ATTR gpio_intr_handler(void* arg){
 #endif
   SET_PERI_REG_MASK(GPIO_STATUS_W1TC_REG, gpio_intr_status);    //Clear intr for gpio0-gpio31
 #ifndef CONFIG_IDF_TARGET_ESP32C3
-  SET_PERI_REG_MASK(GPIO_STATUS1_W1TC_REG, gpio_intr_status_h); //Clear intr for gpio32-39
+  SET_PERI_REG_MASK(GPIO_STATUS1_W1TC_REG, gpio_intr_status_h); //Clear intr for gpio32-gpio39
 #endif
 
   do {
@@ -169,7 +169,13 @@ void jshPinDefaultPullup() {
   // 34-39 are input-only 
   jshPinSetStateRange(0,0,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(12,15,JSHPINSTATE_GPIO_IN_PULLUP);
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+  // GPIO19/20 are native USB D-/D+ on ESP32-S3. Reconfiguring them can
+  // disable the USB Serial/JTAG device.
+  jshPinSetStateRange(18,18,JSHPINSTATE_GPIO_IN_PULLUP);
+#else
   jshPinSetStateRange(18,19,JSHPINSTATE_GPIO_IN_PULLUP);
+#endif
   jshPinSetStateRange(21,22,JSHPINSTATE_GPIO_IN_PULLUP);
   jshPinSetStateRange(25,27,JSHPINSTATE_GPIO_IN_PULLUP);
 #endif
