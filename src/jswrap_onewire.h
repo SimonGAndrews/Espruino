@@ -24,5 +24,6 @@ void jswrap_onewire_skip(JsVar *parent);
 void jswrap_onewire_write(JsVar *parent, JsVar *data, bool leavePowerOn);
 JsVar *jswrap_onewire_read(JsVar *parent, JsVar *count);
 JsVar *jswrap_onewire_search(JsVar *parent, int command);
+JsVar *jswrap_onewire_searchDebug(JsVar *parent, int command);
 
 #endif // JSWRAP_ONEWIRE_H_
