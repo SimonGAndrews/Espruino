@@ -174,8 +174,13 @@ void timer_Reschedule(int idx, uint64_t duration) {
   int timer_n = ESP32Timers[idx].index;
   
   if (duration < TIMER_FINE_ADJ + 1) duration = TIMER_FINE_ADJ + 1;
+#if ESP_IDF_VERSION_MAJOR >= 5
+  timer_group_set_alarm_value_in_isr(group, timer_n, duration - TIMER_FINE_ADJ);
+  timer_group_enable_alarm_in_isr(group, timer_n);
+#else
   timer_set_alarm_value(group, timer_n, duration - TIMER_FINE_ADJ);
   TIMER_ALARM_EN(timer_n);
+#endif
 }
 
 void timer_List() {
