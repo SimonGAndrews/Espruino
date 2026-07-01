@@ -17,6 +17,15 @@
 #include "jsdevices.h"
 #include "jsinteractive.h"
 
+#ifdef ESP32
+#include "freertos/FreeRTOS.h"
+static portMUX_TYPE JSQuietTimingMux = portMUX_INITIALIZER_UNLOCKED;
+// Override the normal ESP32 interrupt stubs in this file only so OneWire
+// timing windows use an IDF critical section.
+#define jshInterruptOff() portENTER_CRITICAL(&JSQuietTimingMux)
+#define jshInterruptOn() portEXIT_CRITICAL(&JSQuietTimingMux)
+#endif
+
 #if defined(BLUETOOTH) && defined(NRF52_SERIES)
 #define ESPR_ONEWIRE_IN_TIMESLOT
 #endif
@@ -54,13 +63,13 @@ static Pin onewire_getpin(JsVar *parent) {
 /** Reset one-wire, return true if a device was present */
 static bool NO_INLINE OneWireReset(Pin pin) {
   jshPinSetState(pin, JSHPINSTATE_GPIO_OUT_OPENDRAIN_PULLUP);
-  //jshInterruptOff();
+  jshInterruptOff();
   jshPinSetValue(pin, 0);
   jshDelayMicroseconds(500);
   jshPinSetValue(pin, 1);
   jshDelayMicroseconds(80);
   bool hasDevice = !jshPinGetValue(pin);
-  //jshInterruptOn();
+  jshInterruptOn();
   jshDelayMicroseconds(420);
   return hasDevice;
 }
@@ -508,4 +517,3 @@ JsVar *jswrap_onewire_search(JsVar *parent, int command) {
 
   return array;
 }
-
