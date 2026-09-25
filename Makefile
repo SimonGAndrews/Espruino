@@ -638,6 +638,14 @@ ifeq ($(USE_TRIGGER),1)
   libs/trigger/trigger.c
 endif
 
+ifeq ($(USE_XFSM),1)
+  DEFINES += -DUSE_XFSM
+  WRAPPERSOURCES += libs/xfsm/jswrap_xfsm.c
+  INCLUDE += -I$(ROOT)/libs/xfsm
+  SOURCES += \
+  libs/xfsm/xfsm.c
+endif
+
 ifeq ($(USE_WIRINGPI),1)
   DEFINES += -DUSE_WIRINGPI
   LIBS += -lwiringPi
