@@ -18,3 +18,10 @@ make clean
 make USE_XFSM=1
 bin/espruino --test libs/xfsm/tests/test_shell.js
 ```
+
+Run the portable native-format suite with address and undefined-behaviour
+sanitizers:
+
+```bash
+make -C libs/xfsm/tests/native clean test
+```

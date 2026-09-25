@@ -643,7 +643,8 @@ ifeq ($(USE_XFSM),1)
   WRAPPERSOURCES += libs/xfsm/jswrap_xfsm.c
   INCLUDE += -I$(ROOT)/libs/xfsm
   SOURCES += \
-  libs/xfsm/xfsm.c
+  libs/xfsm/xfsm.c \
+  libs/xfsm/xfsm_native.c
 endif
 
 ifeq ($(USE_WIRINGPI),1)
