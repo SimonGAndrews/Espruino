@@ -15,6 +15,7 @@
 #include "jsparse.h"
 #include "jswrap_xfsm.h"
 #include "xfsm.h"
+#include "xfsm_compile.h"
 
 /*JSON{
   "type" : "library",
@@ -43,9 +44,7 @@ static JsVar *jswrap_xfsm_notImplemented(void) {
 Compile a Profile 1 machine configuration.
 */
 JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options) {
-  (void)config;
-  (void)options;
-  return jswrap_xfsm_notImplemented();
+  return xfcCompileMachine(config, options);
 }
 
 /*JSON{
@@ -80,6 +79,5 @@ JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options) {
 Create a Profile 1 context-assignment descriptor.
 */
 JsVar *jswrap_xfsm_assign(JsVar *assignment) {
-  (void)assignment;
-  return jswrap_xfsm_notImplemented();
+  return xfcCreateAssignmentDescriptor(assignment);
 }

@@ -8,8 +8,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "xfsm.h"
+#ifndef XFSM_COMPILE_H
+#define XFSM_COMPILE_H
 
-const char *xfsmGetImplementationStatus(void) {
-  return "Profile 1 actor runtime not available";
-}
+#include "jsvar.h"
+
+JsVar *xfcCompileMachine(JsVar *config, JsVar *options);
+JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment);
+
+#endif

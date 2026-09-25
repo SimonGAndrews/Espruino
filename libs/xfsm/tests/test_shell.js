@@ -5,12 +5,19 @@ var functionTypes = [
   typeof XFSM.createMachine
 ].join(",");
 var message = "";
+var machine = XFSM.createMachine({
+  initial: "idle",
+  states: { idle: {} }
+});
+var assignment = XFSM.assign({ count: 1 });
 
 try {
-  XFSM.createMachine({});
+  XFSM.createActor(machine);
 } catch (error) {
   message = "" + error;
 }
 
 result = functionTypes === "function,function,function" &&
-  message.indexOf("Profile 1 implementation not available") >= 0;
+  Object.keys(machine).length === 0 &&
+  Object.keys(assignment).length === 0 &&
+  message.indexOf("Profile 1 actor runtime not available") >= 0;
