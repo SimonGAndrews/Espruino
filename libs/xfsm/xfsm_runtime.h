@@ -8,8 +8,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "xfsm.h"
+#ifndef XFSM_RUNTIME_H
+#define XFSM_RUNTIME_H
 
-const char *xfsmGetImplementationStatus(void) {
-  return "Profile 1 M4 actor execution vertical slice";
-}
+#include <stdbool.h>
+
+#include "jsvar.h"
+
+JsVar *xfcCreateActor(JsVar *machine, JsVar *options);
+
+bool xfcBrandMachine(JsVar *machine);
+bool xfcIsMachine(JsVar *machine);
+
+#endif

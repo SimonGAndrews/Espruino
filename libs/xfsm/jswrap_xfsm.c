@@ -16,6 +16,7 @@
 #include "jswrap_xfsm.h"
 #include "xfsm.h"
 #include "xfsm_compile.h"
+#include "xfsm_runtime.h"
 
 /*JSON{
   "type" : "library",
@@ -24,11 +25,6 @@
 }
 Native finite-state machine and statechart engine.
 */
-
-static JsVar *jswrap_xfsm_notImplemented(void) {
-  jsExceptionHere(JSET_ERROR, "XFSM: %s", xfsmGetImplementationStatus());
-  return 0;
-}
 
 /*JSON{
   "type" : "staticmethod",
@@ -61,9 +57,7 @@ JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options) {
 Create an actor for a compiled Profile 1 machine.
 */
 JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options) {
-  (void)machine;
-  (void)options;
-  return jswrap_xfsm_notImplemented();
+  return xfcCreateActor(machine, options);
 }
 
 /*JSON{

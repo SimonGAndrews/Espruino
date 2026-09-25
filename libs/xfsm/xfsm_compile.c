@@ -13,15 +13,12 @@
 #include "jsparse.h"
 #include "jsutils.h"
 #include "jsvariterator.h"
+#include "xfsm_internal.h"
 #include "xfsm_native.h"
+#include "xfsm_runtime.h"
 
 #include <limits.h>
 #include <string.h>
-
-#define XFC_MACHINE_ARENA_NAME JS_HIDDEN_CHAR_STR "xfcA"
-#define XFC_MACHINE_RETAINED_NAME JS_HIDDEN_CHAR_STR "xfcR"
-#define XFC_ASSIGN_BRAND_NAME JS_HIDDEN_CHAR_STR "xfcB"
-#define XFC_ASSIGN_VALUE_NAME JS_HIDDEN_CHAR_STR "xfcV"
 
 #define XFC_ASSIGN_BRAND "XFAD1"
 #define XFC_ASSIGN_BRAND_LENGTH 5
@@ -1905,7 +1902,8 @@ static JsVar *xfcPublishMachine(XfcCompiler *compiler, JsVar *arena) {
   if (!machine ||
       jsvObjectSetChild(machine, XFC_MACHINE_ARENA_NAME, arena) != arena ||
       jsvObjectSetChild(machine, XFC_MACHINE_RETAINED_NAME,
-                        compiler->retained) != compiler->retained) {
+                        compiler->retained) != compiler->retained ||
+      !xfcBrandMachine(machine)) {
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     jsvUnLock(machine);
     return 0;

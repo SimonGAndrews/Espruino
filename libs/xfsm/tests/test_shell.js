@@ -4,20 +4,25 @@ var functionTypes = [
   typeof XFSM.createActor,
   typeof XFSM.createMachine
 ].join(",");
-var message = "";
 var machine = XFSM.createMachine({
   initial: "idle",
   states: { idle: {} }
 });
 var assignment = XFSM.assign({ count: 1 });
-
-try {
-  XFSM.createActor(machine);
-} catch (error) {
-  message = "" + error;
-}
+var actor = XFSM.createActor(machine);
+var before = actor.getSnapshot();
+actor.start();
+var after = actor.getSnapshot();
 
 result = functionTypes === "function,function,function" &&
   Object.keys(machine).length === 0 &&
   Object.keys(assignment).length === 0 &&
-  message.indexOf("Profile 1 actor runtime not available") >= 0;
+  Object.keys(actor).length === 0 &&
+  before.status === "notStarted" &&
+  before.value === undefined &&
+  before.context === undefined &&
+  after.status === "active" &&
+  after.value === "idle" &&
+  after.context !== undefined &&
+  after.matches("idle") &&
+  !after.matches("other");

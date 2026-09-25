@@ -645,7 +645,8 @@ ifeq ($(USE_XFSM),1)
   SOURCES += \
   libs/xfsm/xfsm.c \
   libs/xfsm/xfsm_compile.c \
-  libs/xfsm/xfsm_native.c
+  libs/xfsm/xfsm_native.c \
+  libs/xfsm/xfsm_runtime.c
 endif
 
 ifeq ($(USE_WIRINGPI),1)
