@@ -1,7 +1,10 @@
-/* M5 Linux resource and timing harness. Requires XFC_MEASURE=1. */
+/* M5 resource and timing harness. Requires XFC_MEASURE=1. */
+echo(false);
+print("TEST=xfsm_m5_resource_timing");
 var XFSM = require("XFSM");
 var BLOCK_SIZE = process.memory().blocksize;
-var ITERATIONS = 5000;
+var IS_LINUX = process.env.BOARD === "LINUX";
+var ITERATIONS = IS_LINUX ? 5000 : 500;
 
 function median(values) {
   values.sort(function (a, b) { return a - b; });
@@ -87,6 +90,7 @@ function measureDepth(depth, calibration) {
   var afterStart;
   var afterSend;
   var elapsed;
+  var summary;
   XFSM._measure(true);
   machine = XFSM.createMachine(makeDepthConfig(depth));
   actor = XFSM.createActor(machine);
@@ -96,7 +100,7 @@ function measureDepth(depth, calibration) {
   elapsed = timeSends(actor, "DEPTH", ITERATIONS);
   actor.send("DEPTH");
   afterSend = XFSM._measure(false);
-  return {
+  summary = {
     depth: depth,
     arenaBytes: machine["\xFFxfcA"].length,
     constructionPeakBlocks: afterStart.constructionPeakBlocks,
@@ -106,6 +110,8 @@ function measureDepth(depth, calibration) {
     sendStackBytes: afterSend.lastStackBytes,
     maximumStackBytes: afterSend.maximumStackBytes
   };
+  actor.stop();
+  return summary;
 }
 
 var noop = function () {};
@@ -130,6 +136,15 @@ var config = {
 };
 var options = { actions: { noop: noop }, guards: { allow: allow } };
 var calibration = allocationCalibration();
+var hierarchy = [];
+hierarchy.push(measureDepth(32, calibration));
+process.memory();
+hierarchy.push(measureDepth(1, calibration));
+process.memory();
+hierarchy.push(measureDepth(8, calibration));
+process.memory();
+hierarchy.push(measureDepth(16, calibration));
+process.memory();
 var machineBefore = 0;
 var machineAfter = 0;
 var machine;
@@ -159,6 +174,22 @@ var dispatch = {
   guardedMicroseconds: timeSends(actor, "GUARDED", ITERATIONS),
   unhandledMicroseconds: timeSends(actor, "MISSING", ITERATIONS)
 };
+var representative = {
+  arenaBytes: machine["\xFFxfcA"].length,
+  retainedValues: machine["\xFFxfcR"].length,
+  machinePersistentBlocks: machineAfter - machineBefore - calibration,
+  constructionPeakBlocks: machineMetrics.constructionPeakBlocks,
+  actorBlocks: actorCost.blocks,
+  firstSnapshotBlocks: snapshotCost.blocks,
+  firstSubscriptionBlocks: subscriptionCost.blocks
+};
+actor.stop();
+actor = undefined;
+actorCost.value = undefined;
+snapshotCost.value = undefined;
+subscriptionCost.value = undefined;
+machine = undefined;
+process.memory();
 
 XFSM._measure(true);
 var diagnosticText = "";
@@ -180,32 +211,27 @@ try {
 var diagnosticMetrics = XFSM._measure(false);
 
 var relocationOk = false;
+var defragmentationCompleted = false;
 var relocationMachine = XFSM.createMachine(config, options);
 var relocationActor = XFSM.createActor(relocationMachine).start();
 process.memory();
-E.defrag();
+if (IS_LINUX) {
+  E.defrag();
+  defragmentationCompleted = true;
+}
 relocationActor.send("LOCAL");
 relocationOk = relocationActor.getSnapshot().matches({ Parent: "Leaf" });
+relocationActor.stop();
+relocationActor = undefined;
+relocationMachine = undefined;
+process.memory();
 
 var report = {
   blockSize: BLOCK_SIZE,
   allocationCalibrationBlocks: calibration,
-  representative: {
-    arenaBytes: machine["\xFFxfcA"].length,
-    retainedValues: machine["\xFFxfcR"].length,
-    machinePersistentBlocks: machineAfter - machineBefore - calibration,
-    constructionPeakBlocks: machineMetrics.constructionPeakBlocks,
-    actorBlocks: actorCost.blocks,
-    firstSnapshotBlocks: snapshotCost.blocks,
-    firstSubscriptionBlocks: subscriptionCost.blocks
-  },
+  representative: representative,
   dispatch: dispatch,
-  hierarchy: [
-    measureDepth(1, calibration),
-    measureDepth(8, calibration),
-    measureDepth(16, calibration),
-    measureDepth(32, calibration)
-  ],
+  hierarchy: hierarchy,
   diagnostics: {
     text: diagnosticText,
     characters: diagnosticText.length,
@@ -214,14 +240,12 @@ var report = {
   },
   gcRelocation: {
     garbageCollectionCompleted: true,
-    defragmentationCompleted: true,
+    defragmentationCompleted: defragmentationCompleted,
     dispatchAndSnapshotValid: relocationOk
   }
 };
 
 print("M5_RESULT=" + JSON.stringify(report));
-result = relocationOk &&
-  report.representative.arenaBytes > 0 &&
-  report.representative.actorBlocks > 0 &&
-  report.hierarchy.length === 4 &&
-  report.diagnostics.characters > 0;
+result = relocationOk && report.representative.arenaBytes > 0 && report.representative.actorBlocks > 0 && report.hierarchy.length === 4 && report.diagnostics.characters > 0;
+print((result ? "PASS " : "FAIL ") + "resource_timing");
+print("DONE=" + (result ? "PASS" : "FAIL"));
