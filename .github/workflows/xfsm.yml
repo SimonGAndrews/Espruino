@@ -1,0 +1,92 @@
+name: XFSM
+
+on:
+  push:
+    branches: [ '**' ]
+    paths:
+      - '.github/workflows/xfsm.yml'
+      - 'boards/ESP32_IDF5.py'
+      - 'libs/xfsm/**'
+      - 'make/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'targets/esp32/**'
+      - 'Makefile'
+  pull_request:
+    branches: [ '**' ]
+    paths:
+      - '.github/workflows/xfsm.yml'
+      - 'boards/ESP32_IDF5.py'
+      - 'libs/xfsm/**'
+      - 'make/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'targets/esp32/**'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xfsm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux build and tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: 3.9
+      - name: Build without XFSM
+        run: |
+          env -u DEBUG make clean
+          env -u DEBUG make USE_XFSM=0 -j2
+      - name: Build with XFSM
+        run: |
+          env -u DEBUG make clean
+          env -u DEBUG make USE_XFSM=1 -j2
+      - name: Run XFSM JavaScript tests
+        run: |
+          for test in \
+            test_shell.js \
+            test_compile.js \
+            test_diagnostics.js \
+            test_runtime.js \
+            test_runtime_errors.js \
+            test_subscriptions.js
+          do
+            bin/espruino --test "libs/xfsm/tests/$test"
+          done
+      - name: Run native-format sanitizer tests
+        run: make -C libs/xfsm/tests/native clean test
+
+  esp32-idf5:
+    name: Original ESP32 IDF5 build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Provision and build with XFSM
+        run: |
+          source scripts/provision.sh ESP32_IDF5
+          env -u DEBUG make BOARD=ESP32_IDF5 RELEASE=1 USE_XFSM=1 clean
+          env -u DEBUG make BOARD=ESP32_IDF5 RELEASE=1 USE_XFSM=1 -j2
+          xtensa-esp32-elf-nm --defined-only bin/build/espruino.elf \
+            | grep -q 'jswrap_xfsm_createMachine'
+          image_bytes=$(stat -c '%s' bin/build/espruino.bin)
+          echo "XFSM ESP32_IDF5 app image: ${image_bytes} bytes" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload ESP32 IDF5 firmware
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: xfsm-esp32-idf5
+          path: |
+            bin/*.bin
+            bin/*.tgz

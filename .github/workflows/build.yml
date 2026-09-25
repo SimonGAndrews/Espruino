@@ -2,9 +2,9 @@ name: Firmware build
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ '*' ]
+    branches: [ '**' ]
     
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -220,5 +220,4 @@ jobs:
 #    steps:
 #    - name: makedocs
 #      run: make docs
-
 

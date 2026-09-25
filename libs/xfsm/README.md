@@ -3,6 +3,8 @@
 XFSM is the optional native state-machine engine selected by adding `XFSM` to
 a board's `info.build.libraries` list. Espruino's board processing then sets
 `USE_XFSM=1`, which includes this directory's wrapper and engine sources.
+The XFSM development workflow selects `USE_XFSM=1` explicitly for continuous
+integration; it does not add XFSM to any stock board definition.
 
 The current vertical slice exposes `require("XFSM")` with working
 `createMachine`, `assign`, and `createActor` entry points. It compiles the M3
