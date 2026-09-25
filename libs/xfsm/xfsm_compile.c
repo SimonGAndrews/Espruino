@@ -14,6 +14,7 @@
 #include "jsutils.h"
 #include "jsvariterator.h"
 #include "xfsm_internal.h"
+#include "xfsm_measure.h"
 #include "xfsm_native.h"
 #include "xfsm_runtime.h"
 
@@ -132,6 +133,7 @@ static bool xfcArrayAppend(JsVar *array, JsVar *value) {
   if (!array || !value) return false;
   before = jsvGetArrayLength(array);
   jsvArrayPush(array, value);
+  xfcMeasureMemorySample();
   return jsvGetArrayLength(array) == before + 1;
 }
 
@@ -219,6 +221,7 @@ static void xfcFail(XfcCompiler *compiler, XfcDiagnostic diagnostic,
   compiler->diagnostic = diagnostic;
   compiler->error_path = jsvLockAgainSafe(path);
   compiler->error_detail = jsvLockAgainSafe(detail);
+  xfcMeasureMemorySample();
 }
 
 static void xfcFailProperty(XfcCompiler *compiler, XfcDiagnostic diagnostic,
@@ -254,6 +257,7 @@ static void xfcThrowFailure(XfcCompiler *compiler) {
   else
     jsExceptionHere(JSET_ERROR, "XFC %s @ %v", name,
                     compiler->error_path);
+  xfcMeasureMemorySample();
 }
 
 static bool xfcStringEquals(JsVar *left, JsVar *right) {
@@ -1918,6 +1922,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
   JsVar *options_path = 0;
   JsVar *arena = 0;
   JsVar *machine = 0;
+  xfcMeasureConstructionBegin();
   memset(&compiler, 0, sizeof(compiler));
   memset(&writer, 0, sizeof(writer));
   compiler.phase = XFC_COMPILE_COUNT;
@@ -1941,6 +1946,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
       !xfcCompileContext(&compiler, config, config_path) ||
       !xfcCompileAllStates(&compiler))
     goto done;
+  xfcMeasureMemorySample();
   if (!xfcBuildHeader(&compiler, &writer.header)) {
     xfcFail(&compiler, XFC_DIAG_LIMIT_EXCEEDED, config_path, 0);
     goto done;
@@ -1957,6 +1963,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
   }
   memset(writer.bytes, 0, writer.header.arena_size);
   memcpy(writer.bytes, &writer.header, sizeof(writer.header));
+  xfcMeasureMemorySample();
   if (!xfcWriteSymbols(&compiler, &writer)) goto done;
   compiler.phase = XFC_COMPILE_EMIT;
   compiler.writer = &writer;
@@ -1971,6 +1978,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
     goto done;
   }
   machine = xfcPublishMachine(&compiler, arena);
+  xfcMeasureMemorySample();
 
 done:
   if (!machine && compiler.diagnostic == XFC_DIAG_NONE)
@@ -1986,6 +1994,7 @@ done:
   jsvUnLock(compiler.guards_map);
   jsvUnLock(compiler.error_path);
   jsvUnLock(compiler.error_detail);
+  xfcMeasureConstructionEnd(machine == 0);
   return machine;
 }
 

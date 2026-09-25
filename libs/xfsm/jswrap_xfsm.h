@@ -16,5 +16,9 @@
 JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options);
 JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options);
 JsVar *jswrap_xfsm_assign(JsVar *assignment);
+#ifdef XFC_MEASURE
+JsVar *jswrap_xfsm_measure(bool reset);
+int jswrap_xfsm_memoryUsage(void);
+#endif
 
 #endif

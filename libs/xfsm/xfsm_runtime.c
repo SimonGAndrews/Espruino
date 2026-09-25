@@ -14,11 +14,18 @@
 #include "jsvariterator.h"
 #include "jswrapper.h"
 #include "xfsm_internal.h"
+#include "xfsm_measure.h"
 #include "xfsm_native.h"
 
 #include <string.h>
 
 #define XFC_MAX_MICROSTEPS UINT16_C(256)
+
+#ifndef XFC_STACK_RESERVE
+#define XFC_STACK_RESERVE 512U
+#endif
+
+#define XFC_ESPRUINO_STACK_SAFETY 512U
 
 typedef struct {
   JsVar *arena;
@@ -354,13 +361,22 @@ static void xfcCloseActor(XfcRuntime *runtime, JsVar *data_storage) {
 
 static bool xfcBeginOperation(XfcRuntime *runtime, JsVar *storage,
                               uint8_t operation, const char *method) {
+  size_t free_stack;
   if (runtime->data.operation != XFC_OPERATION_IDLE) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_BUSY @ actor.%s", method);
+    return false;
+  }
+  free_stack = jsuGetFreeStack();
+  if (free_stack != SIZE_MAX &&
+      free_stack < XFC_STACK_RESERVE + XFC_ESPRUINO_STACK_SAFETY) {
+    jsExceptionHere(JSET_ERROR,
+                    "XFC E_LIMIT_EXCEEDED @ actor.%s: stack", method);
     return false;
   }
   runtime->data.operation = operation;
   runtime->data.microsteps = 0;
   xfcWriteActorData(storage, &runtime->data);
+  xfcMeasureOperationBegin(operation);
   return true;
 }
 
@@ -489,6 +505,7 @@ static bool xfcExecuteActions(XfcRuntime *runtime, XfcRange range,
                               JsVar **context, JsVar *event,
                               bool *context_changed, JsVar **error) {
   uint16_t offset;
+  xfcMeasureStackSample();
   for (offset = 0; offset < range.count; offset++) {
     XfcActionRecord action;
     if (!xfcRefreshView(&runtime->view) ||
@@ -535,6 +552,7 @@ static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
                               uint16_t *leaf, JsVar **error) {
   XfcStateRecord state;
   uint16_t steps = 0;
+  xfcMeasureStackSample();
   while (steps++ <= XFC_MAX_STATE_DEPTH) {
     if (!xfcRefreshView(&runtime->view) ||
         !xfcReadState(&runtime->view, state_index, &state)) {
@@ -568,6 +586,7 @@ static bool xfcGuardEnabled(XfcRuntime *runtime, uint16_t guard_index,
   JsVar *function;
   JsVar *arguments[2] = {context, event};
   JsVar *result = 0;
+  xfcMeasureStackSample();
   if (!xfcReadGuard(&runtime->view, guard_index, &guard)) return false;
   function = xfcRetained(&runtime->view, guard.retained_slot);
   if (!function || !xfcCall(function, 2, arguments, &result, error)) {
@@ -611,6 +630,7 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
                                 bool *found, JsVar **error) {
   uint16_t state_index = runtime->data.leaf_state;
   uint16_t depth = 0;
+  xfcMeasureStackSample();
   *found = false;
   while (state_index != XFC_INDEX_NONE && depth++ <= XFC_MAX_STATE_DEPTH) {
     XfcStateRecord state;
@@ -659,6 +679,7 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   uint16_t path[XFC_MAX_STATE_DEPTH + 1];
   uint16_t path_count = 0;
   uint16_t target;
+  xfcMeasureStackSample();
   if (transition->target_state == XFC_INDEX_NONE)
     return xfcExecuteActions(runtime, transition->actions, context, event,
                              context_changed, error);
@@ -833,6 +854,7 @@ fail:
 }
 
 static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage) {
+  xfcMeasureStackSample();
   JsVar *subscriptions = jsvObjectGetChildIfExists(
       runtime->actor, XFC_ACTOR_SUBSCRIPTIONS_NAME);
   JsVar *snapshot = 0;
@@ -1035,11 +1057,13 @@ fault:
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
 fail:
+  xfcMeasureOperationEnd();
   jsvUnLock3(context, event, error);
   jsvUnLock(listener_error);
   xfcCloseActor(&runtime, storage);
   return 0;
 success:
+  xfcMeasureOperationEnd();
   jsvUnLock3(context, event, error);
   jsvUnLock(listener_error);
   xfcCloseActor(&runtime, storage);
@@ -1121,6 +1145,7 @@ fault:
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
 done:
+  xfcMeasureOperationEnd();
   jsvUnLockMany(6, (JsVar *[]){event, event_type, context, error,
                                listener_error, storage});
   xfcCloseView(&runtime.view);
@@ -1179,12 +1204,14 @@ fault:
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
 fail:
+  xfcMeasureOperationEnd();
   jsvUnLockMany(5,
                 (JsVar *[]){context, event, error, listener_error, storage});
   xfcCloseView(&runtime.view);
   jsvUnLock(runtime.machine);
   return 0;
 success:
+  xfcMeasureOperationEnd();
   jsvUnLockMany(5,
                 (JsVar *[]){context, event, error, listener_error, storage});
   xfcCloseView(&runtime.view);

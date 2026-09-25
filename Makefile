@@ -647,6 +647,13 @@ ifeq ($(USE_XFSM),1)
   libs/xfsm/xfsm_compile.c \
   libs/xfsm/xfsm_native.c \
   libs/xfsm/xfsm_runtime.c
+ ifeq ($(XFC_MEASURE),1)
+  DEFINES += -DXFC_MEASURE
+  SOURCES += libs/xfsm/xfsm_measure.c
+ endif
+ ifneq ($(XFC_STACK_RESERVE),)
+  DEFINES += -DXFC_STACK_RESERVE=$(XFC_STACK_RESERVE)
+ endif
 endif
 
 ifeq ($(USE_WIRINGPI),1)

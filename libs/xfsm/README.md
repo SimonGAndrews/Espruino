@@ -26,6 +26,27 @@ bin/espruino --test libs/xfsm/tests/test_runtime_errors.js
 bin/espruino --test libs/xfsm/tests/test_subscriptions.js
 ```
 
+M5 resource measurements use a separate instrumented build. The two private
+methods in that build are absent from normal firmware and are not public API:
+
+```bash
+make clean
+make USE_XFSM=1 XFC_MEASURE=1
+bin/espruino --test libs/xfsm/tests/measure_m5.js
+```
+
+The stack-reserve rejection path has a separate deliberately oversized build:
+
+```bash
+make clean
+make USE_XFSM=1 XFC_STACK_RESERVE=2000000
+bin/espruino --test libs/xfsm/tests/test_stack_reserve.js
+```
+
+Normal builds reserve 512 bytes for one XFSM coordinator frame in addition to
+Espruino's 512-byte stack safety allowance. Targets may override the private
+reserve with `XFC_STACK_RESERVE=<bytes>` after target-specific measurement.
+
 Run the portable native-format suite with address and undefined-behaviour
 sanitizers:
 

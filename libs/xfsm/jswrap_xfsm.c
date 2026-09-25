@@ -16,6 +16,7 @@
 #include "jswrap_xfsm.h"
 #include "xfsm.h"
 #include "xfsm_compile.h"
+#include "xfsm_measure.h"
 #include "xfsm_runtime.h"
 
 /*JSON{
@@ -75,3 +76,34 @@ Create a Profile 1 context-assignment descriptor.
 JsVar *jswrap_xfsm_assign(JsVar *assignment) {
   return xfcCreateAssignmentDescriptor(assignment);
 }
+
+#ifdef XFC_MEASURE
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "XFSM",
+  "name" : "_measure",
+  "generate" : "jswrap_xfsm_measure",
+  "ifdef" : "XFC_MEASURE",
+  "params" : [
+    ["reset", "bool", "Reset counters before returning them"]
+  ],
+  "return" : ["JsVar", "Build-only XFSM measurement counters"]
+}
+Return build-only resource measurements. This method is absent from normal
+firmware and is not part of the XFSM API.
+*/
+JsVar *jswrap_xfsm_measure(bool reset) { return xfcMeasureGet(reset); }
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "XFSM",
+  "name" : "_memoryUsage",
+  "generate" : "jswrap_xfsm_memoryUsage",
+  "ifdef" : "XFC_MEASURE",
+  "return" : ["int", "Current Espruino variable-block usage"]
+}
+Return the current variable-block usage without allocating a result object.
+This method is absent from normal firmware and is not part of the XFSM API.
+*/
+int jswrap_xfsm_memoryUsage(void) { return xfcMeasureMemoryUsage(); }
+#endif
