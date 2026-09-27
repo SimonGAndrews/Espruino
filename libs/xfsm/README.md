@@ -74,9 +74,21 @@ bin/espruino --test libs/xfsm/tests/test_assign_forms.js
 bin/espruino --test libs/xfsm/tests/test_context_diagnostics.js
 bin/espruino --test libs/xfsm/tests/test_transition_domains.js
 bin/espruino --test libs/xfsm/tests/test_transition_depth.js
+bin/espruino --test libs/xfsm/tests/test_lifecycle_complete.js
+bin/espruino --test libs/xfsm/tests/test_subscriber_complete.js
+bin/espruino --test libs/xfsm/tests/test_cross_actor_gc.js
 bin/espruino --test libs/xfsm/tests/test_runtime_errors.js
 bin/espruino --test libs/xfsm/tests/test_subscriptions.js
 ```
+
+### Whole-Interpreter Save And Reset Tests
+
+`test_save_restore.js` and `test_reset_lifecycle.js` exercise Espruino's
+device-specific whole-interpreter hibernation lifecycle. They are intentionally
+excluded from the Linux and CI suite because the first test writes a saved
+image, performs a hardware reboot, resumes through `E.on("init")`, and then
+uses `reset(true)` to erase the image. Run them in that order with the paced
+physical-device procedure documented by the Xstate-fsm-c project.
 
 ### Resource Measurements
 

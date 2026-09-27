@@ -1,5 +1,4 @@
 echo(false);
-(function () {
 var XFSM = require("XFSM");
 var trace = [];
 var leaf = {
@@ -48,4 +47,10 @@ result = startupOk && transitionOk && actor.getSnapshot().matches("L1");
 print("TEST=xfsm_transition_depth");
 print((result ? "PASS " : "FAIL ") + "transition_depth");
 print("DONE=" + (result ? "PASS" : "FAIL"));
-})();
+actor.stop();
+actor = undefined;
+machine = undefined;
+leaf = undefined;
+parent = undefined;
+trace = undefined;
+XFSM = undefined;

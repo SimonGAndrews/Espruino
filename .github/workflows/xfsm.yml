@@ -68,6 +68,9 @@ jobs:
             test_context_diagnostics.js \
             test_transition_domains.js \
             test_transition_depth.js \
+            test_lifecycle_complete.js \
+            test_subscriber_complete.js \
+            test_cross_actor_gc.js \
             test_runtime_errors.js \
             test_subscriptions.js
           do

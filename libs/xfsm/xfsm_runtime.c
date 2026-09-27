@@ -46,7 +46,7 @@ static JsVar *xfcActorStart(JsVar *actor);
 static void xfcActorSend(JsVar *actor, JsVar *event);
 static JsVar *xfcActorStop(JsVar *actor);
 static JsVar *xfcActorGetSnapshot(JsVar *actor);
-static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *listener);
+static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments);
 static bool xfcSnapshotMatches(JsVar *snapshot, JsVar *value);
 static void xfcSubscriptionUnsubscribe(JsVar *subscription);
 
@@ -121,7 +121,7 @@ static JsVar *xfcPrototype(const char *root_name) {
         !xfcSetMethod(prototype, "subscribe",
                       (void (*)(void))xfcActorSubscribe,
                       JSWAT_JSVAR | JSWAT_THIS_ARG |
-                          (JSWAT_JSVAR << JSWAT_BITS)))
+                          (JSWAT_ARGUMENT_ARRAY << JSWAT_BITS)))
       goto fail;
   } else if (strcmp(root_name, XFC_ROOT_SNAPSHOT_PROTOTYPE) == 0) {
     if (!xfcSetMethod(prototype, "matches",
@@ -379,13 +379,26 @@ static void xfcCloseActor(XfcRuntime *runtime, JsVar *data_storage) {
   memset(runtime, 0, sizeof(*runtime));
 }
 
+static const char *xfcOperationName(uint8_t operation) {
+  static const char *const names[] = {"idle", "start", "send", "stop",
+                                      "notify"};
+  return operation <= XFC_OPERATION_NOTIFY ? names[operation] : "unknown";
+}
+
+static bool xfcRequireIdle(XfcRuntime *runtime, const char *method) {
+  if (runtime->data.operation != XFC_OPERATION_IDLE) {
+    jsExceptionHere(JSET_ERROR,
+                    "XFC E_ACTOR_BUSY @ actor.%s: operation=%s", method,
+                    xfcOperationName(runtime->data.operation));
+    return false;
+  }
+  return true;
+}
+
 static bool xfcBeginOperation(XfcRuntime *runtime, JsVar *storage,
                               uint8_t operation, const char *method) {
   size_t free_stack;
-  if (runtime->data.operation != XFC_OPERATION_IDLE) {
-    jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_BUSY @ actor.%s", method);
-    return false;
-  }
+  if (!xfcRequireIdle(runtime, method)) return false;
   free_stack = jsuGetFreeStack();
   if (free_stack != SIZE_MAX &&
       free_stack < XFC_STACK_RESERVE + XFC_ESPRUINO_STACK_SAFETY) {
@@ -1155,6 +1168,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
   bool context_changed = false;
   uint16_t leaf = XFC_INDEX_NONE;
   if (!xfcOpenActor(actor, "start", &runtime, &storage)) return 0;
+  if (!xfcRequireIdle(&runtime, "start")) goto fail;
   if (runtime.data.status == XFC_ACTOR_ACTIVE) goto success;
   if (runtime.data.status == XFC_ACTOR_ERROR) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_FAULTED @ actor.start");
@@ -1246,6 +1260,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   bool state_changed = false;
   uint16_t leaf;
   if (!xfcOpenActor(actor, "send", &runtime, &storage)) return;
+  if (!xfcRequireIdle(&runtime, "send")) goto done;
   if (runtime.data.status == XFC_ACTOR_ERROR) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_FAULTED @ actor.send");
     goto done;
@@ -1324,6 +1339,7 @@ static JsVar *xfcActorStop(JsVar *actor) {
   JsVar *listener_error = 0;
   bool context_changed = false;
   if (!xfcOpenActor(actor, "stop", &runtime, &storage)) return 0;
+  if (!xfcRequireIdle(&runtime, "stop")) goto fail;
   if (runtime.data.status == XFC_ACTOR_ERROR) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_FAULTED @ actor.stop");
     goto fail;
@@ -1393,17 +1409,21 @@ static JsVar *xfcActorGetSnapshot(JsVar *actor) {
   return snapshot;
 }
 
-static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *listener) {
+static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments) {
   XfcRuntime runtime;
   JsVar *storage = 0;
+  JsVar *listener = 0;
   JsVar *subscription = 0;
   JsVar *subscriptions = 0;
   bool active;
   bool ok;
   if (!xfcOpenActor(actor, "subscribe", &runtime, &storage)) return 0;
+  if (jsvIsArray(arguments) && jsvGetArrayLength(arguments) == 1)
+    listener = jsvGetArrayItem(arguments, 0);
   if (!jsvIsFunction(listener)) {
     jsExceptionHere(JSET_TYPEERROR,
                     "XFC E_LISTENER_INVALID @ actor.subscribe.listener");
+    jsvUnLock(listener);
     xfcCloseActor(&runtime, storage);
     return 0;
   }
@@ -1441,6 +1461,7 @@ static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *listener) {
     }
   }
   jsvUnLock(subscriptions);
+  jsvUnLock(listener);
   xfcCloseActor(&runtime, storage);
   if (!ok) {
     jsvUnLock(subscription);

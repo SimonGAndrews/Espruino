@@ -1,5 +1,4 @@
 echo(false);
-(function () {
 var XFSM = require("XFSM");
 var trace = [];
 
@@ -7,7 +6,7 @@ function mark(name) {
   return function () { trace.push(name); };
 }
 
-var machine = XFSM.createMachine({
+var definition = {
   id: "domains",
   initial: "Parent",
   entry: "enterRoot",
@@ -104,7 +103,8 @@ var machine = XFSM.createMachine({
       actions: "rootReenterDescendant"
     }
   }
-}, {
+};
+var actionOptions = {
   actions: {
     enterRoot: mark("enterRoot"), exitRoot: mark("exitRoot"),
     enterParent: mark("enterParent"), exitParent: mark("exitParent"),
@@ -129,7 +129,11 @@ var machine = XFSM.createMachine({
     toSibling: mark("toSibling"),
     cross: mark("cross"), crossReenter: mark("crossReenter")
   }
-});
+};
+var machine = XFSM.createMachine(definition, actionOptions);
+definition = undefined;
+actionOptions = undefined;
+process.memory();
 
 function run(event, setup) {
   var actor = XFSM.createActor(machine).start();
@@ -200,7 +204,7 @@ function checkNestedCompoundSelf() {
          value === JSON.stringify({ Parent: { Nested: "Leaf" } });
 }
 
-var ok =
+var ok = (
   check("TARGETLESS", undefined, "targetless", { Parent: "A" }) &&
   check("BLOCK", undefined, "", { Parent: "A" }) &&
   check("ATOMIC_SELF", undefined, "atomicSelf", { Parent: "A" }) &&
@@ -237,10 +241,14 @@ var ok =
   check("CROSS_REENTER", "TO_DESCENDANT",
         "exitDeep|exitB|exitParent|crossReenter|enterOther|enterC|enterLeaf",
         { Other: { C: "Leaf" } }) &&
-  checkNestedCompoundSelf();
+  checkNestedCompoundSelf());
 
 result = ok;
 print("TEST=xfsm_transition_domains");
 print((result ? "PASS " : "FAIL ") + "transition_domains");
 print("DONE=" + (result ? "PASS" : "FAIL"));
-})();
+machine = undefined;
+nestedMachine = undefined;
+trace = undefined;
+nestedTrace = undefined;
+XFSM = undefined;
