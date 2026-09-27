@@ -128,6 +128,13 @@ Xstate-fsm-c project:
 libs/xfsm/tests/test_host_application.js
 ```
 
+`test_host_memory_cleanup.js` repeatedly exercises shared machines, concurrent
+actors, subscriptions, snapshots, garbage-collector relocation, ordinary
+cleanup, repeated construction, and faulted-actor cleanup against a warmed
+production-firmware memory baseline. `test_host_event_serialization.js`
+confirms that a normally dispatched Espruino timer callback runs only after a
+long synchronous sequence of actor sends has completed and published.
+
 ### Resource Measurements
 
 Flash, memory, stack, and execution-time measurements use a separate
