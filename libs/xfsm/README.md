@@ -112,6 +112,22 @@ image, performs a hardware reboot, resumes through `E.on("init")`, and then
 uses `reset(true)` to erase the image. Run them in that order with the paced
 physical-device procedure documented by the Xstate-fsm-c project.
 
+### Physical Application Integration Test
+
+`test_host_application.js` is an original-ESP32 physical test and is not part
+of the Linux suite. It exercises an application-shaped machine using an
+outer-scope action, a retained closure, action and guard functions loaded from
+Espruino `Storage`, a native guard, bound native GPIO actions, timer-driven
+event ingress, subscriptions, and callback-fault rollback. It also removes its
+temporary Storage module and leaves `LED1` low before reporting completion.
+
+Run it with the paced physical-device procedure documented by the
+Xstate-fsm-c project:
+
+```text
+libs/xfsm/tests/test_host_application.js
+```
+
 ### Resource Measurements
 
 Flash, memory, stack, and execution-time measurements use a separate
