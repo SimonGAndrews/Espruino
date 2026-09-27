@@ -23,7 +23,7 @@ void xfcMeasureConstructionEnd(bool failed);
 void xfcMeasureOperationBegin(unsigned int operation);
 void xfcMeasureStackSample(void);
 void xfcMeasureOperationEnd(void);
-JsVar *xfcMeasureGet(bool reset);
+JsVar *xfcMeasureGet(bool reset, bool operation_memory);
 int xfcMeasureMemoryUsage(void);
 
 #else

@@ -123,7 +123,17 @@ make clean
 make USE_XFSM=1 XFC_MEASURE=1
 bin/espruino --test libs/xfsm/tests/measure_m5.js
 bin/espruino --test libs/xfsm/tests/measure_m5_completion.js
+bin/espruino --test libs/xfsm/tests/measure_post_m6.js
+bin/espruino --test libs/xfsm/tests/measure_post_m6_depth.js
 ```
+
+`measure_post_m6.js` uses a feature-rich Profile 1 fixture to report the
+compiled arena, retained bindings, persistent machine and actor records,
+snapshot and subscription costs, sampled runtime allocation peaks, coordinator
+stack, and ESP32 heap state when available.
+`measure_post_m6_depth.js` is a compact depth-32 harness used to distinguish
+the engine's construction requirement from the JavaScript memory occupied by
+larger all-in-one embedded test programs.
 
 ### Stack Reserve Test
 
@@ -149,7 +159,7 @@ make USE_XFSM=1 XFC_STACK_RESERVE=2000000
 bin/espruino --test libs/xfsm/tests/test_stack_reserve.js
 ```
 
-Normal builds require 768 bytes of available space on the processor's native C
+Normal builds require 1024 bytes of available space on the processor's native C
 call stack for the XFSM coordinator. This is the stack used while Espruino's
 firmware C functions are executing, not the memory used to store JavaScript
 variables or the machine's context. The requirement is in addition to
@@ -158,7 +168,7 @@ unavailable, the operation fails before changing the actor. A target may
 override the private reserve at compile time by passing the optional Make
 variable `XFC_STACK_RESERVE=<bytes>`. The Makefile converts this to the C
 preprocessor definition `-DXFC_STACK_RESERVE=<bytes>` for the firmware build.
-If the variable is omitted, XFSM uses the 768-byte default. This is a private
+If the variable is omitted, XFSM uses the 1024-byte default. This is a private
 build setting rather than a JavaScript or runtime option, and it should be
 changed only after measuring the target's actual maximum stack use.
 

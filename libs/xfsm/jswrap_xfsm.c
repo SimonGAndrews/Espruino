@@ -86,14 +86,17 @@ JsVar *jswrap_xfsm_assign(JsVar *assignment) {
   "generate" : "jswrap_xfsm_measure",
   "ifdef" : "XFC_MEASURE",
   "params" : [
-    ["reset", "bool", "Reset counters before returning them"]
+    ["reset", "bool", "Reset counters before returning them"],
+    ["operationMemory", "bool", "Sample JsVar use at runtime checkpoints"]
   ],
   "return" : ["JsVar", "Build-only XFSM measurement counters"]
 }
 Return build-only resource measurements. This method is absent from normal
 firmware and is not part of the XFSM API.
 */
-JsVar *jswrap_xfsm_measure(bool reset) { return xfcMeasureGet(reset); }
+JsVar *jswrap_xfsm_measure(bool reset, bool operation_memory) {
+  return xfcMeasureGet(reset, operation_memory);
+}
 
 /*JSON{
   "type" : "staticmethod",
