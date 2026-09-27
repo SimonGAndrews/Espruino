@@ -58,6 +58,14 @@ jobs:
             test_compile.js \
             test_diagnostics.js \
             test_runtime.js \
+            test_completion.js \
+            test_completion_cascade.js \
+            test_targets.js \
+            test_events_migration.js \
+            test_profile1_diagnostics.js \
+            test_context_ownership.js \
+            test_assign_forms.js \
+            test_context_diagnostics.js \
             test_runtime_errors.js \
             test_subscriptions.js
           do
