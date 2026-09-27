@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 var countExpression = function (context, event) {
   return context.count + 1;
@@ -77,7 +79,7 @@ result =
   u16(18) === 0 &&
   u16(20) === 6 &&
   u8(22) === 1 &&
-  u32(28) === 79 &&
+  u32(28) === 86 &&
   tableCount(0) === 5 &&
   tableCount(1) === 11 &&
   tableCount(2) === 1 &&
@@ -91,7 +93,7 @@ result =
   stateU16(3, 8) === 0 &&
   stateU16(3, 10) === 1 &&
   symbol(0) === "Parent" &&
-  symbol(1) === "done.state.machine.Parent" &&
+  symbol(1) === "xstate.done.state.machine.Parent" &&
   symbol(5) === "enterParent" &&
   symbol(6) === "GO" &&
   symbol(7) === "ready" &&
@@ -133,3 +135,7 @@ result =
   arena.length === originalArenaSize &&
   stateU16(0, 2) === 1 &&
   stateU16(1, 2) === 3;
+print("TEST=xfsm_compile");
+print((result ? "PASS " : "FAIL ") + "compile");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();

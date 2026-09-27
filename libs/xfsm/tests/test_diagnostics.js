@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 
 function fails(config, options, category, path) {
@@ -24,4 +26,20 @@ result =
         { actions: {} }, "E_ACTION_UNRESOLVED", "config.states.A.entry") &&
   fails({ context: 1, initial: "A", states: { A: {} } }, undefined,
         "E_CONFIG_TYPE", "config.context") &&
+  fails({ initial: "A", states: { A: { type: "final", on: {} } } },
+        undefined, "E_CONFIG_TYPE", "config.states.A.on") &&
+  fails({ initial: "A", states: { A: { type: "final", initial: "B" } } },
+        undefined, "E_CONFIG_TYPE", "config.states.A.initial") &&
+  fails({ initial: "A", states: { A: { type: "final", states: {} } } },
+        undefined, "E_CONFIG_TYPE", "config.states.A.states") &&
+  fails({ initial: "A", states: { A: { type: "final", onDone: {} } } },
+        undefined, "E_CONFIG_TYPE", "config.states.A.onDone") &&
+  fails({ initial: "A", states: { A: { onDone: {} } } }, undefined,
+        "E_CONFIG_TYPE", "config.states.A.onDone") &&
+  fails({ output: {}, initial: "A", states: { A: {} } }, undefined,
+        "E_UNSUPPORTED_FEATURE", "config.output") &&
   fails(cyclic, undefined, "E_CONFIG_TYPE", "config.states.A");
+print("TEST=xfsm_diagnostics");
+print((result ? "PASS " : "FAIL ") + "diagnostics");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();

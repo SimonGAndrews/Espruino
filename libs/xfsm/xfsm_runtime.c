@@ -22,7 +22,7 @@
 #define XFC_MAX_MICROSTEPS UINT16_C(256)
 
 #ifndef XFC_STACK_RESERVE
-#define XFC_STACK_RESERVE 512U
+#define XFC_STACK_RESERVE 768U
 #endif
 
 #define XFC_ESPRUINO_STACK_SAFETY 512U
@@ -252,8 +252,21 @@ static bool xfcSymbolBounds(const XfcRuntimeView *view, uint16_t index,
   return true;
 }
 
-static bool xfcSymbolEquals(const XfcRuntimeView *view, uint16_t index,
-                            JsVar *text) {
+static uint32_t xfcStringHash(JsVar *text) {
+  JsvStringIterator iterator;
+  uint32_t hash = UINT32_C(2166136261);
+  jsvStringIteratorNew(&iterator, text, 0);
+  while (jsvStringIteratorHasChar(&iterator)) {
+    hash ^= (uint8_t)jsvStringIteratorGetChar(&iterator);
+    hash *= UINT32_C(16777619);
+    jsvStringIteratorNext(&iterator);
+  }
+  jsvStringIteratorFree(&iterator);
+  return hash;
+}
+
+static bool xfcSymbolEqualsHashed(const XfcRuntimeView *view, uint16_t index,
+                                  JsVar *text, uint32_t hash) {
   XfcSymbolRecord symbol;
   const uint8_t *bytes;
   JsvStringIterator iterator;
@@ -261,6 +274,7 @@ static bool xfcSymbolEquals(const XfcRuntimeView *view, uint16_t index,
   bool equal;
   if (!jsvIsString(text) || jsvGetStringLength(text) > UINT16_MAX ||
       !xfcSymbolBounds(view, index, &symbol, &bytes) ||
+      hash != symbol.hash ||
       jsvGetStringLength(text) != symbol.byte_length)
     return false;
   equal = true;
@@ -271,6 +285,12 @@ static bool xfcSymbolEquals(const XfcRuntimeView *view, uint16_t index,
   }
   jsvStringIteratorFree(&iterator);
   return equal && offset == symbol.byte_length;
+}
+
+static bool xfcSymbolEquals(const XfcRuntimeView *view, uint16_t index,
+                            JsVar *text) {
+  return jsvIsString(text) &&
+         xfcSymbolEqualsHashed(view, index, text, xfcStringHash(text));
 }
 
 static JsVar *xfcSymbolString(const XfcRuntimeView *view, uint16_t index) {
@@ -546,6 +566,33 @@ static JsVar *xfcInternalEvent(const char *type) {
   return event;
 }
 
+static JsVar *xfcInternalEventFromSymbol(XfcRuntimeView *view,
+                                         uint16_t symbol_index) {
+  JsVar *event = jsvNewObject();
+  JsVar *event_type = xfcSymbolString(view, symbol_index);
+  if (!event || !event_type ||
+      jsvObjectSetChild(event, "type", event_type) != event_type) {
+    jsvUnLock2(event, event_type);
+    return 0;
+  }
+  jsvUnLock(event_type);
+  return event;
+}
+
+static bool xfcBeginMicrostep(XfcRuntime *runtime, JsVar **error) {
+  const char *method = runtime->data.operation == XFC_OPERATION_START
+                           ? "start"
+                           : "send";
+  if (runtime->data.microsteps >= XFC_MAX_MICROSTEPS) {
+    jsExceptionHere(JSET_ERROR,
+                    "XFC E_MICROSTEP_LIMIT @ actor.%s: max=256", method);
+    xfcTakeException(error);
+    return false;
+  }
+  runtime->data.microsteps++;
+  return true;
+}
+
 static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
                               bool enter_state, JsVar **context,
                               JsVar *event, bool *context_changed,
@@ -625,7 +672,8 @@ static bool xfcSelectFromRange(XfcRuntime *runtime, XfcRange range,
 }
 
 static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
-                                JsVar *context, JsVar *event,
+                                uint32_t event_hash, JsVar *context,
+                                JsVar *event,
                                 XfcTransitionRecord *selected,
                                 bool *found, JsVar **error) {
   uint16_t state_index = runtime->data.leaf_state;
@@ -635,8 +683,8 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
   while (state_index != XFC_INDEX_NONE && depth++ <= XFC_MAX_STATE_DEPTH) {
     XfcStateRecord state;
     uint16_t handler_offset;
+    XfcRange exact = {XFC_INDEX_NONE, 0};
     XfcRange wildcard = {XFC_INDEX_NONE, 0};
-    bool has_exact = false;
     if (!xfcRefreshView(&runtime->view) ||
         !xfcReadState(&runtime->view, state_index, &state))
       return false;
@@ -649,17 +697,16 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
         return false;
       if ((handler.flags & XFC_HANDLER_WILDCARD) != 0) {
         wildcard = handler.transitions;
-      } else if (xfcSymbolEquals(&runtime->view, handler.event_symbol,
-                                 event_type)) {
-        bool ok;
-        has_exact = true;
-        ok = xfcSelectFromRange(runtime, handler.transitions, context, event,
-                                selected, found, error);
-        if (!ok || *found) return ok;
-        break;
-      }
+      } else if (xfcSymbolEqualsHashed(&runtime->view, handler.event_symbol,
+                                       event_type, event_hash))
+        exact = handler.transitions;
     }
-    if (!has_exact && wildcard.count != 0) {
+    if (exact.count != 0) {
+      bool ok = xfcSelectFromRange(runtime, exact, context, event, selected,
+                                   found, error);
+      if (!ok || *found) return ok;
+    }
+    if (wildcard.count != 0) {
       bool ok = xfcSelectFromRange(runtime, wildcard, context, event,
                                    selected, found, error);
       if (!ok || *found) return ok;
@@ -719,6 +766,104 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
     return false;
   *state_changed = *leaf != runtime->data.leaf_state;
   return true;
+}
+
+static bool xfcCompleteActor(XfcRuntime *runtime, JsVar **context,
+                             JsVar *event, bool *context_changed,
+                             uint16_t leaf, JsVar **error) {
+  uint16_t current = leaf;
+  uint16_t depth = 0;
+  while (current != XFC_INDEX_NONE && depth++ <= XFC_MAX_STATE_DEPTH) {
+    XfcStateRecord state;
+    if (!xfcRefreshView(&runtime->view) ||
+        !xfcReadState(&runtime->view, current, &state) ||
+        !xfcExecuteActions(runtime, state.exit_actions, context, event,
+                           context_changed, error))
+      return false;
+    current = state.parent;
+  }
+  if (current != XFC_INDEX_NONE) {
+    jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.runtime.complete");
+    xfcTakeException(error);
+    return false;
+  }
+  runtime->data.status = XFC_ACTOR_DONE;
+  return true;
+}
+
+static bool xfcProcessCompletions(XfcRuntime *runtime, JsVar **context,
+                                  JsVar *cause_event,
+                                  bool *context_changed, uint16_t *leaf,
+                                  bool *state_changed, JsVar **error) {
+  JsVar *event = jsvLockAgain(cause_event);
+  bool ok = true;
+  while (ok) {
+    XfcStateRecord final_state;
+    XfcStateRecord completed_state;
+    XfcTransitionRecord transition;
+    JsVar *completion_event = 0;
+    bool found = false;
+    bool targeted;
+    if (!xfcRefreshView(&runtime->view) ||
+        !xfcReadState(&runtime->view, *leaf, &final_state)) {
+      jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.runtime.complete");
+      xfcTakeException(error);
+      ok = false;
+      break;
+    }
+    if ((final_state.flags & XFC_STATE_TYPE_MASK) != XFC_STATE_FINAL) break;
+    if (final_state.parent == runtime->view.header.root_state) {
+      ok = xfcCompleteActor(runtime, context, event, context_changed, *leaf,
+                            error);
+      break;
+    }
+    if (!xfcReadState(&runtime->view, final_state.parent, &completed_state)) {
+      jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.runtime.complete");
+      xfcTakeException(error);
+      ok = false;
+      break;
+    }
+    if (completed_state.completion_transitions.count == 0) break;
+    completion_event = xfcInternalEventFromSymbol(
+        &runtime->view, completed_state.completion_event_symbol);
+    if (!completion_event) {
+      xfcNoMemory("actor.runtime.complete.event");
+      xfcTakeException(error);
+      ok = false;
+      break;
+    }
+    jsvUnLock(event);
+    event = completion_event;
+    if (!xfcSelectFromRange(runtime, completed_state.completion_transitions,
+                            *context, event, &transition, &found, error)) {
+      if (!*error) {
+        jsExceptionHere(JSET_ERROR,
+                        "XFC E_INTERNAL @ actor.runtime.complete.select");
+        xfcTakeException(error);
+      }
+      ok = false;
+      break;
+    }
+    if (!found) break;
+    if (!xfcBeginMicrostep(runtime, error)) {
+      ok = false;
+      break;
+    }
+    targeted = transition.target_state != XFC_INDEX_NONE;
+    if (!xfcExecuteTransition(runtime, &transition, context, event,
+                              context_changed, leaf, state_changed, error)) {
+      if (!*error) {
+        jsExceptionHere(JSET_ERROR,
+                        "XFC E_INTERNAL @ actor.runtime.complete.transition");
+        xfcTakeException(error);
+      }
+      ok = false;
+      break;
+    }
+    if (!targeted) break;
+  }
+  jsvUnLock(event);
+  return ok;
 }
 
 static void xfcInvalidateSnapshot(JsVar *actor) {
@@ -1019,6 +1164,10 @@ static JsVar *xfcActorStart(JsVar *actor) {
     goto fail;
   if (runtime.view.header.context_kind == XFC_CONTEXT_OMITTED) {
     context = jsvNewObject();
+    if (!context) {
+      xfcNoMemory("actor.start.context");
+      xfcTakeException(&error);
+    }
   } else if (runtime.view.header.context_kind == XFC_CONTEXT_LITERAL) {
     context = xfcRetained(&runtime.view, runtime.view.header.context_slot);
   } else {
@@ -1040,10 +1189,17 @@ static JsVar *xfcActorStart(JsVar *actor) {
     xfcTakeException(&error);
     goto fault;
   }
+  if (!xfcBeginMicrostep(&runtime, &error)) goto fault;
   if (!xfcInitialDescent(&runtime, runtime.view.header.root_state, true,
                          &context, event, &context_changed, &leaf, &error))
     goto fault;
   runtime.data.status = XFC_ACTOR_ACTIVE;
+  {
+    bool state_changed = true;
+    if (!xfcProcessCompletions(&runtime, &context, event, &context_changed,
+                               &leaf, &state_changed, &error))
+      goto fault;
+  }
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.leaf_state = leaf;
   runtime.data.microsteps = 0;
@@ -1051,6 +1207,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
   jsvObjectSetChild(actor, XFC_ACTOR_CONTEXT_NAME, context);
   xfcInvalidateSnapshot(actor);
   listener_error = xfcNotify(&runtime, storage);
+  if (runtime.data.status == XFC_ACTOR_DONE) xfcClearSubscriptions(actor);
   if (listener_error) xfcRaise(listener_error);
   goto success;
 fault:
@@ -1079,6 +1236,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   JsVar *error = 0;
   JsVar *listener_error = 0;
   XfcTransitionRecord transition;
+  uint32_t event_hash;
   bool found = false;
   bool context_changed = false;
   bool state_changed = false;
@@ -1103,10 +1261,11 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
     xfcWriteActorData(storage, &runtime.data);
     goto done;
   }
+  event_hash = xfcStringHash(event_type);
   context = jsvObjectGetChildIfExists(actor, XFC_ACTOR_CONTEXT_NAME);
   leaf = runtime.data.leaf_state;
-  if (!xfcSelectTransition(&runtime, event_type, context, event, &transition,
-                           &found, &error)) {
+  if (!xfcSelectTransition(&runtime, event_type, event_hash, context, event,
+                           &transition, &found, &error)) {
     if (!error) {
       jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.send.select");
       xfcTakeException(&error);
@@ -1114,13 +1273,8 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
     goto fault;
   }
   if (found) {
-    runtime.data.microsteps++;
-    if (runtime.data.microsteps > XFC_MAX_MICROSTEPS) {
-      jsExceptionHere(JSET_ERROR,
-                      "XFC E_LIMIT_EXCEEDED @ actor.send.microsteps");
-      xfcTakeException(&error);
-      goto fault;
-    }
+    bool targeted = transition.target_state != XFC_INDEX_NONE;
+    if (!xfcBeginMicrostep(&runtime, &error)) goto fault;
     if (!xfcExecuteTransition(&runtime, &transition, &context, event,
                               &context_changed, &leaf, &state_changed,
                               &error)) {
@@ -1130,6 +1284,10 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
       }
       goto fault;
     }
+    if (targeted &&
+        !xfcProcessCompletions(&runtime, &context, event, &context_changed,
+                               &leaf, &state_changed, &error))
+      goto fault;
   }
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.microsteps = 0;
@@ -1139,6 +1297,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
     jsvObjectSetChild(actor, XFC_ACTOR_CONTEXT_NAME, context);
   if (context_changed || state_changed) xfcInvalidateSnapshot(actor);
   listener_error = xfcNotify(&runtime, storage);
+  if (runtime.data.status == XFC_ACTOR_DONE) xfcClearSubscriptions(actor);
   if (listener_error) xfcRaise(listener_error);
   goto done;
 fault:

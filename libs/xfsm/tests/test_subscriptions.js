@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 var calls = [];
 var machine = XFSM.createMachine({
@@ -42,3 +44,7 @@ result = stoppedCalls ===
   calls.join("|") === stoppedCalls &&
   stoppedNotice === "stopped:undefined:undefined" &&
   stoppedBeforeStart.getSnapshot().status === "stopped";
+print("TEST=xfsm_subscriptions");
+print((result ? "PASS " : "FAIL ") + "subscriptions");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();

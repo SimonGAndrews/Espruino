@@ -129,8 +129,8 @@ static size_t buildAtomicRootArena(TestArena *arena) {
 
 static size_t buildRichArena(TestArena *arena) {
   static const char *const strings[] = {
-      "Parent", "Idle", "Final", "Outside", "GO", "done.state.Parent",
-      "count"};
+      "Parent", "Idle", "Final", "Outside", "GO",
+      "xstate.done.state.Parent", "count"};
   static const uint16_t symbol_flags[] = {
       XFC_SYMBOL_STATE_KEY,
       XFC_SYMBOL_STATE_KEY,
@@ -356,7 +356,7 @@ static void testValidArenas(void) {
   CHECK(atomic_size == 128);
   CHECK(xfcValidateArena(atomic_arena.bytes, atomic_size) ==
         XFC_VALIDATION_OK);
-  CHECK(rich_size == 458);
+  CHECK(rich_size == 465);
   CHECK(xfcValidateArena(rich_arena.bytes, rich_size) ==
         XFC_VALIDATION_OK);
   readHeader(&rich_arena, &header);
@@ -368,7 +368,7 @@ static void testValidArenas(void) {
   CHECK(header.tables[XFC_TABLE_ACTION].offset == 376);
   CHECK(header.tables[XFC_TABLE_ASSIGNMENT].offset == 392);
   CHECK(header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].offset == 404);
-  CHECK(header.string_offset == 412 && header.string_size == 46);
+  CHECK(header.string_offset == 412 && header.string_size == 53);
   CHECK(xfcArenaSymbolMatches(rich_arena.bytes, rich_size, 4,
                               (const uint8_t *)"GO", 2,
                               xfcFnv1a((const uint8_t *)"GO", 2)));
@@ -381,8 +381,8 @@ static void testValidArenas(void) {
   writeHeader(&factory_arena, &header);
   CHECK(xfcValidateArena(factory_arena.bytes, rich_size) ==
         XFC_VALIDATION_OK);
-  printf("GOLDEN arena=458 states=5 symbols=7 handlers=1 transitions=2 "
-         "guards=1 actions=2 assignments=1 entries=1 strings=46\n");
+  printf("GOLDEN arena=465 states=5 symbols=7 handlers=1 transitions=2 "
+         "guards=1 actions=2 assignments=1 entries=1 strings=53\n");
 }
 
 static void testHandlersAndTransitionDomains(void) {

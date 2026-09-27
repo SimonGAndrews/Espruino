@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 var thrown = { code: 42 };
 var notices = [];
@@ -96,3 +98,7 @@ result = before.status === "notStarted" &&
   failed.error === thrown && failed.value === "Ready" &&
   failed.context === stable.context &&
   notices.indexOf("wrong") < 0 && invalidEvent && borrowed;
+print("TEST=xfsm_runtime_errors");
+print((result ? "PASS " : "FAIL ") + "runtime_errors");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();

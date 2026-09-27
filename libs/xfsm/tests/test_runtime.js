@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 var trace = [];
 var notifications = [];
@@ -162,3 +164,7 @@ result = sameBefore &&
   stopped.matches({ Parent: "ChildA" }) &&
   trace.join("|") === expectedTrace.join("|") &&
   notifications.length === 7;
+print("TEST=xfsm_runtime");
+print((result ? "PASS " : "FAIL ") + "runtime");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();

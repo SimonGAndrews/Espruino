@@ -44,7 +44,8 @@ enum {
 
 typedef enum {
   XFC_NODE_ATOMIC = 0,
-  XFC_NODE_COMPOUND = 1
+  XFC_NODE_COMPOUND = 1,
+  XFC_NODE_FINAL = 2
 } XfcNodeType;
 
 typedef enum {
@@ -508,8 +509,8 @@ static bool xfcValidateImplementationMap(XfcCompiler *compiler, JsVar *options,
          compiler->diagnostic == XFC_DIAG_NONE) {
     JsVar *key = jsvObjectIteratorGetKey(&iterator);
     if (!jsvIsInternalObjectKey(key)) {
-      JsVar *value = jsvObjectIteratorGetValue(&iterator);
-      if (jsvIsGetterOrSetter(key) || !jsvIsFunction(value))
+      JsVar *value = jsvGetValueOfName(key);
+      if (jsvIsGetterOrSetter(value) || !jsvIsFunction(value))
         xfcFailKey(compiler, XFC_DIAG_CONFIG_TYPE, map_path, key, 0);
       jsvUnLock(value);
     }
@@ -626,8 +627,7 @@ static bool xfcDetermineNodeType(XfcCompiler *compiler, JsVar *configuration,
     } else if (jsvIsStringEqual(type, "atomic")) {
       node_type = XFC_NODE_ATOMIC;
     } else if (jsvIsStringEqual(type, "final")) {
-      xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "type",
-                      type);
+      node_type = XFC_NODE_FINAL;
     } else if (jsvIsStringEqual(type, "parallel") ||
                jsvIsStringEqual(type, "history")) {
       xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "type",
@@ -642,10 +642,13 @@ static bool xfcDetermineNodeType(XfcCompiler *compiler, JsVar *configuration,
   if (compiler->diagnostic == XFC_DIAG_NONE) {
     if (node_type == XFC_NODE_COMPOUND && child_count == 0)
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
-    else if (node_type == XFC_NODE_ATOMIC && child_count != 0)
+    else if ((node_type == XFC_NODE_ATOMIC ||
+              node_type == XFC_NODE_FINAL) &&
+             has_states && !jsvIsUndefined(states))
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
-    else if (node_type == XFC_NODE_ATOMIC && has_initial &&
-             !jsvIsUndefined(initial))
+    else if ((node_type == XFC_NODE_ATOMIC ||
+              node_type == XFC_NODE_FINAL) &&
+             has_initial && !jsvIsUndefined(initial))
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "initial", 0);
     else if (node_type == XFC_NODE_COMPOUND &&
              (!has_initial || jsvIsUndefined(initial)))
@@ -665,11 +668,13 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
   static const char *const root_allowed[] = {
       "id", "type", "context", "initial", "states", "on", "entry",
       "exit", "description", "meta", "predictableActionArguments",
-      "preserveActionOrder"};
+      "preserveActionOrder", "output"};
   static const char *const state_allowed[] = {
       "id", "type", "initial", "states", "on", "onDone", "entry",
-      "exit", "description", "meta"};
+      "exit", "description", "meta", "output"};
   JsVar *value = 0;
+  bool has_on = false;
+  bool has_on_done = false;
   if (!xfcIsObject(configuration)) {
     xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, path, 0);
     return false;
@@ -696,14 +701,18 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
     xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "meta", 0);
   jsvUnLock(value);
   value = 0;
-  if (xfcGetOwn(configuration, "on", &value) && !jsvIsUndefined(value) &&
-      !xfcIsObject(value))
+  has_on = xfcGetOwn(configuration, "on", &value);
+  if (has_on && jsvIsUndefined(value)) has_on = false;
+  if (has_on && !xfcIsObject(value))
     xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "on", 0);
   jsvUnLock(value);
   value = 0;
-  if (!root && xfcGetOwn(configuration, "onDone", &value) &&
-      !jsvIsUndefined(value))
-    xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "onDone", 0);
+  has_on_done = !root && xfcGetOwn(configuration, "onDone", &value);
+  if (has_on_done && jsvIsUndefined(value)) has_on_done = false;
+  jsvUnLock(value);
+  value = 0;
+  if (xfcGetOwn(configuration, "output", &value) && !jsvIsUndefined(value))
+    xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "output", 0);
   jsvUnLock(value);
   value = 0;
   if (root && xfcGetOwn(configuration, "predictableActionArguments", &value) &&
@@ -717,13 +726,22 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
     xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path,
                     "preserveActionOrder", 0);
   jsvUnLock(value);
-  if (compiler->diagnostic != XFC_DIAG_NONE) return false;
-  return xfcDetermineNodeType(compiler, configuration, path, root, type_out,
-                              child_count_out);
+  if (compiler->diagnostic != XFC_DIAG_NONE ||
+      !xfcDetermineNodeType(compiler, configuration, path, root, type_out,
+                            child_count_out))
+    return false;
+  if (root && *type_out == XFC_NODE_FINAL) {
+    xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "type", 0);
+  } else if (*type_out == XFC_NODE_FINAL && has_on) {
+    xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "on", 0);
+  } else if (*type_out != XFC_NODE_COMPOUND && has_on_done) {
+    xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "onDone", 0);
+  }
+  return compiler->diagnostic == XFC_DIAG_NONE;
 }
 
 static JsVar *xfcCompletionEvent(JsVar *effective_id) {
-  JsVar *event = jsvNewFromString("done.state.");
+  JsVar *event = jsvNewFromString("xstate.done.state.");
   if (!event) return 0;
   jsvAppendStringVarComplete(event, effective_id);
   return event;
@@ -998,6 +1016,71 @@ static bool xfcStringHasByte(JsVar *value, char wanted) {
   return found;
 }
 
+static bool xfcReadTargetSegment(XfcCompiler *compiler, JsVar *target,
+                                 size_t *position, JsVar **segment,
+                                 bool *has_more, JsVar *path,
+                                 bool report_syntax) {
+  size_t length = jsvGetStringLength(target);
+  JsVar *decoded = jsvNewFromEmptyString();
+  bool escaped = false;
+  bool has_byte = false;
+  bool ended_on_delimiter = false;
+  if (!decoded) {
+    xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+    return false;
+  }
+  while (*position < length) {
+    char ch = (char)jsvGetCharInString(target, (*position)++);
+    if (escaped) {
+      jsvAppendCharacter(decoded, ch);
+      has_byte = true;
+      escaped = false;
+    } else if (ch == '\\') {
+      escaped = true;
+    } else if (ch == '.') {
+      ended_on_delimiter = true;
+      break;
+    } else {
+      jsvAppendCharacter(decoded, ch);
+      has_byte = true;
+    }
+  }
+  if (!has_byte || escaped || (ended_on_delimiter && *position == length)) {
+    jsvUnLock(decoded);
+    if (report_syntax)
+      xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, path, target);
+    return false;
+  }
+  *segment = decoded;
+  *has_more = *position < length;
+  return true;
+}
+
+static bool xfcResolveDescendantPath(XfcCompiler *compiler, uint16_t base,
+                                     JsVar *target, size_t position,
+                                     JsVar *path, uint16_t *resolved,
+                                     bool report_syntax) {
+  size_t length = jsvGetStringLength(target);
+  uint16_t current = base;
+  bool more = true;
+  if (position >= length) {
+    if (report_syntax)
+      xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, path, target);
+    return false;
+  }
+  while (more) {
+    JsVar *segment = 0;
+    if (!xfcReadTargetSegment(compiler, target, &position, &segment, &more,
+                              path, report_syntax))
+      return false;
+    if (current != XFC_INDEX_NONE)
+      current = xfcFindDirectChild(compiler, current, segment);
+    jsvUnLock(segment);
+  }
+  *resolved = current;
+  return true;
+}
+
 static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
                                  JsVar *target, JsVar *path) {
   uint16_t resolved = XFC_INDEX_NONE;
@@ -1008,39 +1091,72 @@ static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
     return XFC_INDEX_NONE;
   }
   length = jsvGetStringLength(target);
+  if (length > UINT16_MAX) {
+    xfcFail(compiler, XFC_DIAG_LIMIT_EXCEEDED, path, target);
+    return XFC_INDEX_NONE;
+  }
   first = (char)jsvGetCharInString(target, 0);
   if (first == '#') {
-    JsVar *id = jsvNewFromStringVar(target, 1, length - 1);
-    if (!id) {
-      xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
-      return XFC_INDEX_NONE;
-    }
-    if (xfcStringHasByte(id, '.') || xfcStringHasByte(id, '\\')) {
-      xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, target);
-    } else {
+    size_t position = 1;
+    JsVar *id = 0;
+    bool more = false;
+    if (xfcReadTargetSegment(compiler, target, &position, &id, &more, path,
+                             true)) {
       resolved = xfcFindStateById(compiler, id);
+      jsvUnLock(id);
+      if (more &&
+          !xfcResolveDescendantPath(compiler, resolved, target, position, path,
+                                    &resolved, true))
+        return XFC_INDEX_NONE;
     }
-    jsvUnLock(id);
   } else if (first == '.') {
-    JsVar *key = jsvNewFromStringVar(target, 1, length - 1);
-    if (!key) {
+    JsVar *exact_key = jsvNewFromStringVar(target, 1, length - 1);
+    uint16_t exact = XFC_INDEX_NONE;
+    uint16_t segmented = XFC_INDEX_NONE;
+    bool has_escape = xfcStringHasByte(target, '\\');
+    if (!exact_key) {
       xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
       return XFC_INDEX_NONE;
     }
-    if (xfcStringHasByte(key, '\\'))
-      xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, target);
-    else
-      resolved = xfcFindDirectChild(compiler, source, key);
-    jsvUnLock(key);
-  } else if (first == '\\') {
-    xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, target);
+    if (!has_escape) exact = xfcFindDirectChild(compiler, source, exact_key);
+    jsvUnLock(exact_key);
+    if (!xfcResolveDescendantPath(compiler, source, target, 1, path,
+                                  &segmented,
+                                  has_escape || exact == XFC_INDEX_NONE)) {
+      if (compiler->diagnostic != XFC_DIAG_NONE || exact == XFC_INDEX_NONE)
+        return XFC_INDEX_NONE;
+      resolved = exact;
+      goto target_resolved;
+    }
+    if (!has_escape && exact != XFC_INDEX_NONE &&
+        segmented != XFC_INDEX_NONE && exact != segmented) {
+      xfcFail(compiler, XFC_DIAG_TARGET_AMBIGUOUS, path, target);
+      return XFC_INDEX_NONE;
+    }
+    resolved = exact != XFC_INDEX_NONE ? exact : segmented;
   } else {
     int parent = xfcStateParent(compiler, source);
     uint16_t base = parent < 0 ? source : (uint16_t)parent;
-    resolved = xfcFindDirectChild(compiler, base, target);
-    if (resolved == XFC_INDEX_NONE && xfcStringHasByte(target, '\\'))
-      xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, target);
+    uint16_t exact = XFC_INDEX_NONE;
+    uint16_t segmented = XFC_INDEX_NONE;
+    bool has_escape = xfcStringHasByte(target, '\\');
+    if (!has_escape) exact = xfcFindDirectChild(compiler, base, target);
+    if (!xfcResolveDescendantPath(compiler, base, target, 0, path,
+                                  &segmented,
+                                  has_escape || exact == XFC_INDEX_NONE)) {
+      if (compiler->diagnostic != XFC_DIAG_NONE || exact == XFC_INDEX_NONE)
+        return XFC_INDEX_NONE;
+      resolved = exact;
+      goto target_resolved;
+    }
+    if (!has_escape && exact != XFC_INDEX_NONE &&
+        segmented != XFC_INDEX_NONE && exact != segmented) {
+      xfcFail(compiler, XFC_DIAG_TARGET_AMBIGUOUS, path, target);
+      return XFC_INDEX_NONE;
+    }
+    resolved = exact != XFC_INDEX_NONE ? exact : segmented;
   }
+target_resolved:
   if (compiler->diagnostic == XFC_DIAG_NONE && resolved == XFC_INDEX_NONE)
     xfcFail(compiler, XFC_DIAG_TARGET_UNKNOWN, path, target);
   return resolved;
@@ -1122,13 +1238,13 @@ static bool xfcCompileAssignment(XfcCompiler *compiler, JsVar *assignment,
     while (jsvObjectIteratorHasValue(&iterator) &&
            compiler->diagnostic == XFC_DIAG_NONE) {
       JsVar *source_key = jsvObjectIteratorGetKey(&iterator);
-      JsVar *value = jsvObjectIteratorGetValue(&iterator);
+      JsVar *value = jsvGetValueOfName(source_key);
       if (!jsvIsInternalObjectKey(source_key)) {
         JsVar *key = xfcCopyString(source_key);
         JsVar *entry_path = key ? xfcPathKey(path, key) : 0;
         uint16_t key_symbol;
         uint16_t retained_slot;
-        if (jsvIsGetterOrSetter(source_key) || !key || !entry_path) {
+        if (jsvIsGetterOrSetter(value) || !key || !entry_path) {
           xfcFail(compiler, key && entry_path ? XFC_DIAG_CONFIG_TYPE
                                               : XFC_DIAG_NO_MEMORY,
                   entry_path, 0);
@@ -1683,9 +1799,11 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   JsVar *entry = 0;
   JsVar *exit = 0;
   JsVar *on = 0;
+  JsVar *on_done = 0;
   JsVar *entry_path = 0;
   JsVar *exit_path = 0;
   JsVar *on_path = 0;
+  JsVar *on_done_path = 0;
   XfcStateRecord record;
   int parent = xfcMetaInteger(meta, XFC_META_PARENT);
   int depth = xfcMetaInteger(meta, XFC_META_DEPTH);
@@ -1701,8 +1819,10 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   record.initial_actions.first = XFC_INDEX_NONE;
   record.entry_actions.first = XFC_INDEX_NONE;
   record.exit_actions.first = XFC_INDEX_NONE;
-  record.flags = type == XFC_NODE_COMPOUND ? XFC_STATE_COMPOUND
-                                           : XFC_STATE_ATOMIC;
+  record.flags = type == XFC_NODE_COMPOUND
+                     ? XFC_STATE_COMPOUND
+                     : (type == XFC_NODE_FINAL ? XFC_STATE_FINAL
+                                               : XFC_STATE_ATOMIC);
   if (state_index == 0) record.flags |= XFC_STATE_ROOT;
   record.depth = (uint8_t)depth;
   if (state_index != 0) {
@@ -1750,6 +1870,18 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
                             &record.handlers))
       goto done;
   }
+  if (type == XFC_NODE_COMPOUND && state_index != 0 &&
+      xfcGetOwn(configuration, "onDone", &on_done) &&
+      !jsvIsUndefined(on_done)) {
+    on_done_path = xfcPathProperty(path, "onDone");
+    if (!on_done_path) {
+      xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+      goto done;
+    }
+    if (!xfcCompileCandidates(compiler, state_index, on_done, on_done_path,
+                              &record.completion_transitions))
+      goto done;
+  }
   if (compiler->phase == XFC_COMPILE_EMIT &&
       !xfcWriteRecord(compiler->writer, XFC_TABLE_STATE, state_index,
                       &record, sizeof(record))) {
@@ -1767,9 +1899,11 @@ done:
   jsvUnLock(entry);
   jsvUnLock(exit);
   jsvUnLock(on);
+  jsvUnLock(on_done);
   jsvUnLock(entry_path);
   jsvUnLock(exit_path);
   jsvUnLock(on_path);
+  jsvUnLock(on_done_path);
   return ok && compiler->diagnostic == XFC_DIAG_NONE;
 }
 
@@ -2007,9 +2141,10 @@ JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment) {
     jsvObjectIteratorNew(&iterator, assignment);
     while (jsvObjectIteratorHasValue(&iterator)) {
       JsVar *key = jsvObjectIteratorGetKey(&iterator);
-      if (!jsvIsInternalObjectKey(key) && jsvIsGetterOrSetter(key))
+      JsVar *value = jsvGetValueOfName(key);
+      if (!jsvIsInternalObjectKey(key) && jsvIsGetterOrSetter(value))
         valid = false;
-      jsvUnLock(key);
+      jsvUnLock2(key, value);
       if (!valid) break;
       jsvObjectIteratorNext(&iterator);
     }

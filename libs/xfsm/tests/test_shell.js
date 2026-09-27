@@ -1,3 +1,5 @@
+echo(false);
+(function () {
 var XFSM = require("XFSM");
 var functionTypes = [
   typeof XFSM.assign,
@@ -15,6 +17,7 @@ actor.start();
 var after = actor.getSnapshot();
 
 result = functionTypes === "function,function,function" &&
+  typeof XFSM._measure === "undefined" &&
   Object.keys(machine).length === 0 &&
   Object.keys(assignment).length === 0 &&
   Object.keys(actor).length === 0 &&
@@ -26,3 +29,7 @@ result = functionTypes === "function,function,function" &&
   after.context !== undefined &&
   after.matches("idle") &&
   !after.matches("other");
+print("TEST=xfsm_shell");
+print((result ? "PASS " : "FAIL ") + "shell");
+print("DONE=" + (result ? "PASS" : "FAIL"));
+})();
