@@ -17,12 +17,14 @@
 #include "xfsm_measure.h"
 #include "xfsm_native.h"
 #include "xfsm_runtime.h"
+#include "xfsm_test.h"
 
 #include <limits.h>
 #include <string.h>
 
 #define XFC_ASSIGN_BRAND "XFAD1"
 #define XFC_ASSIGN_BRAND_LENGTH 5
+#define XFC_DIAGNOSTIC_DETAIL_MAX 48U
 
 enum {
   XFC_META_CONFIG = 0,
@@ -116,6 +118,70 @@ static const char *const xfcDiagnosticNames[] = {
 static bool xfcIsObject(const JsVar *value) {
   return value && jsvIsObject(value) && !jsvIsArray(value) &&
          !jsvIsFunction(value);
+}
+
+static size_t xfcStringByteLength(JsVar *value) {
+  JsvStringIterator iterator;
+  size_t length = 0;
+  jsvStringIteratorNew(&iterator, value, 0);
+  while (jsvStringIteratorHasChar(&iterator)) {
+    length++;
+    jsvStringIteratorNext(&iterator);
+  }
+  jsvStringIteratorFree(&iterator);
+  return length;
+}
+
+static JsVar *xfcCopyStringBytes(JsVar *value, size_t start,
+                                 size_t length) {
+  JsVar *copy = jsvNewFromEmptyString();
+  JsvStringIterator iterator;
+  size_t expected = length;
+  if (!copy) return 0;
+  jsvStringIteratorNew(&iterator, value, start);
+  while (length != 0 && jsvStringIteratorHasChar(&iterator)) {
+    jsvAppendCharacter(copy, jsvStringIteratorGetChar(&iterator));
+    jsvStringIteratorNext(&iterator);
+    length--;
+  }
+  jsvStringIteratorFree(&iterator);
+  if (length != 0 || xfcStringByteLength(copy) != expected) {
+    jsvUnLock(copy);
+    return 0;
+  }
+  return copy;
+}
+
+static size_t xfcDiagnosticByteBoundary(JsVar *value, size_t length) {
+  char bytes[XFC_DIAGNOSTIC_DETAIL_MAX + 4U];
+  size_t available = length < sizeof(bytes) ? length : sizeof(bytes);
+  size_t position = 0;
+  size_t boundary = 0;
+  jsvGetStringChars(value, 0, bytes, available);
+  while (position < available && position < XFC_DIAGNOSTIC_DETAIL_MAX) {
+    unsigned char first = (unsigned char)bytes[position];
+    unsigned int character_length = 1;
+    unsigned int index;
+    if (first >= 0xC2U && first <= 0xDFU)
+      character_length = 2;
+    else if (first >= 0xE0U && first <= 0xEFU)
+      character_length = 3;
+    else if (first >= 0xF0U && first <= 0xF4U)
+      character_length = 4;
+    if (character_length != 1) {
+      if (position + character_length > available) character_length = 1;
+      for (index = 1; index < character_length; index++) {
+        if (((unsigned char)bytes[position + index] & 0xC0U) != 0x80U) {
+          character_length = 1;
+          break;
+        }
+      }
+    }
+    if (position + character_length > XFC_DIAGNOSTIC_DETAIL_MAX) break;
+    position += character_length;
+    boundary = position;
+  }
+  return boundary;
 }
 
 static bool xfcGetOwn(JsVar *object, const char *name, JsVar **value) {
@@ -214,14 +280,29 @@ static JsVar *xfcPathIndex(JsVar *base, JsVarInt index) {
 
 static void xfcFail(XfcCompiler *compiler, XfcDiagnostic diagnostic,
                     JsVar *path, JsVar *detail) {
+  JsVar *bounded_detail = 0;
   if (compiler->diagnostic != XFC_DIAG_NONE) return;
   if (!path && diagnostic != XFC_DIAG_NO_MEMORY) {
     compiler->diagnostic = XFC_DIAG_NO_MEMORY;
     return;
   }
+  if (detail) {
+    size_t length = xfcStringByteLength(detail);
+    size_t bounded_length = length <= XFC_DIAGNOSTIC_DETAIL_MAX
+                                ? length
+                                : xfcDiagnosticByteBoundary(detail, length);
+    bounded_detail = length <= XFC_DIAGNOSTIC_DETAIL_MAX
+                         ? jsvLockAgain(detail)
+                         : jsvNewFromStringVar(detail, 0,
+                                               bounded_length);
+    if (!bounded_detail) {
+      compiler->diagnostic = XFC_DIAG_NO_MEMORY;
+      return;
+    }
+  }
   compiler->diagnostic = diagnostic;
   compiler->error_path = jsvLockAgainSafe(path);
-  compiler->error_detail = jsvLockAgainSafe(detail);
+  compiler->error_detail = bounded_detail;
   xfcMeasureMemorySample();
 }
 
@@ -339,7 +420,7 @@ static uint16_t xfcInternSymbol(XfcCompiler *compiler, JsVar *value,
     xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, path, 0);
     return XFC_INDEX_NONE;
   }
-  length = jsvGetStringLength(value);
+  length = xfcStringByteLength(value);
   if (length > UINT16_MAX) {
     JsVar *detail = jsvVarPrintf("bytes=%d max=65535", (int)length);
     xfcFail(compiler, detail ? XFC_DIAG_LIMIT_EXCEEDED : XFC_DIAG_NO_MEMORY,
@@ -428,12 +509,13 @@ static bool xfcValidateProperties(XfcCompiler *compiler, JsVar *object,
   while (jsvObjectIteratorHasValue(&iterator) &&
          compiler->diagnostic == XFC_DIAG_NONE) {
     JsVar *key = jsvObjectIteratorGetKey(&iterator);
+    JsVar *value = jsvGetValueOfName(key);
     if (jsvIsInternalObjectKey(key)) {
-      jsvUnLock(key);
+      jsvUnLock2(key, value);
       jsvObjectIteratorNext(&iterator);
       continue;
     }
-    if (jsvIsGetterOrSetter(key)) {
+    if (jsvIsGetterOrSetter(value)) {
       xfcFailKey(compiler, XFC_DIAG_CONFIG_TYPE, path, key, 0);
     } else if (!xfcKeyInList(key, allowed, allowed_count)) {
       XfcDiagnostic diagnostic =
@@ -443,7 +525,7 @@ static bool xfcValidateProperties(XfcCompiler *compiler, JsVar *object,
               : XFC_DIAG_UNKNOWN_PROPERTY;
       xfcFailKey(compiler, diagnostic, path, key, 0);
     }
-    jsvUnLock(key);
+    jsvUnLock2(key, value);
     jsvObjectIteratorNext(&iterator);
   }
   jsvObjectIteratorFree(&iterator);
@@ -782,7 +864,7 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     goto done;
   }
-  if (jsvGetStringLength(effective_id) > UINT16_MAX) {
+  if (xfcStringByteLength(effective_id) > UINT16_MAX) {
     xfcFailProperty(compiler, XFC_DIAG_LIMIT_EXCEEDED, path, "id", 0);
     goto done;
   }
@@ -893,13 +975,13 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
         while (jsvObjectIteratorHasValue(&iterator) &&
                compiler->diagnostic == XFC_DIAG_NONE) {
           JsVar *source_key = jsvObjectIteratorGetKey(&iterator);
-          JsVar *child = jsvObjectIteratorGetValue(&iterator);
+          JsVar *child = jsvGetValueOfName(source_key);
           if (!jsvIsInternalObjectKey(source_key)) {
             JsVar *key = xfcCopyString(source_key);
             JsVar *child_path = key ? xfcPathKey(states_path, key) : 0;
             JsVar *child_implicit =
                 key ? xfcEscapeIdSegment(implicit_id, key) : 0;
-            if (jsvIsGetterOrSetter(source_key)) {
+            if (jsvIsGetterOrSetter(child)) {
               xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, child_path, 0);
             } else if (!key || !child_path || !child_implicit) {
               xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
@@ -1020,8 +1102,9 @@ static bool xfcReadTargetSegment(XfcCompiler *compiler, JsVar *target,
                                  size_t *position, JsVar **segment,
                                  bool *has_more, JsVar *path,
                                  bool report_syntax) {
-  size_t length = jsvGetStringLength(target);
+  size_t length = xfcStringByteLength(target);
   JsVar *decoded = jsvNewFromEmptyString();
+  JsvStringIterator iterator;
   bool escaped = false;
   bool has_byte = false;
   bool ended_on_delimiter = false;
@@ -1029,8 +1112,10 @@ static bool xfcReadTargetSegment(XfcCompiler *compiler, JsVar *target,
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     return false;
   }
+  jsvStringIteratorNew(&iterator, target, *position);
   while (*position < length) {
-    char ch = (char)jsvGetCharInString(target, (*position)++);
+    char ch = jsvStringIteratorGetCharAndNext(&iterator);
+    (*position)++;
     if (escaped) {
       jsvAppendCharacter(decoded, ch);
       has_byte = true;
@@ -1045,6 +1130,7 @@ static bool xfcReadTargetSegment(XfcCompiler *compiler, JsVar *target,
       has_byte = true;
     }
   }
+  jsvStringIteratorFree(&iterator);
   if (!has_byte || escaped || (ended_on_delimiter && *position == length)) {
     jsvUnLock(decoded);
     if (report_syntax)
@@ -1060,7 +1146,7 @@ static bool xfcResolveDescendantPath(XfcCompiler *compiler, uint16_t base,
                                      JsVar *target, size_t position,
                                      JsVar *path, uint16_t *resolved,
                                      bool report_syntax) {
-  size_t length = jsvGetStringLength(target);
+  size_t length = xfcStringByteLength(target);
   uint16_t current = base;
   bool more = true;
   if (position >= length) {
@@ -1086,16 +1172,21 @@ static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
   uint16_t resolved = XFC_INDEX_NONE;
   size_t length;
   char first;
-  if (!jsvIsString(target) || jsvGetStringLength(target) == 0) {
+  if (!jsvIsString(target) || xfcStringByteLength(target) == 0) {
     xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, path, 0);
     return XFC_INDEX_NONE;
   }
-  length = jsvGetStringLength(target);
+  length = xfcStringByteLength(target);
   if (length > UINT16_MAX) {
     xfcFail(compiler, XFC_DIAG_LIMIT_EXCEEDED, path, target);
     return XFC_INDEX_NONE;
   }
-  first = (char)jsvGetCharInString(target, 0);
+  {
+    JsvStringIterator iterator;
+    jsvStringIteratorNew(&iterator, target, 0);
+    first = jsvStringIteratorGetChar(&iterator);
+    jsvStringIteratorFree(&iterator);
+  }
   if (first == '#') {
     size_t position = 1;
     JsVar *id = 0;
@@ -1110,7 +1201,7 @@ static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
         return XFC_INDEX_NONE;
     }
   } else if (first == '.') {
-    JsVar *exact_key = jsvNewFromStringVar(target, 1, length - 1);
+    JsVar *exact_key = xfcCopyStringBytes(target, 1, length - 1);
     uint16_t exact = XFC_INDEX_NONE;
     uint16_t segmented = XFC_INDEX_NONE;
     bool has_escape = xfcStringHasByte(target, '\\');
@@ -1652,14 +1743,14 @@ static bool xfcCompileHandlers(XfcCompiler *compiler, uint16_t state_index,
   while (jsvObjectIteratorHasValue(&iterator) &&
          compiler->diagnostic == XFC_DIAG_NONE) {
     JsVar *source_key = jsvObjectIteratorGetKey(&iterator);
-    JsVar *definition = jsvObjectIteratorGetValue(&iterator);
+    JsVar *definition = jsvGetValueOfName(source_key);
     if (!jsvIsInternalObjectKey(source_key)) {
       JsVar *event = xfcCopyString(source_key);
       JsVar *event_path = event ? xfcPathKey(path, event) : 0;
       XfcHandlerRecord record;
       uint16_t handler_index;
       memset(&record, 0, sizeof(record));
-      if (jsvIsGetterOrSetter(source_key) || !event || !event_path) {
+      if (jsvIsGetterOrSetter(definition) || !event || !event_path) {
         xfcFail(compiler, event && event_path ? XFC_DIAG_CONFIG_TYPE
                                               : XFC_DIAG_NO_MEMORY,
                 event_path, 0);
@@ -1997,7 +2088,7 @@ static bool xfcWriteSymbols(XfcCompiler *compiler, XfcArenaWriter *writer) {
     JsVar *entry = jsvGetArrayItem(compiler->symbols, index);
     JsVar *text = jsvGetArrayItem(entry, 0);
     JsVar *flags = jsvGetArrayItem(entry, 1);
-    size_t length = jsvGetStringLength(text);
+    size_t length = xfcStringByteLength(text);
     XfcSymbolRecord record;
     memset(&record, 0, sizeof(record));
     record.string_offset = string_cursor;
@@ -2085,7 +2176,10 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
     xfcFail(&compiler, XFC_DIAG_LIMIT_EXCEEDED, config_path, 0);
     goto done;
   }
-  arena = jsvNewFlatStringOfLength((unsigned int)writer.header.arena_size);
+  arena = xfcTestTakeFault(XFC_TEST_FAULT_COMPILE_ARENA)
+              ? 0
+              : jsvNewFlatStringOfLength(
+                    (unsigned int)writer.header.arena_size);
   if (!arena) {
     xfcFail(&compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     goto done;

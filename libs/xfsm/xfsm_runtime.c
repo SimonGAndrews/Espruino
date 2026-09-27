@@ -16,6 +16,7 @@
 #include "xfsm_internal.h"
 #include "xfsm_measure.h"
 #include "xfsm_native.h"
+#include "xfsm_test.h"
 
 #include <string.h>
 
@@ -265,17 +266,31 @@ static uint32_t xfcStringHash(JsVar *text) {
   return hash;
 }
 
+static size_t xfcStringByteLength(JsVar *text) {
+  JsvStringIterator iterator;
+  size_t length = 0;
+  jsvStringIteratorNew(&iterator, text, 0);
+  while (jsvStringIteratorHasChar(&iterator)) {
+    length++;
+    jsvStringIteratorNext(&iterator);
+  }
+  jsvStringIteratorFree(&iterator);
+  return length;
+}
+
 static bool xfcSymbolEqualsHashed(const XfcRuntimeView *view, uint16_t index,
                                   JsVar *text, uint32_t hash) {
   XfcSymbolRecord symbol;
   const uint8_t *bytes;
   JsvStringIterator iterator;
+  size_t length;
   uint16_t offset = 0;
   bool equal;
-  if (!jsvIsString(text) || jsvGetStringLength(text) > UINT16_MAX ||
+  if (!jsvIsString(text)) return false;
+  length = xfcStringByteLength(text);
+  if (length > UINT16_MAX ||
       !xfcSymbolBounds(view, index, &symbol, &bytes) ||
-      hash != symbol.hash ||
-      jsvGetStringLength(text) != symbol.byte_length)
+      hash != symbol.hash || length != symbol.byte_length)
     return false;
   equal = true;
   jsvStringIteratorNew(&iterator, text, 0);
@@ -460,7 +475,9 @@ static bool xfcExecuteAssignment(XfcRuntime *runtime,
                                  JsVar **context, JsVar *event,
                                  JsVar **error) {
   JsVar *old_context = *context;
-  JsVar *next_context = jsvNewObject();
+  JsVar *next_context = xfcTestTakeFault(XFC_TEST_FAULT_ASSIGN_CONTEXT)
+                            ? 0
+                            : jsvNewObject();
   bool ok = next_context != 0;
   uint16_t offset;
   if (!ok) {
@@ -581,7 +598,9 @@ static JsVar *xfcInternalEvent(const char *type) {
 
 static JsVar *xfcInternalEventFromSymbol(XfcRuntimeView *view,
                                          uint16_t symbol_index) {
-  JsVar *event = jsvNewObject();
+  JsVar *event = xfcTestTakeFault(XFC_TEST_FAULT_COMPLETION_EVENT)
+                     ? 0
+                     : jsvNewObject();
   JsVar *event_type = xfcSymbolString(view, symbol_index);
   if (!event || !event_type ||
       jsvObjectSetChild(event, "type", event_type) != event_type) {
@@ -970,21 +989,17 @@ static JsVar *xfcStateValue(XfcRuntimeView *view, uint16_t leaf) {
   return value;
 }
 
-static JsVar *xfcMaterializeSnapshot(XfcRuntime *runtime) {
-  JsVar *snapshot =
-      jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME);
+static JsVar *xfcCreateSnapshot(XfcRuntime *runtime, JsVar *context) {
+  JsVar *snapshot = 0;
   JsVar *value = 0;
-  JsVar *context = 0;
   JsVar *status = 0;
   JsVar *leaf = 0;
   JsVar *error = 0;
-  bool ok;
-  if (snapshot) return snapshot;
+  bool ok = false;
   snapshot = jsvNewObject();
   if (!snapshot) return 0;
   value = xfcStateValue(&runtime->view, runtime->data.leaf_state);
-  if (runtime->data.leaf_state != XFC_INDEX_NONE && !value) goto fail;
-  context = jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_CONTEXT_NAME);
+  if (runtime->data.leaf_state != XFC_INDEX_NONE && !value) goto done;
   status = jsvNewFromString(xfcStatusName(runtime->data.status));
   leaf = jsvNewFromInteger(runtime->data.leaf_state);
   ok = status && leaf &&
@@ -1003,23 +1018,87 @@ static JsVar *xfcMaterializeSnapshot(XfcRuntime *runtime) {
     error = jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_ERROR_NAME);
     ok = xfcSetProperty(snapshot, "error", error);
   }
-  if (ok)
-    ok = jsvObjectSetChild(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME,
-                           snapshot) == snapshot;
-  jsvUnLockMany(5, (JsVar *[]){value, context, status, leaf, error});
+done:
+  jsvUnLockMany(4, (JsVar *[]){value, status, leaf, error});
   if (!ok) {
-fail:
     jsvUnLock(snapshot);
     return 0;
   }
   return snapshot;
 }
 
-static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage) {
+static JsVar *xfcMaterializeSnapshot(XfcRuntime *runtime) {
+  JsVar *snapshot =
+      jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME);
+  JsVar *context = 0;
+  if (snapshot) return snapshot;
+  if (xfcTestTakeFault(XFC_TEST_FAULT_GET_SNAPSHOT)) return 0;
+  context = jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_CONTEXT_NAME);
+  snapshot = xfcCreateSnapshot(runtime, context);
+  jsvUnLock(context);
+  if (snapshot &&
+      jsvObjectSetChild(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME, snapshot) !=
+          snapshot) {
+    jsvUnLock(snapshot);
+    snapshot = 0;
+  }
+  return snapshot;
+}
+
+static bool xfcPrepareNotification(XfcRuntime *runtime, JsVar *context,
+                                   bool changed, JsVar **snapshot,
+                                   bool *cache_snapshot, JsVar **error) {
+  JsVar *subscriptions = jsvObjectGetChildIfExists(
+      runtime->actor, XFC_ACTOR_SUBSCRIPTIONS_NAME);
+  bool required = jsvIsArray(subscriptions) &&
+                  jsvGetArrayLength(subscriptions) != 0;
+  jsvUnLock(subscriptions);
+  *snapshot = 0;
+  *cache_snapshot = false;
+  if (!required) return true;
+  if (!changed)
+    *snapshot =
+        jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME);
+  if (*snapshot) return true;
+  if (!xfcTestTakeFault(XFC_TEST_FAULT_NOTIFY_SNAPSHOT))
+    *snapshot = xfcCreateSnapshot(runtime, context);
+  if (*snapshot) {
+    *cache_snapshot = true;
+    return true;
+  }
+  xfcNoMemory("actor.notify.snapshot");
+  xfcTakeException(error);
+  return false;
+}
+
+static bool xfcCommitPublication(XfcRuntime *runtime, JsVar *storage,
+                                 JsVar *context, bool publish_context,
+                                 bool changed, JsVar *snapshot,
+                                 bool cache_snapshot, JsVar **error) {
+  if (cache_snapshot &&
+      jsvObjectSetChild(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME, snapshot) !=
+          snapshot) {
+    xfcNoMemory("actor.notify.snapshot");
+    xfcTakeException(error);
+    return false;
+  }
+  if (publish_context &&
+      jsvObjectSetChild(runtime->actor, XFC_ACTOR_CONTEXT_NAME, context) !=
+          context) {
+    xfcNoMemory("actor.runtime.context");
+    xfcTakeException(error);
+    return false;
+  }
+  xfcWriteActorData(storage, &runtime->data);
+  if (changed && !cache_snapshot) xfcInvalidateSnapshot(runtime->actor);
+  return true;
+}
+
+static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage,
+                        JsVar *snapshot) {
   xfcMeasureStackSample();
   JsVar *subscriptions = jsvObjectGetChildIfExists(
       runtime->actor, XFC_ACTOR_SUBSCRIPTIONS_NAME);
-  JsVar *snapshot = 0;
   JsVar *first_error = 0;
   JsVarInt length;
   JsVarInt publication_sequence;
@@ -1029,10 +1108,9 @@ static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage) {
     jsvUnLock(subscriptions);
     return 0;
   }
-  snapshot = xfcMaterializeSnapshot(runtime);
   if (!snapshot) {
     jsvUnLock(subscriptions);
-    xfcNoMemory("actor.notify.snapshot");
+    jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.notify.snapshot");
     xfcTakeException(&first_error);
     return first_error;
   }
@@ -1067,13 +1145,12 @@ static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage) {
   runtime->data.operation = XFC_OPERATION_IDLE;
   runtime->data.microsteps = 0;
   xfcWriteActorData(storage, &runtime->data);
-  jsvUnLock2(snapshot, subscriptions);
+  jsvUnLock(subscriptions);
   return first_error;
 }
 
-static bool xfcEventTypeReserved(JsVar *type) {
+static bool xfcEventTypeReserved(JsVar *type, size_t length) {
   char prefix[8];
-  size_t length = jsvGetStringLength(type);
   size_t count = length < sizeof(prefix) ? length : sizeof(prefix);
   memset(prefix, 0, sizeof(prefix));
   jsvGetStringChars(type, 0, prefix, count);
@@ -1081,12 +1158,15 @@ static bool xfcEventTypeReserved(JsVar *type) {
          (length >= 8 && memcmp(prefix, "@xstate.", 8) == 0);
 }
 
-static bool xfcPrepareEvent(JsVar *input, JsVar **event, JsVar **type) {
+static bool xfcPrepareEvent(JsVar *input, JsVar **event, JsVar **type,
+                            bool *allocation_failure) {
+  size_t type_length = 0;
   *event = 0;
   *type = 0;
+  *allocation_failure = false;
   if (jsvIsString(input)) {
     *type = jsvLockAgain(input);
-    *event = jsvNewObject();
+    *event = xfcTestTakeFault(XFC_TEST_FAULT_SEND_EVENT) ? 0 : jsvNewObject();
     if (*event &&
         jsvObjectSetChild(*event, "type", *type) != *type) {
       jsvUnLock(*event);
@@ -1100,18 +1180,21 @@ static bool xfcPrepareEvent(JsVar *input, JsVar **event, JsVar **type) {
   if (jsvIsString(input) && !*event) {
     jsvUnLock(*type);
     *type = 0;
+    *allocation_failure = true;
     xfcNoMemory("actor.send.event");
     return false;
   }
-  if (!*event || !jsvIsString(*type) || jsvGetStringLength(*type) == 0 ||
-      xfcEventTypeReserved(*type)) {
+  if (*event && jsvIsString(*type))
+    type_length = xfcStringByteLength(*type);
+  if (!*event || !jsvIsString(*type) || type_length == 0 ||
+      xfcEventTypeReserved(*type, type_length)) {
     jsvUnLock2(*event, *type);
     *event = 0;
     *type = 0;
     jsExceptionHere(JSET_TYPEERROR, "XFC E_EVENT_INVALID @ actor.send.event");
     return false;
   }
-  if (jsvGetStringLength(*type) > UINT16_MAX) {
+  if (type_length > UINT16_MAX) {
     jsvUnLock2(*event, *type);
     *event = 0;
     *type = 0;
@@ -1138,8 +1221,10 @@ JsVar *xfcCreateActor(JsVar *machine, JsVar *options) {
                     "XFC E_MACHINE_INVALID @ createActor.machine");
     return 0;
   }
-  actor = jsvNewObject();
-  storage = jsvNewFlatStringOfLength(XFC_ACTOR_DATA_SIZE);
+  if (!xfcTestTakeFault(XFC_TEST_FAULT_CREATE_ACTOR)) {
+    actor = jsvNewObject();
+    storage = jsvNewFlatStringOfLength(XFC_ACTOR_DATA_SIZE);
+  }
   if (!actor || !storage) goto done;
   xfcActorDataInit(&data);
   memcpy(jsvGetFlatStringPointer(storage), &data, sizeof(data));
@@ -1165,7 +1250,9 @@ static JsVar *xfcActorStart(JsVar *actor) {
   JsVar *event = 0;
   JsVar *error = 0;
   JsVar *listener_error = 0;
+  JsVar *publication_snapshot = 0;
   bool context_changed = false;
+  bool cache_snapshot = false;
   uint16_t leaf = XFC_INDEX_NONE;
   if (!xfcOpenActor(actor, "start", &runtime, &storage)) return 0;
   if (!xfcRequireIdle(&runtime, "start")) goto fail;
@@ -1181,7 +1268,9 @@ static JsVar *xfcActorStart(JsVar *actor) {
   if (!xfcBeginOperation(&runtime, storage, XFC_OPERATION_START, "start"))
     goto fail;
   if (runtime.view.header.context_kind == XFC_CONTEXT_OMITTED) {
-    context = jsvNewObject();
+    context = xfcTestTakeFault(XFC_TEST_FAULT_START_CONTEXT)
+                  ? 0
+                  : jsvNewObject();
     if (!context) {
       xfcNoMemory("actor.start.context");
       xfcTakeException(&error);
@@ -1201,7 +1290,9 @@ static JsVar *xfcActorStart(JsVar *actor) {
     xfcTakeException(&error);
     goto fault;
   }
-  event = xfcInternalEvent("xstate.init");
+  event = xfcTestTakeFault(XFC_TEST_FAULT_START_EVENT)
+              ? 0
+              : xfcInternalEvent("xstate.init");
   if (!event) {
     xfcNoMemory("actor.start.event");
     xfcTakeException(&error);
@@ -1221,26 +1312,30 @@ static JsVar *xfcActorStart(JsVar *actor) {
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.leaf_state = leaf;
   runtime.data.microsteps = 0;
-  xfcWriteActorData(storage, &runtime.data);
-  jsvObjectSetChild(actor, XFC_ACTOR_CONTEXT_NAME, context);
-  xfcInvalidateSnapshot(actor);
-  listener_error = xfcNotify(&runtime, storage);
+  if (!xfcPrepareNotification(&runtime, context, true,
+                              &publication_snapshot, &cache_snapshot,
+                              &error) ||
+      !xfcCommitPublication(&runtime, storage, context, true, true,
+                            publication_snapshot, cache_snapshot, &error))
+    goto fault;
+  listener_error = xfcNotify(&runtime, storage, publication_snapshot);
   if (runtime.data.status == XFC_ACTOR_DONE) xfcClearSubscriptions(actor);
   if (listener_error) xfcRaise(listener_error);
   goto success;
 fault:
+  runtime.data.leaf_state = XFC_INDEX_NONE;
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
 fail:
   xfcMeasureOperationEnd();
-  jsvUnLock3(context, event, error);
-  jsvUnLock(listener_error);
+  jsvUnLockMany(5, (JsVar *[]){context, event, error, listener_error,
+                               publication_snapshot});
   xfcCloseActor(&runtime, storage);
   return 0;
 success:
   xfcMeasureOperationEnd();
-  jsvUnLock3(context, event, error);
-  jsvUnLock(listener_error);
+  jsvUnLockMany(5, (JsVar *[]){context, event, error, listener_error,
+                               publication_snapshot});
   xfcCloseActor(&runtime, storage);
   return jsvLockAgain(actor);
 }
@@ -1253,13 +1348,20 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   JsVar *context = 0;
   JsVar *error = 0;
   JsVar *listener_error = 0;
+  JsVar *publication_snapshot = 0;
   XfcTransitionRecord transition;
   uint32_t event_hash;
   bool found = false;
   bool context_changed = false;
   bool state_changed = false;
+  bool cache_snapshot = false;
+  bool allocation_failure = false;
+  uint8_t initial_status;
+  uint16_t stable_leaf;
   uint16_t leaf;
   if (!xfcOpenActor(actor, "send", &runtime, &storage)) return;
+  initial_status = runtime.data.status;
+  stable_leaf = runtime.data.leaf_state;
   if (!xfcRequireIdle(&runtime, "send")) goto done;
   if (runtime.data.status == XFC_ACTOR_ERROR) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_FAULTED @ actor.send");
@@ -1275,7 +1377,11 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   }
   if (!xfcBeginOperation(&runtime, storage, XFC_OPERATION_SEND, "send"))
     goto done;
-  if (!xfcPrepareEvent(input, &event, &event_type)) {
+  if (!xfcPrepareEvent(input, &event, &event_type, &allocation_failure)) {
+    if (allocation_failure) {
+      xfcTakeException(&error);
+      goto fault;
+    }
     runtime.data.operation = XFC_OPERATION_IDLE;
     xfcWriteActorData(storage, &runtime.data);
     goto done;
@@ -1311,21 +1417,30 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.microsteps = 0;
   runtime.data.leaf_state = leaf;
-  xfcWriteActorData(storage, &runtime.data);
-  if (context_changed)
-    jsvObjectSetChild(actor, XFC_ACTOR_CONTEXT_NAME, context);
-  if (context_changed || state_changed) xfcInvalidateSnapshot(actor);
-  listener_error = xfcNotify(&runtime, storage);
+  {
+    bool publication_changed = context_changed || state_changed ||
+                               runtime.data.status != initial_status;
+    if (!xfcPrepareNotification(&runtime, context, publication_changed,
+                                &publication_snapshot, &cache_snapshot,
+                                &error) ||
+        !xfcCommitPublication(&runtime, storage, context, context_changed,
+                              publication_changed, publication_snapshot,
+                              cache_snapshot, &error))
+      goto fault;
+  }
+  listener_error = xfcNotify(&runtime, storage, publication_snapshot);
   if (runtime.data.status == XFC_ACTOR_DONE) xfcClearSubscriptions(actor);
   if (listener_error) xfcRaise(listener_error);
   goto done;
 fault:
+  runtime.data.leaf_state = stable_leaf;
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
 done:
   xfcMeasureOperationEnd();
-  jsvUnLockMany(6, (JsVar *[]){event, event_type, context, error,
-                               listener_error, storage});
+  jsvUnLockMany(7, (JsVar *[]){event, event_type, context, error,
+                               listener_error, publication_snapshot,
+                               storage});
   xfcCloseView(&runtime.view);
   jsvUnLock(runtime.machine);
 }
@@ -1337,7 +1452,9 @@ static JsVar *xfcActorStop(JsVar *actor) {
   JsVar *event = 0;
   JsVar *error = 0;
   JsVar *listener_error = 0;
+  JsVar *publication_snapshot = 0;
   bool context_changed = false;
+  bool cache_snapshot = false;
   if (!xfcOpenActor(actor, "stop", &runtime, &storage)) return 0;
   if (!xfcRequireIdle(&runtime, "stop")) goto fail;
   if (runtime.data.status == XFC_ACTOR_ERROR) {
@@ -1353,7 +1470,9 @@ static JsVar *xfcActorStop(JsVar *actor) {
     uint16_t current = runtime.data.leaf_state;
     XfcStateRecord state;
     context = jsvObjectGetChildIfExists(actor, XFC_ACTOR_CONTEXT_NAME);
-    event = xfcInternalEvent("xstate.stop");
+    event = xfcTestTakeFault(XFC_TEST_FAULT_STOP_EVENT)
+                ? 0
+                : xfcInternalEvent("xstate.stop");
     if (!event) {
       xfcNoMemory("actor.stop.event");
       xfcTakeException(&error);
@@ -1371,11 +1490,13 @@ static JsVar *xfcActorStop(JsVar *actor) {
   runtime.data.status = XFC_ACTOR_STOPPED;
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.microsteps = 0;
-  xfcWriteActorData(storage, &runtime.data);
-  if (context_changed)
-    jsvObjectSetChild(actor, XFC_ACTOR_CONTEXT_NAME, context);
-  xfcInvalidateSnapshot(actor);
-  listener_error = xfcNotify(&runtime, storage);
+  if (!xfcPrepareNotification(&runtime, context, true,
+                              &publication_snapshot, &cache_snapshot,
+                              &error) ||
+      !xfcCommitPublication(&runtime, storage, context, context_changed, true,
+                            publication_snapshot, cache_snapshot, &error))
+    goto fault;
+  listener_error = xfcNotify(&runtime, storage, publication_snapshot);
   xfcClearSubscriptions(actor);
   if (listener_error) xfcRaise(listener_error);
   goto success;
@@ -1384,15 +1505,15 @@ fault:
   xfcRaise(error);
 fail:
   xfcMeasureOperationEnd();
-  jsvUnLockMany(5,
-                (JsVar *[]){context, event, error, listener_error, storage});
+  jsvUnLockMany(6, (JsVar *[]){context, event, error, listener_error,
+                               publication_snapshot, storage});
   xfcCloseView(&runtime.view);
   jsvUnLock(runtime.machine);
   return 0;
 success:
   xfcMeasureOperationEnd();
-  jsvUnLockMany(5,
-                (JsVar *[]){context, event, error, listener_error, storage});
+  jsvUnLockMany(6, (JsVar *[]){context, event, error, listener_error,
+                               publication_snapshot, storage});
   xfcCloseView(&runtime.view);
   jsvUnLock(runtime.machine);
   return jsvLockAgain(actor);
@@ -1427,7 +1548,9 @@ static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments) {
     xfcCloseActor(&runtime, storage);
     return 0;
   }
-  subscription = jsvNewObject();
+  subscription = xfcTestTakeFault(XFC_TEST_FAULT_SUBSCRIBE)
+                     ? 0
+                     : jsvNewObject();
   active = runtime.data.status == XFC_ACTOR_NOT_STARTED ||
            runtime.data.status == XFC_ACTOR_ACTIVE;
   ok = subscription &&

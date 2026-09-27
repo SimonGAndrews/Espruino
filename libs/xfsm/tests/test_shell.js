@@ -18,6 +18,7 @@ var after = actor.getSnapshot();
 
 result = functionTypes === "function,function,function" &&
   typeof XFSM._measure === "undefined" &&
+  typeof XFSM._failNext === "undefined" &&
   Object.keys(machine).length === 0 &&
   Object.keys(assignment).length === 0 &&
   Object.keys(actor).length === 0 &&

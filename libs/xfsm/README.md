@@ -79,6 +79,28 @@ bin/espruino --test libs/xfsm/tests/test_subscriber_complete.js
 bin/espruino --test libs/xfsm/tests/test_cross_actor_gc.js
 bin/espruino --test libs/xfsm/tests/test_runtime_errors.js
 bin/espruino --test libs/xfsm/tests/test_subscriptions.js
+bin/espruino --test libs/xfsm/tests/test_strict_validation.js
+bin/espruino --test libs/xfsm/tests/test_strict_validation_embedded.js
+bin/espruino --test libs/xfsm/tests/test_limits.js
+```
+
+`test_limits.js` creates event strings at the 65,535-byte boundary and is a
+Linux-host test. Constrained targets exercise their applicable depth and
+microstep boundaries with target-sized fixtures instead. The compact
+`test_strict_validation_embedded.js` corpus is intended for constrained
+physical targets whose JavaScript test heap cannot hold the full validation
+suite and all of its source fixtures at once.
+
+### Allocation-Failure Tests
+
+Deterministic allocation failures use a private test-only build. The
+`XFSM._failNext(...)` method is available only when `XFC_TEST=1`; it is absent
+from normal firmware and is not part of the public API.
+
+```bash
+make clean
+make USE_XFSM=1 XFC_TEST=1
+bin/espruino --test libs/xfsm/tests/test_fault_injection.js
 ```
 
 ### Whole-Interpreter Save And Reset Tests

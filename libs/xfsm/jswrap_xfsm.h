@@ -20,5 +20,8 @@ JsVar *jswrap_xfsm_assign(JsVar *assignment);
 JsVar *jswrap_xfsm_measure(bool reset);
 int jswrap_xfsm_memoryUsage(void);
 #endif
+#ifdef XFC_TEST
+void jswrap_xfsm_failNext(JsVar *point);
+#endif
 
 #endif

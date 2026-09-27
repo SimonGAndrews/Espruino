@@ -18,6 +18,7 @@
 #include "xfsm_compile.h"
 #include "xfsm_measure.h"
 #include "xfsm_runtime.h"
+#include "xfsm_test.h"
 
 /*JSON{
   "type" : "library",
@@ -106,4 +107,21 @@ Return the current variable-block usage without allocating a result object.
 This method is absent from normal firmware and is not part of the XFSM API.
 */
 int jswrap_xfsm_memoryUsage(void) { return xfcMeasureMemoryUsage(); }
+#endif
+
+#ifdef XFC_TEST
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "XFSM",
+  "name" : "_failNext",
+  "generate" : "jswrap_xfsm_failNext",
+  "ifdef" : "XFC_TEST",
+  "params" : [
+    ["point", "JsVar", "Private one-shot allocation-failure point"]
+  ]
+}
+Select one deterministic allocation failure for the private test build. This
+method is absent from normal firmware and is not part of the XFSM API.
+*/
+void jswrap_xfsm_failNext(JsVar *point) { xfcTestSetFault(point); }
 #endif

@@ -72,10 +72,18 @@ jobs:
             test_subscriber_complete.js \
             test_cross_actor_gc.js \
             test_runtime_errors.js \
-            test_subscriptions.js
+            test_subscriptions.js \
+            test_strict_validation.js \
+            test_strict_validation_embedded.js \
+            test_limits.js
           do
             bin/espruino --test "libs/xfsm/tests/$test"
           done
+      - name: Run XFSM allocation-failure tests
+        run: |
+          env -u DEBUG make clean
+          env -u DEBUG make USE_XFSM=1 XFC_TEST=1 -j2
+          bin/espruino --test libs/xfsm/tests/test_fault_injection.js
       - name: Run native-format sanitizer tests
         run: make -C libs/xfsm/tests/native clean test
 

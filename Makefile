@@ -651,6 +651,10 @@ ifeq ($(USE_XFSM),1)
   DEFINES += -DXFC_MEASURE
   SOURCES += libs/xfsm/xfsm_measure.c
  endif
+ ifeq ($(XFC_TEST),1)
+  DEFINES += -DXFC_TEST
+  SOURCES += libs/xfsm/xfsm_test.c
+ endif
  ifneq ($(XFC_STACK_RESERVE),)
   DEFINES += -DXFC_STACK_RESERVE=$(XFC_STACK_RESERVE)
  endif
