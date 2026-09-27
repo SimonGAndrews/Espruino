@@ -72,6 +72,8 @@ bin/espruino --test libs/xfsm/tests/test_profile1_diagnostics.js
 bin/espruino --test libs/xfsm/tests/test_context_ownership.js
 bin/espruino --test libs/xfsm/tests/test_assign_forms.js
 bin/espruino --test libs/xfsm/tests/test_context_diagnostics.js
+bin/espruino --test libs/xfsm/tests/test_transition_domains.js
+bin/espruino --test libs/xfsm/tests/test_transition_depth.js
 bin/espruino --test libs/xfsm/tests/test_runtime_errors.js
 bin/espruino --test libs/xfsm/tests/test_subscriptions.js
 ```

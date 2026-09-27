@@ -594,7 +594,8 @@ static bool xfcBeginMicrostep(XfcRuntime *runtime, JsVar **error) {
 }
 
 static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
-                              bool enter_state, JsVar **context,
+                              bool enter_state, bool run_initial_actions,
+                              JsVar **context,
                               JsVar *event, bool *context_changed,
                               uint16_t *leaf, JsVar **error) {
   XfcStateRecord state;
@@ -615,11 +616,13 @@ static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
       *leaf = state_index;
       return true;
     }
-    if (!xfcExecuteActions(runtime, state.initial_actions, context, event,
+    if (run_initial_actions &&
+        !xfcExecuteActions(runtime, state.initial_actions, context, event,
                            context_changed, error))
       return false;
     state_index = state.initial;
     enter_state = true;
+    run_initial_actions = true;
   }
   jsExceptionHere(JSET_ERROR, "XFC E_LIMIT_EXCEEDED @ actor.start.initial");
   xfcTakeException(error);
@@ -761,7 +764,8 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
                            context_changed, error))
       return false;
   }
-  if (!xfcInitialDescent(runtime, target, false, context, event,
+  if (!xfcInitialDescent(runtime, target, false,
+                         transition->domain_state != target, context, event,
                          context_changed, leaf, error))
     return false;
   *state_changed = *leaf != runtime->data.leaf_state;
@@ -1190,7 +1194,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
     goto fault;
   }
   if (!xfcBeginMicrostep(&runtime, &error)) goto fault;
-  if (!xfcInitialDescent(&runtime, runtime.view.header.root_state, true,
+  if (!xfcInitialDescent(&runtime, runtime.view.header.root_state, true, true,
                          &context, event, &context_changed, &leaf, &error))
     goto fault;
   runtime.data.status = XFC_ACTOR_ACTIVE;

@@ -66,6 +66,8 @@ jobs:
             test_context_ownership.js \
             test_assign_forms.js \
             test_context_diagnostics.js \
+            test_transition_domains.js \
+            test_transition_depth.js \
             test_runtime_errors.js \
             test_subscriptions.js
           do
