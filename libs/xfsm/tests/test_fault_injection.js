@@ -27,6 +27,13 @@ function simpleMachine(extra) {
 var checks = [];
 
 var reusableConfig = { initial: "Idle", states: { Idle: {} } };
+XFSM._failNext("compile.workspace");
+var workspaceError = capture(function () {
+  XFSM.createMachine(reusableConfig);
+});
+checks.push(isMemoryError(workspaceError, "createMachine") &&
+            !!XFSM.createMachine(reusableConfig));
+
 XFSM._failNext("compile.arena");
 var compileError = capture(function () {
   XFSM.createMachine(reusableConfig);

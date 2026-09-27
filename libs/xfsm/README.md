@@ -148,6 +148,7 @@ bin/espruino --test libs/xfsm/tests/measure_m5.js
 bin/espruino --test libs/xfsm/tests/measure_m5_completion.js
 bin/espruino --test libs/xfsm/tests/measure_post_m6.js
 bin/espruino --test libs/xfsm/tests/measure_post_m6_depth.js
+bin/espruino --test libs/xfsm/tests/measure_compile_pressure.js
 ```
 
 `measure_post_m6.js` uses a feature-rich Profile 1 fixture to report the
@@ -157,6 +158,8 @@ stack, and ESP32 heap state when available.
 `measure_post_m6_depth.js` is a compact depth-32 harness used to distinguish
 the engine's construction requirement from the JavaScript memory occupied by
 larger all-in-one embedded test programs.
+`measure_compile_pressure.js` adds actions to the depth-32 model and reports
+compiler peak allocation and construction time for constrained-target checks.
 
 ### Stack Reserve Test
 

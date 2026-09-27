@@ -29,6 +29,7 @@ bool xfcTestTakeFault(XfcTestFault fault) {
 
 void xfcTestSetFault(JsVar *name) {
   static const XfcTestFaultName names[] = {
+      {"compile.workspace", XFC_TEST_FAULT_COMPILE_WORKSPACE},
       {"compile.arena", XFC_TEST_FAULT_COMPILE_ARENA},
       {"createActor", XFC_TEST_FAULT_CREATE_ACTOR},
       {"start.context", XFC_TEST_FAULT_START_CONTEXT},

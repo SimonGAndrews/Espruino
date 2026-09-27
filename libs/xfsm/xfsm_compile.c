@@ -32,12 +32,16 @@ enum {
   XFC_META_KEY,
   XFC_META_PARENT,
   XFC_META_DEPTH,
-  XFC_META_PATH,
   XFC_META_EFFECTIVE_ID,
-  XFC_META_IMPLICIT_ID,
   XFC_META_TYPE,
-  XFC_META_COMPLETION_SYMBOL,
   XFC_META_FIELD_COUNT
+};
+
+enum {
+  XFC_STATE_OWNER_CONFIG = 0,
+  XFC_STATE_OWNER_KEY,
+  XFC_STATE_OWNER_EFFECTIVE_ID,
+  XFC_STATE_OWNER_FIELD_COUNT
 };
 
 enum {
@@ -92,10 +96,18 @@ typedef struct {
 } XfcArenaWriter;
 
 typedef struct {
+  uint16_t parent;
+  uint8_t depth;
+  uint8_t type;
+} XfcCompilerStateRecord;
+
+typedef struct {
   int phase;
   XfcCompileCounts counts;
   XfcArenaWriter *writer;
   JsVar *states;
+  JsVar *state_records;
+  bool states_compact;
   JsVar *symbols;
   JsVar *retained;
   JsVar *actions_map;
@@ -259,42 +271,40 @@ static bool xfcIsIdentifierKey(JsVar *key) {
   return valid;
 }
 
-static JsVar *xfcPathKey(JsVar *base, JsVar *key) {
-  JsVar *path;
+static bool xfcPathKeySuffixLength(JsVar *key, size_t *length_out) {
   JsvStringIterator iterator;
-  size_t path_length = xfcStringByteLength(base);
   bool identifier = xfcIsIdentifierKey(key);
+  size_t length = identifier ? 1U : 4U;
   if (identifier) {
     size_t key_length = xfcStringByteLength(key);
-    if (path_length > SIZE_MAX - 1U ||
-        key_length > SIZE_MAX - path_length - 1U)
-      return 0;
-    path_length += 1U + key_length;
-  } else {
-    if (path_length > SIZE_MAX - 4U) return 0;
-    path_length += 4U;
-    jsvStringIteratorNew(&iterator, key, 0);
-    while (jsvStringIteratorHasChar(&iterator)) {
-      unsigned char ch = (unsigned char)jsvStringIteratorGetChar(&iterator);
-      size_t addition = (ch == '\\' || ch == '"')
-                            ? 2U
-                            : ((ch >= 0x20 && ch != 0x7F) ? 1U : 4U);
-      if (path_length > SIZE_MAX - addition) {
-        jsvStringIteratorFree(&iterator);
-        return 0;
-      }
-      path_length += addition;
-      jsvStringIteratorNext(&iterator);
-    }
-    jsvStringIteratorFree(&iterator);
+    if (key_length > SIZE_MAX - length) return false;
+    *length_out = length + key_length;
+    return true;
   }
-  if (!xfcCanCopyStringBytes(path_length)) return 0;
-  path = xfcCopyWholeString(base);
-  if (!path) return 0;
-  if (identifier) {
+  jsvStringIteratorNew(&iterator, key, 0);
+  while (jsvStringIteratorHasChar(&iterator)) {
+    unsigned char ch = (unsigned char)jsvStringIteratorGetChar(&iterator);
+    size_t addition = (ch == '\\' || ch == '"')
+                          ? 2U
+                          : ((ch >= 0x20 && ch != 0x7F) ? 1U : 4U);
+    if (length > SIZE_MAX - addition) {
+      jsvStringIteratorFree(&iterator);
+      return false;
+    }
+    length += addition;
+    jsvStringIteratorNext(&iterator);
+  }
+  jsvStringIteratorFree(&iterator);
+  *length_out = length;
+  return true;
+}
+
+static void xfcAppendPathKey(JsVar *path, JsVar *key) {
+  JsvStringIterator iterator;
+  if (xfcIsIdentifierKey(key)) {
     jsvAppendCharacter(path, '.');
     jsvAppendStringVarComplete(path, key);
-    return path;
+    return;
   }
   jsvAppendString(path, "[\"");
   jsvStringIteratorNew(&iterator, key, 0);
@@ -315,6 +325,20 @@ static JsVar *xfcPathKey(JsVar *base, JsVar *key) {
   }
   jsvStringIteratorFree(&iterator);
   jsvAppendString(path, "\"]");
+}
+
+static JsVar *xfcPathKey(JsVar *base, JsVar *key) {
+  JsVar *path;
+  size_t path_length = xfcStringByteLength(base);
+  size_t suffix_length;
+  if (!xfcPathKeySuffixLength(key, &suffix_length) ||
+      suffix_length > SIZE_MAX - path_length)
+    return 0;
+  path_length += suffix_length;
+  if (!xfcCanCopyStringBytes(path_length)) return 0;
+  path = xfcCopyWholeString(base);
+  if (!path) return 0;
+  xfcAppendPathKey(path, key);
   return path;
 }
 
@@ -541,6 +565,77 @@ static JsVar *xfcStateMeta(XfcCompiler *compiler, uint16_t index) {
   return jsvGetArrayItem(compiler->states, (JsVarInt)index);
 }
 
+static JsVarInt xfcStateOwnerIndex(uint16_t index, int field) {
+  return (JsVarInt)((uint32_t)index * XFC_STATE_OWNER_FIELD_COUNT +
+                    (uint32_t)field);
+}
+
+static JsVar *xfcStateGet(XfcCompiler *compiler, uint16_t index, int field) {
+  int owner_field;
+  JsVar *meta;
+  JsVar *value;
+  if ((uint32_t)index >= compiler->counts.states) return 0;
+  if (!compiler->states_compact) {
+    meta = xfcStateMeta(compiler, index);
+    value = meta ? xfcMetaGet(meta, field) : 0;
+    jsvUnLock(meta);
+    return value;
+  }
+  switch (field) {
+    case XFC_META_CONFIG:
+      owner_field = XFC_STATE_OWNER_CONFIG;
+      break;
+    case XFC_META_KEY:
+      owner_field = XFC_STATE_OWNER_KEY;
+      break;
+    case XFC_META_EFFECTIVE_ID:
+      owner_field = XFC_STATE_OWNER_EFFECTIVE_ID;
+      break;
+    default:
+      return 0;
+  }
+  return jsvGetArrayItem(compiler->states,
+                         xfcStateOwnerIndex(index, owner_field));
+}
+
+static bool xfcStateRecord(XfcCompiler *compiler, uint16_t index,
+                           XfcCompilerStateRecord *record) {
+  if ((uint32_t)index >= compiler->counts.states) return false;
+  if (!compiler->states_compact) {
+    JsVar *meta = xfcStateMeta(compiler, index);
+    int parent;
+    if (!meta) return false;
+    parent = xfcMetaInteger(meta, XFC_META_PARENT);
+    record->parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
+    record->depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
+    record->type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
+    jsvUnLock(meta);
+    return true;
+  } else {
+    uint8_t *bytes = (uint8_t *)jsvGetFlatStringPointer(
+        compiler->state_records);
+    if (!bytes) return false;
+    memcpy(record, bytes + (size_t)index * sizeof(*record), sizeof(*record));
+    return true;
+  }
+}
+
+static int xfcStateParentValue(XfcCompiler *compiler, uint16_t index) {
+  XfcCompilerStateRecord record;
+  if (!xfcStateRecord(compiler, index, &record)) return -1;
+  return record.parent == XFC_INDEX_NONE ? -1 : (int)record.parent;
+}
+
+static int xfcStateDepthValue(XfcCompiler *compiler, uint16_t index) {
+  XfcCompilerStateRecord record;
+  return xfcStateRecord(compiler, index, &record) ? (int)record.depth : -1;
+}
+
+static int xfcStateTypeValue(XfcCompiler *compiler, uint16_t index) {
+  XfcCompilerStateRecord record;
+  return xfcStateRecord(compiler, index, &record) ? (int)record.type : -1;
+}
+
 static bool xfcKeyInList(JsVar *key, const char *const *names,
                          size_t name_count) {
   size_t index;
@@ -688,10 +783,27 @@ static JsVar *xfcCopyString(JsVar *value) {
   return xfcCopyWholeString(value);
 }
 
-static JsVar *xfcEscapeIdSegment(JsVar *prefix, JsVar *key) {
-  JsVar *result = xfcCopyWholeString(prefix);
+static bool xfcEscapedIdSuffixLength(JsVar *key, size_t *length_out) {
   JsvStringIterator iterator;
-  if (!result) return 0;
+  size_t length = 1U;
+  jsvStringIteratorNew(&iterator, key, 0);
+  while (jsvStringIteratorHasChar(&iterator)) {
+    char ch = jsvStringIteratorGetChar(&iterator);
+    size_t addition = (ch == '.' || ch == '\\') ? 2U : 1U;
+    if (length > SIZE_MAX - addition) {
+      jsvStringIteratorFree(&iterator);
+      return false;
+    }
+    length += addition;
+    jsvStringIteratorNext(&iterator);
+  }
+  jsvStringIteratorFree(&iterator);
+  *length_out = length;
+  return true;
+}
+
+static void xfcAppendEscapedIdSegment(JsVar *result, JsVar *key) {
+  JsvStringIterator iterator;
   jsvAppendCharacter(result, '.');
   jsvStringIteratorNew(&iterator, key, 0);
   while (jsvStringIteratorHasChar(&iterator)) {
@@ -701,17 +813,126 @@ static JsVar *xfcEscapeIdSegment(JsVar *prefix, JsVar *key) {
     jsvStringIteratorNext(&iterator);
   }
   jsvStringIteratorFree(&iterator);
+}
+
+static JsVar *xfcEscapeIdSegment(JsVar *prefix, JsVar *key) {
+  JsVar *result;
+  size_t length = xfcStringByteLength(prefix);
+  size_t suffix_length;
+  if (!xfcEscapedIdSuffixLength(key, &suffix_length) ||
+      suffix_length > SIZE_MAX - length ||
+      !xfcCanCopyStringBytes(length + suffix_length))
+    return 0;
+  result = xfcCopyWholeString(prefix);
+  if (!result) return 0;
+  xfcAppendEscapedIdSegment(result, key);
   return result;
+}
+
+static bool xfcStateChain(XfcCompiler *compiler, uint16_t state_index,
+                          uint16_t *chain, size_t *count_out) {
+  size_t count = 0;
+  int current = (int)state_index;
+  while (current > 0 && count < XFC_MAX_STATE_DEPTH) {
+    chain[count++] = (uint16_t)current;
+    current = xfcStateParentValue(compiler, (uint16_t)current);
+  }
+  if (current != 0) return false;
+  *count_out = count;
+  return true;
+}
+
+static JsVar *xfcBuildStatePath(XfcCompiler *compiler, uint16_t state_index) {
+  uint16_t chain[XFC_MAX_STATE_DEPTH];
+  size_t count;
+  size_t position;
+  size_t path_length = 6U;
+  JsVar *path;
+  if (!xfcStateChain(compiler, state_index, chain, &count)) return 0;
+  for (position = count; position > 0; position--) {
+    JsVar *key = xfcStateGet(compiler, chain[position - 1], XFC_META_KEY);
+    size_t suffix_length;
+    bool valid = key && xfcPathKeySuffixLength(key, &suffix_length) &&
+                 path_length <= SIZE_MAX - 7U &&
+                 suffix_length <= SIZE_MAX - path_length - 7U;
+    jsvUnLock(key);
+    if (!valid) return 0;
+    path_length += 7U + suffix_length;
+  }
+  if (!xfcCanCopyStringBytes(path_length)) return 0;
+  path = jsvNewFromString("config");
+  if (!path) return 0;
+  for (position = count; position > 0; position--) {
+    JsVar *key = xfcStateGet(compiler, chain[position - 1], XFC_META_KEY);
+    if (!key) {
+      jsvUnLock(path);
+      return 0;
+    }
+    jsvAppendString(path, ".states");
+    xfcAppendPathKey(path, key);
+    jsvUnLock(key);
+  }
+  return path;
+}
+
+static JsVar *xfcBuildImplicitId(XfcCompiler *compiler,
+                                 uint16_t state_index) {
+  uint16_t chain[XFC_MAX_STATE_DEPTH];
+  size_t count;
+  size_t position;
+  size_t id_length;
+  JsVar *root_config;
+  JsVar *explicit_id = 0;
+  JsVar *implicit_id;
+  if (!xfcStateChain(compiler, state_index, chain, &count)) return 0;
+  root_config = xfcStateGet(compiler, 0, XFC_META_CONFIG);
+  if (!(root_config && xfcGetOwn(root_config, "id", &explicit_id) &&
+        !jsvIsUndefined(explicit_id))) {
+    jsvUnLock(explicit_id);
+    explicit_id = jsvNewFromString("(machine)");
+  }
+  jsvUnLock(root_config);
+  if (!explicit_id) return 0;
+  id_length = xfcStringByteLength(explicit_id);
+  for (position = count; position > 0; position--) {
+    JsVar *key = xfcStateGet(compiler, chain[position - 1], XFC_META_KEY);
+    size_t suffix_length;
+    bool valid = key && xfcEscapedIdSuffixLength(key, &suffix_length) &&
+                 suffix_length <= SIZE_MAX - id_length;
+    jsvUnLock(key);
+    if (!valid) {
+      jsvUnLock(explicit_id);
+      return 0;
+    }
+    id_length += suffix_length;
+  }
+  if (!xfcCanCopyStringBytes(id_length)) {
+    jsvUnLock(explicit_id);
+    return 0;
+  }
+  implicit_id = xfcCopyString(explicit_id);
+  jsvUnLock(explicit_id);
+  if (!implicit_id) return 0;
+  for (position = count; position > 0; position--) {
+    JsVar *key = xfcStateGet(compiler, chain[position - 1], XFC_META_KEY);
+    if (!key) {
+      jsvUnLock(implicit_id);
+      return 0;
+    }
+    xfcAppendEscapedIdSegment(implicit_id, key);
+    jsvUnLock(key);
+  }
+  return implicit_id;
 }
 
 static bool xfcMetadataIdExists(XfcCompiler *compiler, JsVar *effective_id) {
   JsVarInt length = jsvGetArrayLength(compiler->states);
   JsVarInt index;
   for (index = 0; index < length; index++) {
-    JsVar *meta = jsvGetArrayItem(compiler->states, index);
-    JsVar *existing = xfcMetaGet(meta, XFC_META_EFFECTIVE_ID);
+    JsVar *existing =
+        xfcStateGet(compiler, (uint16_t)index, XFC_META_EFFECTIVE_ID);
     bool equal = xfcStringEquals(existing, effective_id);
-    jsvUnLock2(existing, meta);
+    jsvUnLock(existing);
     if (equal) return true;
   }
   return false;
@@ -722,11 +943,11 @@ static bool xfcConfigurationIsAncestor(XfcCompiler *compiler,
                                        JsVar *configuration) {
   int current = (int)parent_index;
   while (current >= 0) {
-    JsVar *meta = xfcStateMeta(compiler, (uint16_t)current);
-    JsVar *existing = xfcMetaGet(meta, XFC_META_CONFIG);
-    int next = xfcMetaInteger(meta, XFC_META_PARENT);
+    JsVar *existing =
+        xfcStateGet(compiler, (uint16_t)current, XFC_META_CONFIG);
+    int next = xfcStateParentValue(compiler, (uint16_t)current);
     bool equal = jsvIsEqual(existing, configuration);
-    jsvUnLock2(existing, meta);
+    jsvUnLock(existing);
     if (equal) return true;
     current = next;
   }
@@ -897,7 +1118,6 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   JsVar *depth_value = 0;
   JsVar *type_value = 0;
   JsVar *null_key = 0;
-  JsVar *null_completion = 0;
   XfcNodeType node_type;
   uint32_t child_count;
   bool ok = false;
@@ -952,17 +1172,13 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   depth_value = jsvNewFromInteger((JsVarInt)depth);
   type_value = jsvNewFromInteger((JsVarInt)node_type);
   null_key = jsvNewNull();
-  null_completion = jsvNewNull();
   if (!meta || !parent_value || !depth_value || !type_value || !null_key ||
-      !null_completion || !xfcAppendMetaField(meta, configuration) ||
+      !xfcAppendMetaField(meta, configuration) ||
       !xfcAppendMetaField(meta, root ? null_key : key) ||
       !xfcAppendMetaField(meta, parent_value) ||
       !xfcAppendMetaField(meta, depth_value) ||
-      !xfcAppendMetaField(meta, path) ||
       !xfcAppendMetaField(meta, effective_id) ||
-      !xfcAppendMetaField(meta, implicit_id) ||
       !xfcAppendMetaField(meta, type_value) ||
-      !xfcAppendMetaField(meta, completion ? completion : null_completion) ||
       !xfcArrayAppend(compiler->states, meta)) {
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     goto done;
@@ -979,8 +1195,79 @@ done:
   jsvUnLock(depth_value);
   jsvUnLock(type_value);
   jsvUnLock(null_key);
-  jsvUnLock(null_completion);
   return ok;
+}
+
+static bool xfcCompactStateMetadata(XfcCompiler *compiler) {
+  JsVar *owners = 0;
+  JsVar *records = 0;
+  JsVarInt state_count = jsvGetArrayLength(compiler->states);
+  JsVarInt index;
+  size_t byte_length;
+  /* Keep JS values rooted, but move numeric state metadata out of JsVar arrays. */
+  if (state_count <= 0 ||
+      (size_t)state_count > UINT_MAX / sizeof(XfcCompilerStateRecord)) {
+    xfcFail(compiler, XFC_DIAG_LIMIT_EXCEEDED, 0, 0);
+    return false;
+  }
+  byte_length = (size_t)state_count * sizeof(XfcCompilerStateRecord);
+  owners = jsvNewEmptyArray();
+  records = xfcTestTakeFault(XFC_TEST_FAULT_COMPILE_WORKSPACE)
+                ? 0
+                : jsvNewFlatStringOfLength((unsigned int)byte_length);
+  if (!owners || !records) {
+    xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+    goto done;
+  }
+  for (index = 0; index < state_count; index++) {
+    JsVar *meta = jsvGetArrayItem(compiler->states, index);
+    JsVar *configuration = meta ? xfcMetaGet(meta, XFC_META_CONFIG) : 0;
+    JsVar *key = meta ? xfcMetaGet(meta, XFC_META_KEY) : 0;
+    JsVar *effective_id =
+        meta ? xfcMetaGet(meta, XFC_META_EFFECTIVE_ID) : 0;
+    XfcCompilerStateRecord record;
+    uint8_t *bytes;
+    int parent;
+    if (!meta || !configuration || !key || !effective_id ||
+        !xfcArrayAppend(owners, configuration) ||
+        !xfcArrayAppend(owners, key) ||
+        !xfcArrayAppend(owners, effective_id)) {
+      xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+      jsvUnLock(configuration);
+      jsvUnLock(key);
+      jsvUnLock(effective_id);
+      jsvUnLock(meta);
+      goto done;
+    }
+    parent = xfcMetaInteger(meta, XFC_META_PARENT);
+    record.parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
+    record.depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
+    record.type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
+    bytes = (uint8_t *)jsvGetFlatStringPointer(records);
+    if (!bytes) {
+      xfcFail(compiler, XFC_DIAG_INTERNAL, 0, 0);
+      jsvUnLock(configuration);
+      jsvUnLock(key);
+      jsvUnLock(effective_id);
+      jsvUnLock(meta);
+      goto done;
+    }
+    memcpy(bytes + (size_t)index * sizeof(record), &record, sizeof(record));
+    jsvUnLock(configuration);
+    jsvUnLock(key);
+    jsvUnLock(effective_id);
+    jsvUnLock(meta);
+  }
+  jsvUnLock(compiler->states);
+  compiler->states = owners;
+  compiler->state_records = records;
+  compiler->states_compact = true;
+  return true;
+
+done:
+  jsvUnLock(owners);
+  jsvUnLock(records);
+  return false;
 }
 
 static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
@@ -1009,13 +1296,21 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
        state_index < jsvGetArrayLength(compiler->states) &&
        compiler->diagnostic == XFC_DIAG_NONE;
        state_index++) {
-    JsVar *meta = jsvGetArrayItem(compiler->states, state_index);
-    JsVar *configuration = xfcMetaGet(meta, XFC_META_CONFIG);
-    JsVar *path = xfcMetaGet(meta, XFC_META_PATH);
-    JsVar *implicit_id = xfcMetaGet(meta, XFC_META_IMPLICIT_ID);
+    JsVar *configuration =
+        xfcStateGet(compiler, (uint16_t)state_index, XFC_META_CONFIG);
+    JsVar *path = xfcBuildStatePath(compiler, (uint16_t)state_index);
+    JsVar *implicit_id =
+        xfcBuildImplicitId(compiler, (uint16_t)state_index);
     JsVar *states = 0;
-    int node_type = xfcMetaInteger(meta, XFC_META_TYPE);
-    int depth = xfcMetaInteger(meta, XFC_META_DEPTH);
+    int node_type =
+        xfcStateTypeValue(compiler, (uint16_t)state_index);
+    int depth = xfcStateDepthValue(compiler, (uint16_t)state_index);
+    if (!configuration || !path || !implicit_id || node_type < 0 ||
+        depth < 0) {
+      xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+      jsvUnLock3(configuration, path, implicit_id);
+      break;
+    }
     if (node_type == XFC_NODE_COMPOUND &&
         xfcGetOwn(configuration, "states", &states) && xfcIsObject(states)) {
       JsVar *states_path = xfcPathProperty(path, "states");
@@ -1060,49 +1355,42 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
     }
     jsvUnLock(states);
     jsvUnLock3(configuration, path, implicit_id);
-    jsvUnLock(meta);
   }
   return compiler->diagnostic == XFC_DIAG_NONE;
 }
 
 static uint16_t xfcFindDirectChild(XfcCompiler *compiler,
                                    uint16_t parent_index, JsVar *key) {
-  JsVarInt length = jsvGetArrayLength(compiler->states);
+  JsVarInt length = (JsVarInt)compiler->counts.states;
   JsVarInt index;
   for (index = 1; index < length; index++) {
-    JsVar *meta = jsvGetArrayItem(compiler->states, index);
-    int parent = xfcMetaInteger(meta, XFC_META_PARENT);
+    int parent = xfcStateParentValue(compiler, (uint16_t)index);
     if (parent == (int)parent_index) {
-      JsVar *candidate = xfcMetaGet(meta, XFC_META_KEY);
+      JsVar *candidate =
+          xfcStateGet(compiler, (uint16_t)index, XFC_META_KEY);
       bool equal = xfcStringEquals(candidate, key);
       jsvUnLock(candidate);
-      jsvUnLock(meta);
       if (equal) return (uint16_t)index;
-    } else {
-      jsvUnLock(meta);
     }
   }
   return XFC_INDEX_NONE;
 }
 
 static uint16_t xfcFindStateById(XfcCompiler *compiler, JsVar *id) {
-  JsVarInt length = jsvGetArrayLength(compiler->states);
+  JsVarInt length = (JsVarInt)compiler->counts.states;
   JsVarInt index;
   for (index = 0; index < length; index++) {
-    JsVar *meta = jsvGetArrayItem(compiler->states, index);
-    JsVar *candidate = xfcMetaGet(meta, XFC_META_EFFECTIVE_ID);
+    JsVar *candidate =
+        xfcStateGet(compiler, (uint16_t)index, XFC_META_EFFECTIVE_ID);
     bool equal = xfcStringEquals(candidate, id);
-    jsvUnLock2(candidate, meta);
+    jsvUnLock(candidate);
     if (equal) return (uint16_t)index;
   }
   return XFC_INDEX_NONE;
 }
 
 static int xfcStateParent(XfcCompiler *compiler, uint16_t index) {
-  JsVar *meta = xfcStateMeta(compiler, index);
-  int parent = xfcMetaInteger(meta, XFC_META_PARENT);
-  jsvUnLock(meta);
-  return parent;
+  return xfcStateParentValue(compiler, index);
 }
 
 static bool xfcStateIsDescendantOrSelf(XfcCompiler *compiler,
@@ -1934,11 +2222,12 @@ done:
 }
 
 static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
-  JsVar *meta = xfcStateMeta(compiler, state_index);
-  JsVar *configuration = xfcMetaGet(meta, XFC_META_CONFIG);
-  JsVar *key = xfcMetaGet(meta, XFC_META_KEY);
-  JsVar *path = xfcMetaGet(meta, XFC_META_PATH);
-  JsVar *completion = xfcMetaGet(meta, XFC_META_COMPLETION_SYMBOL);
+  JsVar *configuration =
+      xfcStateGet(compiler, state_index, XFC_META_CONFIG);
+  JsVar *key = xfcStateGet(compiler, state_index, XFC_META_KEY);
+  JsVar *path = xfcBuildStatePath(compiler, state_index);
+  JsVar *effective_id = 0;
+  JsVar *completion = 0;
   JsVar *entry = 0;
   JsVar *exit = 0;
   JsVar *on = 0;
@@ -1948,10 +2237,23 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   JsVar *on_path = 0;
   JsVar *on_done_path = 0;
   XfcStateRecord record;
-  int parent = xfcMetaInteger(meta, XFC_META_PARENT);
-  int depth = xfcMetaInteger(meta, XFC_META_DEPTH);
-  int type = xfcMetaInteger(meta, XFC_META_TYPE);
+  int parent = xfcStateParentValue(compiler, state_index);
+  int depth = xfcStateDepthValue(compiler, state_index);
+  int type = xfcStateTypeValue(compiler, state_index);
   bool ok = false;
+  if (!path) {
+    xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+    goto done;
+  }
+  if (type == XFC_NODE_COMPOUND && state_index != 0) {
+    effective_id =
+        xfcStateGet(compiler, state_index, XFC_META_EFFECTIVE_ID);
+    completion = effective_id ? xfcCompletionEvent(effective_id) : 0;
+    if (!completion) {
+      xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+      goto done;
+    }
+  }
   memset(&record, 0, sizeof(record));
   record.parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
   record.initial = XFC_INDEX_NONE;
@@ -2034,10 +2336,10 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   ok = true;
 
 done:
-  jsvUnLock(meta);
   jsvUnLock(configuration);
   jsvUnLock(key);
   jsvUnLock(path);
+  jsvUnLock(effective_id);
   jsvUnLock(completion);
   jsvUnLock(entry);
   jsvUnLock(exit);
@@ -2220,6 +2522,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
   }
   if (!xfcValidateOptions(&compiler, options, options_path) ||
       !xfcEnumerateStates(&compiler, config, config_path) ||
+      !xfcCompactStateMetadata(&compiler) ||
       !xfcCompileContext(&compiler, config, config_path) ||
       !xfcCompileAllStates(&compiler))
     goto done;
@@ -2268,6 +2571,7 @@ done:
   jsvUnLock(options_path);
   jsvUnLock(arena);
   jsvUnLock(compiler.states);
+  jsvUnLock(compiler.state_records);
   jsvUnLock(compiler.symbols);
   jsvUnLock(compiler.retained);
   jsvUnLock(compiler.actions_map);
