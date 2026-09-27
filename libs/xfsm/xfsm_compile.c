@@ -25,6 +25,7 @@
 #define XFC_ASSIGN_BRAND "XFAD1"
 #define XFC_ASSIGN_BRAND_LENGTH 5
 #define XFC_DIAGNOSTIC_DETAIL_MAX 48U
+#define XFC_DIAGNOSTIC_RESERVE_BLOCKS 32U
 
 enum {
   XFC_META_CONFIG = 0,
@@ -132,11 +133,31 @@ static size_t xfcStringByteLength(JsVar *value) {
   return length;
 }
 
+static bool xfcCanCopyStringBytes(size_t length) {
+#ifndef RESIZABLE_JSVARS
+  size_t required_blocks = 1;
+  if (length > JSVAR_DATA_STRING_LEN) {
+    size_t remaining = length - JSVAR_DATA_STRING_LEN;
+    required_blocks +=
+        1U + (remaining - 1U) / JSVAR_DATA_STRING_MAX_LEN;
+  }
+  if (required_blocks > UINT_MAX - XFC_DIAGNOSTIC_RESERVE_BLOCKS)
+    return false;
+  return jsvMoreFreeVariablesThan(
+      (unsigned int)(required_blocks + XFC_DIAGNOSTIC_RESERVE_BLOCKS));
+#else
+  (void)length;
+  return true;
+#endif
+}
+
 static JsVar *xfcCopyStringBytes(JsVar *value, size_t start,
                                  size_t length) {
-  JsVar *copy = jsvNewFromEmptyString();
+  JsVar *copy;
   JsvStringIterator iterator;
   size_t expected = length;
+  if (!xfcCanCopyStringBytes(length)) return 0;
+  copy = jsvNewFromEmptyString();
   if (!copy) return 0;
   jsvStringIteratorNew(&iterator, value, start);
   while (length != 0 && jsvStringIteratorHasChar(&iterator)) {
@@ -150,6 +171,11 @@ static JsVar *xfcCopyStringBytes(JsVar *value, size_t start,
     return 0;
   }
   return copy;
+}
+
+static JsVar *xfcCopyWholeString(JsVar *value) {
+  if (!value || !jsvIsString(value)) return 0;
+  return xfcCopyStringBytes(value, 0, xfcStringByteLength(value));
 }
 
 static size_t xfcDiagnosticByteBoundary(JsVar *value, size_t length) {
@@ -205,7 +231,7 @@ static bool xfcArrayAppend(JsVar *array, JsVar *value) {
 }
 
 static JsVar *xfcPathProperty(JsVar *base, const char *property) {
-  JsVar *path = jsvNewFromStringVarComplete(base);
+  JsVar *path = xfcCopyWholeString(base);
   if (!path) return 0;
   jsvAppendCharacter(path, '.');
   jsvAppendString(path, property);
@@ -234,10 +260,38 @@ static bool xfcIsIdentifierKey(JsVar *key) {
 }
 
 static JsVar *xfcPathKey(JsVar *base, JsVar *key) {
-  JsVar *path = jsvNewFromStringVarComplete(base);
+  JsVar *path;
   JsvStringIterator iterator;
+  size_t path_length = xfcStringByteLength(base);
+  bool identifier = xfcIsIdentifierKey(key);
+  if (identifier) {
+    size_t key_length = xfcStringByteLength(key);
+    if (path_length > SIZE_MAX - 1U ||
+        key_length > SIZE_MAX - path_length - 1U)
+      return 0;
+    path_length += 1U + key_length;
+  } else {
+    if (path_length > SIZE_MAX - 4U) return 0;
+    path_length += 4U;
+    jsvStringIteratorNew(&iterator, key, 0);
+    while (jsvStringIteratorHasChar(&iterator)) {
+      unsigned char ch = (unsigned char)jsvStringIteratorGetChar(&iterator);
+      size_t addition = (ch == '\\' || ch == '"')
+                            ? 2U
+                            : ((ch >= 0x20 && ch != 0x7F) ? 1U : 4U);
+      if (path_length > SIZE_MAX - addition) {
+        jsvStringIteratorFree(&iterator);
+        return 0;
+      }
+      path_length += addition;
+      jsvStringIteratorNext(&iterator);
+    }
+    jsvStringIteratorFree(&iterator);
+  }
+  if (!xfcCanCopyStringBytes(path_length)) return 0;
+  path = xfcCopyWholeString(base);
   if (!path) return 0;
-  if (xfcIsIdentifierKey(key)) {
+  if (identifier) {
     jsvAppendCharacter(path, '.');
     jsvAppendStringVarComplete(path, key);
     return path;
@@ -265,7 +319,7 @@ static JsVar *xfcPathKey(JsVar *base, JsVar *key) {
 }
 
 static JsVar *xfcPathIndex(JsVar *base, JsVarInt index) {
-  JsVar *path = jsvNewFromStringVarComplete(base);
+  JsVar *path = xfcCopyWholeString(base);
   JsVar *suffix;
   if (!path) return 0;
   suffix = jsvVarPrintf("[%d]", index);
@@ -293,8 +347,7 @@ static void xfcFail(XfcCompiler *compiler, XfcDiagnostic diagnostic,
                                 : xfcDiagnosticByteBoundary(detail, length);
     bounded_detail = length <= XFC_DIAGNOSTIC_DETAIL_MAX
                          ? jsvLockAgain(detail)
-                         : jsvNewFromStringVar(detail, 0,
-                                               bounded_length);
+                         : xfcCopyStringBytes(detail, 0, bounded_length);
     if (!bounded_detail) {
       compiler->diagnostic = XFC_DIAG_NO_MEMORY;
       return;
@@ -632,12 +685,11 @@ static bool xfcValidateOptions(XfcCompiler *compiler, JsVar *options,
 }
 
 static JsVar *xfcCopyString(JsVar *value) {
-  if (!value || !jsvIsString(value)) return 0;
-  return jsvNewFromStringVarComplete(value);
+  return xfcCopyWholeString(value);
 }
 
 static JsVar *xfcEscapeIdSegment(JsVar *prefix, JsVar *key) {
-  JsVar *result = jsvNewFromStringVarComplete(prefix);
+  JsVar *result = xfcCopyWholeString(prefix);
   JsvStringIterator iterator;
   if (!result) return 0;
   jsvAppendCharacter(result, '.');
