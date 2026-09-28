@@ -1,0 +1,53 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":0,"kind":"case","name":"state-node, initial-transition and composition grammar","classification":"profile"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":1,"kind":"error","operation":"missing config rejected","category":"E_CONFIG_TYPE","path":"config","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":2,"kind":"assertion","name":"missing config rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":3,"kind":"error","operation":"null config rejected","category":"E_CONFIG_TYPE","path":"config","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":4,"kind":"assertion","name":"null config rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":5,"kind":"error","operation":"array config rejected","category":"E_CONFIG_TYPE","path":"config","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":6,"kind":"assertion","name":"array config rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":7,"kind":"error","operation":"function config rejected","category":"E_CONFIG_TYPE","path":"config","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":8,"kind":"assertion","name":"function config rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":9,"kind":"assertion","name":"inferred atomic root","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":10,"kind":"assertion","name":"inferred atomic empty states","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":11,"kind":"assertion","name":"explicit atomic","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":12,"kind":"assertion","name":"inferred compound","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":13,"kind":"assertion","name":"explicit compound","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":14,"kind":"assertion","name":"non-root final","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":15,"kind":"assertion","name":"initial descriptor accepted","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":16,"kind":"assertion","name":"construction does not call actions","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":17,"kind":"action","name":"prepare","context":1,"eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":18,"kind":"action","name":"enter","context":2,"eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":19,"kind":"snapshot","point":"initial descriptor start","status":"active","value":"Heating.Mode","context":2}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":20,"kind":"assertion","name":"initial action order and exact punctuated key","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":21,"kind":"assertion","name":"shared fragment composition","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":22,"kind":"assertion","name":"fragment factory is application work","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":23,"kind":"assertion","name":"compiled structure is source independent","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":24,"kind":"error","operation":"compiled machine is not a nested state","category":"E_CONFIG_TYPE","path":"config.states.Nested","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":25,"kind":"assertion","name":"compiled machine is not a nested state","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":26,"kind":"error","operation":"root final rejected","category":"E_CONFIG_TYPE","path":"config.type","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":27,"kind":"assertion","name":"root final rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":28,"kind":"error","operation":"atomic children rejected","category":"E_CONFIG_TYPE","path":"config.states","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":29,"kind":"assertion","name":"atomic children rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":30,"kind":"error","operation":"atomic initial rejected","category":"E_CONFIG_TYPE","path":"config.initial","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":31,"kind":"assertion","name":"atomic initial rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":32,"kind":"error","operation":"compound children required","category":"E_CONFIG_TYPE","path":"config.states","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":33,"kind":"assertion","name":"compound children required","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":34,"kind":"error","operation":"compound initial required","category":"E_INITIAL_REQUIRED","path":"config.initial","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":35,"kind":"assertion","name":"compound initial required","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":36,"kind":"error","operation":"empty child key rejected","category":"E_CONFIG_TYPE","path":"config.states[\"\"]","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":37,"kind":"assertion","name":"empty child key rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":38,"kind":"error","operation":"null child rejected","category":"E_CONFIG_TYPE","path":"config.states.A","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":39,"kind":"assertion","name":"null child rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":40,"kind":"error","operation":"non-root context rejected","category":"E_UNKNOWN_PROPERTY","path":"config.states.A.context","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":41,"kind":"assertion","name":"non-root context rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":42,"kind":"error","operation":"final event map rejected","category":"E_CONFIG_TYPE","path":"config.states.A.on","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":43,"kind":"assertion","name":"final event map rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":44,"kind":"error","operation":"atomic onDone rejected","category":"E_CONFIG_TYPE","path":"config.states.A.onDone","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":45,"kind":"assertion","name":"atomic onDone rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":46,"kind":"error","operation":"initial descriptor target required","category":"E_CONFIG_TYPE","path":"config.initial.target","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":47,"kind":"assertion","name":"initial descriptor target required","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":48,"kind":"error","operation":"initial descriptor guard rejected","category":"E_UNKNOWN_PROPERTY","path":"config.initial.guard","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":49,"kind":"assertion","name":"initial descriptor guard rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":50,"kind":"error","operation":"initial target must be direct child","category":"E_INITIAL_UNKNOWN","path":"config.initial.target","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":51,"kind":"assertion","name":"initial target must be direct child","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-004","sequence":52,"kind":"result","pass":true}

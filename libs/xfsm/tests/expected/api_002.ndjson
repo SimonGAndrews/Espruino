@@ -1,0 +1,24 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":0,"kind":"case","name":"negative public surface and private-brand rejection","classification":"profile"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":1,"kind":"assertion","name":"module factories","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":2,"kind":"assertion","name":"legacy interpret absent","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":3,"kind":"assertion","name":"private test hooks absent","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":4,"kind":"assertion","name":"machine is opaque","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":5,"kind":"assertion","name":"actor methods are shared","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":6,"kind":"assertion","name":"assignment descriptor is opaque","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":7,"kind":"assertion","name":"snapshot has no action list","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":8,"kind":"assertion","name":"subscription method is shared","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":9,"kind":"error","operation":"ordinary machine rejected","category":"E_MACHINE_INVALID","path":"createActor.machine","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":10,"kind":"assertion","name":"ordinary machine rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":11,"kind":"error","operation":"cloned machine rejected","category":"E_MACHINE_INVALID","path":"createActor.machine","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":12,"kind":"assertion","name":"cloned machine rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":13,"kind":"error","operation":"assignment is not machine","category":"E_MACHINE_INVALID","path":"createActor.machine","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":14,"kind":"assertion","name":"assignment is not machine","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":15,"kind":"error","operation":"actor receiver rejected","category":"E_ACTOR_INVALID","path":"actor.start","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":16,"kind":"assertion","name":"actor receiver rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":17,"kind":"error","operation":"snapshot receiver rejected","category":"E_RECEIVER_INVALID","path":"snapshot.matches","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":18,"kind":"assertion","name":"snapshot receiver rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":19,"kind":"error","operation":"subscription receiver rejected","category":"E_RECEIVER_INVALID","path":"subscription.unsubscribe","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":20,"kind":"assertion","name":"subscription receiver rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":21,"kind":"error","operation":"forged assignment rejected","category":"E_CONFIG_TYPE","path":"config.states.Idle.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":22,"kind":"assertion","name":"forged assignment rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-API-002","sequence":23,"kind":"result","pass":true}

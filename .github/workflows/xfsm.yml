@@ -79,6 +79,17 @@ jobs:
           do
             bin/espruino --test "libs/xfsm/tests/$test"
           done
+      - name: Run XFSM canonical trace tests
+        run: |
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_api_002.js \
+            libs/xfsm/tests/expected/api_002.ndjson
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_config_004.js \
+            libs/xfsm/tests/expected/config_004.ndjson
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_config_005.js \
+            libs/xfsm/tests/expected/config_005.ndjson
       - name: Run XFSM allocation-failure tests
         run: |
           env -u DEBUG make clean

@@ -91,6 +91,37 @@ microstep boundaries with target-sized fixtures instead. The compact
 physical targets whose JavaScript test heap cannot hold the full validation
 suite and all of its source fixtures at once.
 
+### Canonical Conformance Traces
+
+Portable conformance cases use a versioned newline-delimited JSON trace. Each
+record is printed as the operation is observed, so a physical target does not
+need to retain the complete trace in RAM. The host runner composes the common
+JavaScript harness with a case, runs it in the Linux Espruino interpreter, and
+compares the resulting records with a reviewed baseline while ignoring object
+property order:
+
+```bash
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_api_002.js \
+  libs/xfsm/tests/expected/api_002.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_config_004.js \
+  libs/xfsm/tests/expected/config_004.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_config_005.js \
+  libs/xfsm/tests/expected/config_005.ndjson
+```
+
+The runner never updates an accepted trace. A changed trace must be reviewed
+and edited explicitly. To create the identical JavaScript artifact for the
+paced physical-device runner, use:
+
+```bash
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_api_002.js \
+  --compose-output /tmp/xfsm-api-002.js
+```
+
 ### Allocation-Failure Tests
 
 Deterministic allocation failures use a private test-only build. The

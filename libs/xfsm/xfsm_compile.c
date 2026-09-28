@@ -22,8 +22,6 @@
 #include <limits.h>
 #include <string.h>
 
-#define XFC_ASSIGN_BRAND "XFAD1"
-#define XFC_ASSIGN_BRAND_LENGTH 5
 #define XFC_DIAGNOSTIC_DETAIL_MAX 48U
 #define XFC_DIAGNOSTIC_RESERVE_BLOCKS 32U
 
@@ -997,8 +995,9 @@ static bool xfcDetermineNodeType(XfcCompiler *compiler, JsVar *configuration,
   if (compiler->diagnostic == XFC_DIAG_NONE) {
     if (node_type == XFC_NODE_COMPOUND && child_count == 0)
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
-    else if ((node_type == XFC_NODE_ATOMIC ||
-              node_type == XFC_NODE_FINAL) &&
+    else if (node_type == XFC_NODE_ATOMIC && child_count != 0)
+      xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
+    else if (node_type == XFC_NODE_FINAL &&
              has_states && !jsvIsUndefined(states))
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
     else if ((node_type == XFC_NODE_ATOMIC ||
@@ -1332,7 +1331,8 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
               xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, child_path, 0);
             } else if (!key || !child_path || !child_implicit) {
               xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
-            } else if (jsvGetStringLength(key) == 0 || !xfcIsObject(child)) {
+            } else if (jsvGetStringLength(key) == 0 || !xfcIsObject(child) ||
+                       xfcIsMachine(child)) {
               xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, child_path, 0);
             } else if (depth + 1 > XFC_MAX_STATE_DEPTH) {
               xfcFail(compiler, XFC_DIAG_LIMIT_EXCEEDED, child_path, 0);
@@ -1619,18 +1619,14 @@ static JsVar *xfcResolveImplementation(JsVar *map, JsVar *name) {
 }
 
 static bool xfcAssignmentDescriptorValue(JsVar *descriptor, JsVar **value) {
-  JsVar *brand = 0;
   JsVar *assignment = 0;
   bool valid = false;
   *value = 0;
-  if (!xfcIsObject(descriptor) ||
-      !xfcGetOwn(descriptor, XFC_ASSIGN_BRAND_NAME, &brand) ||
-      !jsvIsString(brand) || !jsvIsStringEqual(brand, XFC_ASSIGN_BRAND) ||
+  if (!xfcIsAssignment(descriptor) ||
       !xfcGetOwn(descriptor, XFC_ASSIGN_VALUE_NAME, &assignment))
     goto done;
   valid = jsvIsFunction(assignment) || xfcIsObject(assignment);
 done:
-  jsvUnLock(brand);
   if (valid) {
     *value = assignment;
   } else {
@@ -2584,7 +2580,6 @@ done:
 
 JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment) {
   JsVar *descriptor = 0;
-  JsVar *brand = 0;
   bool valid = jsvIsFunction(assignment) || xfcIsObject(assignment);
   if (valid && xfcIsObject(assignment)) {
     JsvObjectIterator iterator;
@@ -2605,15 +2600,12 @@ JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment) {
     return 0;
   }
   descriptor = jsvNewObject();
-  brand = jsvNewFromString(XFC_ASSIGN_BRAND);
-  if (!descriptor || !brand ||
-      jsvObjectSetChild(descriptor, XFC_ASSIGN_BRAND_NAME, brand) != brand ||
+  if (!descriptor || !xfcBrandAssignment(descriptor) ||
       jsvObjectSetChild(descriptor, XFC_ASSIGN_VALUE_NAME, assignment) !=
           assignment) {
     jsvUnLock(descriptor);
     descriptor = 0;
     jsExceptionHere(JSET_ERROR, "XFC E_NO_MEMORY @ assign.assignment");
   }
-  jsvUnLock(brand);
   return descriptor;
 }

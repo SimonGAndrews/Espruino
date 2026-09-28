@@ -19,5 +19,7 @@ JsVar *xfcCreateActor(JsVar *machine, JsVar *options);
 
 bool xfcBrandMachine(JsVar *machine);
 bool xfcIsMachine(JsVar *machine);
+bool xfcBrandAssignment(JsVar *descriptor);
+bool xfcIsAssignment(JsVar *descriptor);
 
 #endif

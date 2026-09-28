@@ -95,6 +95,14 @@ bool xfcIsMachine(JsVar *machine) {
   return xfcHasBrand(machine, XFC_MACHINE_BRAND_NAME, XFC_ROOT_MACHINE_TOKEN);
 }
 
+bool xfcBrandAssignment(JsVar *descriptor) {
+  return xfcSetBrand(descriptor, XFC_ASSIGN_BRAND_NAME, XFC_ROOT_ASSIGN_TOKEN);
+}
+
+bool xfcIsAssignment(JsVar *descriptor) {
+  return xfcHasBrand(descriptor, XFC_ASSIGN_BRAND_NAME, XFC_ROOT_ASSIGN_TOKEN);
+}
+
 static bool xfcSetMethod(JsVar *prototype, const char *name,
                          void (*function)(void), unsigned short arguments) {
   JsVar *native = jsvNewNativeFunction(function, arguments);

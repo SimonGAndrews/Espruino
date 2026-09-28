@@ -1,0 +1,30 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":0,"kind":"case","name":"implementation-map property grammar and ownership","classification":"profile-internal"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":1,"kind":"assertion","name":"omitted and undefined maps accepted","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":2,"kind":"error","operation":"null options rejected","category":"E_CONFIG_TYPE","path":"options","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":3,"kind":"assertion","name":"null options rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":4,"kind":"error","operation":"array options rejected","category":"E_CONFIG_TYPE","path":"options","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":5,"kind":"assertion","name":"array options rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":6,"kind":"error","operation":"function options rejected","category":"E_CONFIG_TYPE","path":"options","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":7,"kind":"assertion","name":"function options rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":8,"kind":"error","operation":"array action map rejected","category":"E_CONFIG_TYPE","path":"options.actions","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":9,"kind":"assertion","name":"array action map rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":10,"kind":"error","operation":"function guard map rejected","category":"E_CONFIG_TYPE","path":"options.guards","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":11,"kind":"assertion","name":"function guard map rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":12,"kind":"assertion","name":"exact path-like names resolve","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":13,"kind":"assertion","name":"referenced functions retained","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":14,"kind":"assertion","name":"unused callable is not retained","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":15,"kind":"assertion","name":"source option graph is not retained","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":16,"kind":"error","operation":"action names are case-sensitive","category":"E_ACTION_UNRESOLVED","path":"config.states.Idle.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":17,"kind":"assertion","name":"action names are case-sensitive","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":18,"kind":"error","operation":"outer scope is not an implementation map","category":"E_ACTION_UNRESOLVED","path":"config.states.Idle.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":19,"kind":"assertion","name":"outer scope is not an implementation map","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":20,"kind":"error","operation":"inherited action is not an implementation","category":"E_ACTION_UNRESOLVED","path":"config.states.Idle.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":21,"kind":"assertion","name":"inherited action is not an implementation","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":22,"kind":"error","operation":"unused non-callable entry rejected","category":"E_CONFIG_TYPE","path":"options.actions.unused","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":23,"kind":"assertion","name":"unused non-callable entry rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":24,"kind":"error","operation":"accessor entry rejected without invocation","category":"E_CONFIG_TYPE","path":"options.actions.work","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":25,"kind":"assertion","name":"accessor entry rejected without invocation","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":26,"kind":"assertion","name":"implementation accessor was not called","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":27,"kind":"assertion","name":"non-enumerable action is not an implementation","status":"skip","reason":"host does not represent the enumerable descriptor flag"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":28,"kind":"assertion","name":"symbol entry does not define an implementation","status":"skip","reason":"host has no Symbol value type"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-CONFIG-005","sequence":29,"kind":"result","pass":true}
