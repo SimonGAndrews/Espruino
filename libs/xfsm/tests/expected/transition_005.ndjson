@@ -1,0 +1,17 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":0,"kind":"case","name":"event identity, validation, guard coercion and fallback","classification":"profile"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":1,"kind":"assertion","name":"object identity and type capture","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":2,"kind":"assertion","name":"string event materialized once","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":3,"kind":"assertion","name":"false exact candidates fall to wildcard","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":4,"kind":"assertion","name":"present undefined handler forbids fallback","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":5,"kind":"assertion","name":"all-false parent candidate is unhandled","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":6,"kind":"context","point":"invalid event observations","value":{"rejected":[true,true,true,true,true,true,true,true,true,true,true,true],"typeErrors":[true,true,true,true,true,true,true,true,true,true,true,true],"stableSnapshot":true}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":7,"kind":"assertion","name":"malformed and reserved events reject before dispatch","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":8,"kind":"error","operation":"empty candidate array rejected","category":"E_CONFIG_TYPE","path":"config.states.A.on.GO","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":9,"kind":"assertion","name":"empty candidate array rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":10,"kind":"error","operation":"null target rejected","category":"E_CONFIG_TYPE","path":"config.states.A.on.GO.target","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":11,"kind":"assertion","name":"null target rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":12,"kind":"error","operation":"partial wildcard rejected","category":"E_UNSUPPORTED_FEATURE","path":"config.states.A.on[\"sensor.*\"]","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":13,"kind":"assertion","name":"partial wildcard rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":14,"kind":"error","operation":"guard params rejected","category":"E_UNKNOWN_PROPERTY","path":"config.states.A.on.GO.guard.params","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":15,"kind":"assertion","name":"guard params rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-TRANS-005","sequence":16,"kind":"result","pass":true}

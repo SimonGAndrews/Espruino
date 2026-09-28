@@ -1643,15 +1643,17 @@ static bool xfcSingleVisibleProperty(JsVar *object, JsVar **key,
   jsvObjectIteratorNew(&iterator, object);
   while (valid && jsvObjectIteratorHasValue(&iterator)) {
     JsVar *candidate = jsvObjectIteratorGetKey(&iterator);
+    JsVar *raw_value = jsvGetValueOfName(candidate);
     if (!jsvIsInternalObjectKey(candidate)) {
       count++;
-      if (count != 1 || jsvIsGetterOrSetter(candidate)) {
+      if (count != 1 || jsvIsGetterOrSetter(raw_value)) {
         valid = false;
       } else {
         *key = jsvLockAgain(candidate);
         *value = jsvObjectIteratorGetValue(&iterator);
       }
     }
+    jsvUnLock(raw_value);
     jsvUnLock(candidate);
     jsvObjectIteratorNext(&iterator);
   }

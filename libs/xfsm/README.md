@@ -110,6 +110,15 @@ python3 libs/xfsm/tests/run_trace_test.py \
 python3 libs/xfsm/tests/run_trace_test.py \
   libs/xfsm/tests/trace_config_005.js \
   libs/xfsm/tests/expected/config_005.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_action_002.js \
+  libs/xfsm/tests/expected/action_002.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_snapshot_002.js \
+  libs/xfsm/tests/expected/snapshot_002.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_transition_005.js \
+  libs/xfsm/tests/expected/transition_005.ndjson
 ```
 
 The runner never updates an accepted trace. A changed trace must be reviewed

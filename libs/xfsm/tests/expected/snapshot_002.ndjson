@@ -1,0 +1,17 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":0,"kind":"case","name":"snapshot values, matching, identity and lazy publication","classification":"profile-internal"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":1,"kind":"assertion","name":"not-started snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":2,"kind":"assertion","name":"atomic root empty value","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":3,"kind":"assertion","name":"unobserved actor has no cached snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":4,"kind":"assertion","name":"start without observer remains lazy","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":5,"kind":"snapshot","point":"nested active","status":"active","value":{"Parent.With.Dot":"Child"},"context":0}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":6,"kind":"assertion","name":"hierarchical partial matches","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":7,"kind":"context","point":"matches observations","value":{"malformed":[false,false,false,false,false,false,false,false,false,false,false,false,false,false],"accessorReads":0,"extraArgument":true}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":8,"kind":"assertion","name":"malformed matches are total false","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":9,"kind":"assertion","name":"unhandled event reuses snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":10,"kind":"assertion","name":"action-only event reuses snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":11,"kind":"assertion","name":"context change invalidates snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":12,"kind":"assertion","name":"state change invalidates with deeper shape","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":13,"kind":"assertion","name":"stopped snapshot retains matching state","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":14,"kind":"assertion","name":"done snapshot retains final state","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":15,"kind":"assertion","name":"error snapshot retains stable state and exact error","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-SNAP-002","sequence":16,"kind":"result","pass":true}

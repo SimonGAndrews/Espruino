@@ -1,0 +1,17 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":0,"kind":"case","name":"action forms, callback arguments, receiver and event contract","classification":"profile-internal"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":1,"kind":"assertion","name":"repeated named implementation retained once","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":2,"kind":"assertion","name":"startup forms and ordered context visibility","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":3,"kind":"context","point":"action observations","value":{"tail":["activeEntry:xstate.init:1","bound:xstate.init:1","activeExit:GO:1","returnIgnored:GO:1","asyncIgnored:GO:1","named:GO:1","afterAssign:GO:2","doneEntry:GO:2","doneExit:GO:2","rootExit:GO:2"],"receivers":[true,true,true,true,true,true,true,true,true,true,true,true,true,true,true],"arguments":[true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true],"thenObserved":false}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":4,"kind":"assertion","name":"transition forms, return ignoring and exact event","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":5,"kind":"assertion","name":"unbound callbacks use Espruino receiver and two arguments","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":6,"kind":"assertion","name":"stop exits receive stop event","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":7,"kind":"assertion","name":"completion action receives generated event","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":8,"kind":"error","operation":"unresolved action rejected","category":"E_ACTION_UNRESOLVED","path":"config.states.A.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":9,"kind":"assertion","name":"unresolved action rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":10,"kind":"error","operation":"action params rejected","category":"E_UNKNOWN_PROPERTY","path":"config.states.A.entry.params","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":11,"kind":"assertion","name":"action params rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":12,"kind":"error","operation":"action exec rejected","category":"E_UNKNOWN_PROPERTY","path":"config.states.A.entry.exec","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":13,"kind":"assertion","name":"action exec rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":14,"kind":"error","operation":"malformed action rejected","category":"E_CONFIG_TYPE","path":"config.states.A.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":15,"kind":"assertion","name":"malformed action rejected","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-ACTION-002","sequence":16,"kind":"result","pass":true}
