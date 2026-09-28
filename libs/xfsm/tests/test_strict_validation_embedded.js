@@ -1,7 +1,8 @@
 echo(false);
 (function () {
 var XFSM = require("XFSM");
-var passed = typeof XFSM._failNext === "undefined";
+var passed = typeof XFSM._failNext === "undefined" &&
+  typeof XFSM._measure === "undefined";
 
 function fails(config, options, category, path) {
   try { XFSM.createMachine(config, options); }

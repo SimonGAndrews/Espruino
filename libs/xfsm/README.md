@@ -103,6 +103,12 @@ make USE_XFSM=1 XFC_TEST=1
 bin/espruino --test libs/xfsm/tests/test_fault_injection.js
 ```
 
+Constrained physical targets may instead run
+`test_fault_injection_embedded.js`. It covers representative compiler, actor,
+startup, assignment, publication, snapshot, and subscription allocation seams
+in sequential scopes so the test graph does not itself exhaust the target's
+JsVar pool. The complete fault-seam matrix remains a Linux-host requirement.
+
 ### Whole-Interpreter Save And Reset Tests
 
 `test_save_restore.js` and `test_reset_lifecycle.js` exercise Espruino's
