@@ -135,6 +135,24 @@ production-firmware memory baseline. `test_host_event_serialization.js`
 confirms that a normally dispatched Espruino timer callback runs only after a
 long synchronous sequence of actor sends has completed and published.
 
+### ESP32-C3 Wireless-Service Coexistence Test
+
+`prepare_host_service_coexistence.js` and
+`test_host_service_coexistence.js` are physical ESP32-C3 fixtures. The first
+compiles and starts an XFSM service coordinator containing a depth-24 branch;
+the HTTPS-completion event traverses that branch and executes 49 ordered
+entry, transition, and exit actions. The second keeps a BLE GATT connection
+active while the C3 associates with WiFi and performs a TLS 1.2 HTTP request,
+then verifies that XFSM reached its final state and BLE remained usable.
+
+The service role is loaded from Espruino `Storage` by the external two-board
+bench runner. This avoids retaining the large REPL input expression while the
+already-compiled machine is live; it does not save the program or alter the
+XFSM execution path. The runner erases its temporary Storage file during
+cleanup. Bench configuration, credentials, the controlled HTTPS endpoint, and
+the peer GATT role belong to the external ESP32 test bench rather than this
+implementation repository.
+
 ### Resource Measurements
 
 Flash, memory, stack, and execution-time measurements use a separate
