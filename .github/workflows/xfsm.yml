@@ -102,6 +102,12 @@ jobs:
           python3 libs/xfsm/tests/run_trace_test.py \
             libs/xfsm/tests/trace_diagnostic_006.js \
             libs/xfsm/tests/expected/diagnostic_006.ndjson
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_compat_006.js \
+            libs/xfsm/tests/expected/compat_006.ndjson
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_compat_006_v4.js \
+            libs/xfsm/tests/expected/compat_006_v4.ndjson
       - name: Run XFSM allocation-failure tests
         run: |
           env -u DEBUG make clean

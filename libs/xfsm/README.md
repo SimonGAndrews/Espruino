@@ -122,7 +122,17 @@ python3 libs/xfsm/tests/run_trace_test.py \
 python3 libs/xfsm/tests/run_trace_test.py \
   libs/xfsm/tests/trace_diagnostic_006.js \
   libs/xfsm/tests/expected/diagnostic_006.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_compat_006.js \
+  libs/xfsm/tests/expected/compat_006.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_compat_006_v4.js \
+  libs/xfsm/tests/expected/compat_006_v4.ndjson
 ```
+
+The two `COMPAT-006` traces are generated independently by the pinned XState
+5.33.2 and 4.38.3 reference models in the specification repository. They cover
+shared statechart semantics and the retained v4 migration aliases respectively.
 
 The runner never updates an accepted trace. A changed trace must be reviewed
 and edited explicitly. To create the identical JavaScript artifact for the
@@ -131,8 +141,14 @@ paced physical-device runner, use:
 ```bash
 python3 libs/xfsm/tests/run_trace_test.py \
   libs/xfsm/tests/trace_api_002.js \
-  --compose-output /tmp/xfsm-api-002.js
+  --compose-output /tmp/xfsm-api-002.js \
+  --compose-done-marker
 ```
+
+After the paced serial runner captures its output, compare the noisy transcript
+with the accepted trace using `--observed-output <transcript>`. The comparator
+extracts, validates and canonicalizes only `xfc.trace` records; transport and
+REPL text are ignored.
 
 ### Allocation-Failure Tests
 

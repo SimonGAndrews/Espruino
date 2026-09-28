@@ -1,0 +1,56 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":0,"kind":"case","name":"shared Profile 1 and XState 5.33.2 statechart semantics","classification":"differential"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":1,"kind":"context","point":"reference","value":{"engine":"xstate","version":"5.33.2","adaptations":["callback argument shape","assign callback syntax","actor lifecycle API","imports and module wrapper"]}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":2,"kind":"call","operation":"start","input":null}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":3,"kind":"action","name":"initial","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":4,"kind":"action","name":"enterIdle","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":5,"kind":"snapshot","point":"basic started","status":"active","value":"Idle"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":6,"kind":"call","operation":"send","input":{"type":"GO"}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":7,"kind":"action","name":"exitIdle","eventType":"GO"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":8,"kind":"action","name":"go","eventType":"GO"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":9,"kind":"action","name":"enterDone","eventType":"GO"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":10,"kind":"snapshot","point":"basic transitioned","status":"active","value":"Done"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":11,"kind":"assertion","name":"committed subscription timing","pass":true,"actual":["Idle","Done"],"expected":["Idle","Done"]}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":12,"kind":"context","point":"guard","value":{"name":"never","event":"GO","decision":false}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":13,"kind":"context","point":"guard","value":{"name":"notFall","event":"GO","decision":true}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":14,"kind":"action","name":"childWildcard","eventType":"GO"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":15,"kind":"context","point":"guard","value":{"name":"notFall","event":"FALL","decision":false}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":16,"kind":"action","name":"parentFall","eventType":"FALL"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":17,"kind":"context","point":"guard","value":{"name":"never","event":"BLOCK","decision":false}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":18,"kind":"assertion","name":"ordered guards wildcard and parent fallback","pass":true,"actual":"never:GO|notFall:GO:true|child:GO|notFall:FALL:false|parent:FALL|never:BLOCK","expected":"never:GO|notFall:GO:true|child:GO|notFall:FALL:false|parent:FALL|never:BLOCK"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":19,"kind":"context","point":"assigned","value":{"count":7}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":20,"kind":"assertion","name":"ordered assignment and exact object event","pass":true,"actual":"before:0|after:7","expected":"before:0|after:7"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":21,"kind":"assertion","name":"factory context isolation","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":22,"kind":"action","name":"entry","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":23,"kind":"action","name":"targetless","eventType":"TARGETLESS"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":24,"kind":"action","name":"preserve","eventType":"PRESERVE"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":25,"kind":"action","name":"exit","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":26,"kind":"action","name":"reenter","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":27,"kind":"action","name":"entry","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":28,"kind":"assertion","name":"targetless preserved and re-entering self transitions","pass":true,"actual":"targetless|preserve|exit|reenter|entry","expected":"targetless|preserve|exit|reenter|entry"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":29,"kind":"action","name":"enterParent","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":30,"kind":"action","name":"enterA","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":31,"kind":"action","name":"exitA","eventType":"NEXT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":32,"kind":"action","name":"enterB","eventType":"NEXT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":33,"kind":"action","name":"exitB","eventType":"RESET"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":34,"kind":"action","name":"enterA","eventType":"RESET"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":35,"kind":"action","name":"exitA","eventType":"NEXT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":36,"kind":"action","name":"enterB","eventType":"NEXT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":37,"kind":"action","name":"exitB","eventType":"OUT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":38,"kind":"action","name":"exitParent","eventType":"OUT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":39,"kind":"action","name":"enterOutside","eventType":"OUT"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":40,"kind":"snapshot","point":"cross hierarchy","status":"active","value":"Outside"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":41,"kind":"assertion","name":"relative ID and cross-hierarchy boundaries","pass":true,"actual":"exitA|enterB|exitB|enterA|exitA|enterB|exitB|exitParent|enterOutside","expected":"exitA|enterB|exitB|enterA|exitA|enterB|exitB|exitParent|enterOutside"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":42,"kind":"action","name":"exitWorking","eventType":"FINISH"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":43,"kind":"action","name":"finish","eventType":"FINISH"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":44,"kind":"action","name":"enterCompleted","eventType":"FINISH"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":45,"kind":"action","name":"exitCompleted","eventType":"xstate.done.state.completion.Workflow"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":46,"kind":"action","name":"exitWorkflow","eventType":"xstate.done.state.completion.Workflow"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":47,"kind":"action","name":"done","eventType":"xstate.done.state.completion.Workflow"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":48,"kind":"action","name":"enterSuccess","eventType":"xstate.done.state.completion.Workflow"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":49,"kind":"snapshot","point":"completion stable","status":"active","value":"Success"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":50,"kind":"assertion","name":"final state completion ordering","pass":true,"actual":["exitWorking:FINISH","finish:FINISH","enterCompleted:FINISH","exitCompleted:xstate.done.state.completion.Workflow","exitWorkflow:xstate.done.state.completion.Workflow","done:xstate.done.state.completion.Workflow","enterSuccess:xstate.done.state.completion.Workflow"]}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":51,"kind":"snapshot","point":"nested structural value","status":"active","value":{"Parent":{"Grand":"Leaf"}}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":52,"kind":"assertion","name":"structural snapshot matching","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":53,"kind":"assertion","name":"depth 32 startup actions","pass":true,"actual":32,"expected":32}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":54,"kind":"assertion","name":"depth 32 least-common-ancestor action count","pass":true,"actual":65,"expected":65}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":55,"kind":"result","pass":true}

@@ -1,0 +1,11 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":0,"kind":"case","name":"retained XState 4.38.3 migration aliases","classification":"differential"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":1,"kind":"context","point":"reference","value":{"engine":"xstate","version":"4.38.3","adaptations":["actor lifecycle API","imports and module wrapper"]}}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":2,"kind":"action","name":"entry","eventType":"xstate.init"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":3,"kind":"action","name":"checked","eventType":"CHECK"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":4,"kind":"action","name":"exit","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":5,"kind":"action","name":"external","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":6,"kind":"action","name":"entry","eventType":"REENTER"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":7,"kind":"action","name":"internal","eventType":"PRESERVE"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":8,"kind":"snapshot","point":"migration result","status":"active","value":"Active"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":9,"kind":"assertion","name":"cond and internal aliases","pass":true,"actual":"checked|exit|external|entry|internal","expected":"checked|exit|external|entry|internal"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-COMPAT-006","sequence":10,"kind":"result","pass":true}

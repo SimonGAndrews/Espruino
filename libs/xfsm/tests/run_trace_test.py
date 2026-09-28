@@ -103,40 +103,63 @@ def main() -> int:
         type=Path,
         help="write the composed physical-device artifact instead of running it",
     )
+    parser.add_argument(
+        "--compose-done-marker",
+        action="store_true",
+        help="append the DONE marker required by the paced physical runner",
+    )
+    parser.add_argument(
+        "--observed-output",
+        type=Path,
+        help="compare a captured serial transcript instead of running Espruino",
+    )
     parser.add_argument("--show-output", action="store_true")
     args = parser.parse_args()
 
     source = compose(args.harness, args.test)
     if args.compose_output:
+        if args.observed_output:
+            parser.error("--compose-output and --observed-output are exclusive")
+        if args.compose_done_marker:
+            source += ('\nprint("DONE=" + '
+                       '(typeof result !== "undefined" && result ? '
+                       '"PASS" : "FAIL"));\n')
         args.compose_output.write_text(source, encoding="utf-8")
         print(args.compose_output)
         return 0
+    if args.compose_done_marker:
+        parser.error("--compose-done-marker requires --compose-output")
     if args.expected is None:
         parser.error("expected trace is required unless --compose-output is used")
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".js", encoding="utf-8", delete=False
-    ) as temporary:
-        temporary.write(source)
-        temporary_path = Path(temporary.name)
-    try:
-        completed = subprocess.run(
-            [str(args.espruino), "--test", str(temporary_path)],
-            cwd=REPOSITORY,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-    if args.show_output or completed.returncode:
-        sys.stdout.write(completed.stdout)
-        sys.stderr.write(completed.stderr)
+    if args.observed_output:
+        observed_text = args.observed_output.read_text(encoding="utf-8")
+        returncode = 0
+    else:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as temporary:
+            temporary.write(source)
+            temporary_path = Path(temporary.name)
+        try:
+            completed = subprocess.run(
+                [str(args.espruino), "--test", str(temporary_path)],
+                cwd=REPOSITORY,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        observed_text = completed.stdout
+        returncode = completed.returncode
+        if args.show_output or completed.returncode:
+            sys.stdout.write(completed.stdout)
+            sys.stderr.write(completed.stderr)
 
     try:
         observed = load_records(
-            completed.stdout.splitlines(), "observed output", allow_noise=True
+            observed_text.splitlines(), "observed output", allow_noise=True
         )
         expected = load_records(
             args.expected.read_text(encoding="utf-8").splitlines(),
@@ -160,11 +183,11 @@ def main() -> int:
             )
         )
         return 1
-    if completed.returncode:
+    if returncode:
         print(
-            f"Espruino exited with status {completed.returncode}", file=sys.stderr
+            f"Espruino exited with status {returncode}", file=sys.stderr
         )
-        return completed.returncode
+        return returncode
 
     print(f"PASS {observed[0]['case']}")
     return 0
