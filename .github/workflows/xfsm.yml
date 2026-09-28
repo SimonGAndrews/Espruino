@@ -99,6 +99,9 @@ jobs:
           python3 libs/xfsm/tests/run_trace_test.py \
             libs/xfsm/tests/trace_transition_005.js \
             libs/xfsm/tests/expected/transition_005.ndjson
+          python3 libs/xfsm/tests/run_trace_test.py \
+            libs/xfsm/tests/trace_diagnostic_006.js \
+            libs/xfsm/tests/expected/diagnostic_006.ndjson
       - name: Run XFSM allocation-failure tests
         run: |
           env -u DEBUG make clean
@@ -106,6 +109,8 @@ jobs:
           bin/espruino --test libs/xfsm/tests/test_fault_injection.js
       - name: Run native-format sanitizer tests
         run: make -C libs/xfsm/tests/native clean test
+      - name: Audit XFSM static implementation contract
+        run: python3 libs/xfsm/tests/audit_static_contract.py
 
   esp32-idf5:
     name: Original ESP32 IDF5 build

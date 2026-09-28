@@ -119,6 +119,9 @@ python3 libs/xfsm/tests/run_trace_test.py \
 python3 libs/xfsm/tests/run_trace_test.py \
   libs/xfsm/tests/trace_transition_005.js \
   libs/xfsm/tests/expected/transition_005.ndjson
+python3 libs/xfsm/tests/run_trace_test.py \
+  libs/xfsm/tests/trace_diagnostic_006.js \
+  libs/xfsm/tests/expected/diagnostic_006.ndjson
 ```
 
 The runner never updates an accepted trace. A changed trace must be reviewed
@@ -278,6 +281,16 @@ to fail. From the repository root, run:
 
 ```bash
 make -C libs/xfsm/tests/native clean test
+```
+
+The adjacent static-contract audit checks the production sources for the
+portable and host-boundary invariants that are not usefully exercised by a
+JavaScript scenario, including prohibited native allocation, recursion,
+variable-length workspaces, mutable production globals, hidden ownership
+names, private branding hooks, and generated-wrapper declarations:
+
+```bash
+python3 libs/xfsm/tests/audit_static_contract.py
 ```
 
 The `-C libs/xfsm/tests/native` argument tells Make to run in the native-test

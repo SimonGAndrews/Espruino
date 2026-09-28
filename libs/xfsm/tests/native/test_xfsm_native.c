@@ -311,10 +311,16 @@ static void testArithmeticAndRanges(void) {
   uint32_t result = 0;
   XfcRange range;
   CHECK(xfcCheckedAddU32(1, 2, &result) && result == 3);
+  CHECK(xfcCheckedAddU32(UINT32_MAX - 1, 1, &result) &&
+        result == UINT32_MAX);
   CHECK(!xfcCheckedAddU32(UINT32_MAX, 1, &result));
   CHECK(xfcCheckedMultiplyU32(65535, 8, &result) && result == 524280);
+  CHECK(xfcCheckedMultiplyU32(UINT32_MAX, 1, &result) &&
+        result == UINT32_MAX);
   CHECK(!xfcCheckedMultiplyU32(UINT32_MAX, 2, &result));
   CHECK(xfcCheckedAlignU32(97, 4, &result) && result == 100);
+  CHECK(xfcCheckedAlignU32(UINT32_MAX - 3, 4, &result) &&
+        result == UINT32_MAX - 3);
   CHECK(!xfcCheckedAlignU32(UINT32_MAX, 4, &result));
   CHECK(!xfcCheckedAlignU32(1, 0, &result));
 
@@ -325,6 +331,11 @@ static void testArithmeticAndRanges(void) {
   range.count = UINT16_MAX;
   CHECK(xfcRangeIsValid(range, UINT16_MAX));
   range.first = 1;
+  CHECK(!xfcRangeIsValid(range, UINT16_MAX));
+  range.first = UINT16_MAX - 1;
+  range.count = 1;
+  CHECK(xfcRangeIsValid(range, UINT16_MAX));
+  range.count = 2;
   CHECK(!xfcRangeIsValid(range, UINT16_MAX));
   range.first = XFC_INDEX_NONE;
   range.count = 1;
@@ -537,6 +548,18 @@ static void testArenaCorruption(void) {
   header.tables[XFC_TABLE_STATE].offset += 4;
   writeHeader(&changed, &header);
   CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_TABLE);
+
+  copyArena(&changed, &valid);
+  readHeader(&changed, &header);
+  header.tables[XFC_TABLE_STATE].count = UINT16_MAX;
+  writeHeader(&changed, &header);
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_TABLE);
+
+  copyArena(&changed, &valid);
+  readHeader(&changed, &header);
+  header.string_size = UINT32_MAX;
+  writeHeader(&changed, &header);
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STRING);
 
   copyArena(&changed, &valid);
   readHeader(&changed, &header);

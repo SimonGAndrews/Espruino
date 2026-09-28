@@ -1,0 +1,58 @@
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":0,"kind":"case","name":"diagnostic categories, paths, types and rollback","classification":"profile-internal"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":1,"kind":"error","operation":"configuration type","category":"E_CONFIG_TYPE","path":"config","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":2,"kind":"assertion","name":"configuration type","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":3,"kind":"error","operation":"unknown property and punctuated path","category":"E_UNKNOWN_PROPERTY","path":"config.states[\"A.B\"].unknown","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":4,"kind":"assertion","name":"unknown property and punctuated path","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":5,"kind":"error","operation":"unsupported feature","category":"E_UNSUPPORTED_FEATURE","path":"config.type","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":6,"kind":"assertion","name":"unsupported feature","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":7,"kind":"error","operation":"initial required","category":"E_INITIAL_REQUIRED","path":"config.initial","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":8,"kind":"assertion","name":"initial required","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":9,"kind":"error","operation":"initial unknown","category":"E_INITIAL_UNKNOWN","path":"config.initial","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":10,"kind":"assertion","name":"initial unknown","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":11,"kind":"error","operation":"target unknown","category":"E_TARGET_UNKNOWN","path":"config.states.A.on.GO","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":12,"kind":"assertion","name":"target unknown","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":13,"kind":"error","operation":"target ambiguous","category":"E_TARGET_AMBIGUOUS","path":"config.states.Source.on.GO","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":14,"kind":"assertion","name":"target ambiguous","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":15,"kind":"error","operation":"duplicate id","category":"E_ID_DUPLICATE","path":"config.states.B.id","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":16,"kind":"assertion","name":"duplicate id","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":17,"kind":"error","operation":"unresolved action","category":"E_ACTION_UNRESOLVED","path":"config.states.A.entry","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":18,"kind":"assertion","name":"unresolved action","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":19,"kind":"error","operation":"unresolved guard","category":"E_GUARD_UNRESOLVED","path":"config.states.A.on.GO.guard","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":20,"kind":"assertion","name":"unresolved guard","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":21,"kind":"error","operation":"representation limit","category":"E_LIMIT_EXCEEDED","path":"config.states.S1","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":22,"kind":"assertion","name":"representation limit","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":23,"kind":"error","operation":"array path and first error","category":"E_CONFIG_TYPE","path":"config.states.A.entry[0]","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":24,"kind":"assertion","name":"array path and first error","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":25,"kind":"error","operation":"bounded quoted detail","category":"E_TARGET_UNKNOWN","path":"config.states.A.on.GO","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":26,"kind":"assertion","name":"bounded quoted detail","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":27,"kind":"assertion","name":"detail is quoted and bounded to 48 bytes","pass":true,"actual":50,"expected":50}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":28,"kind":"error","operation":"escaped string detail","category":"E_TARGET_UNKNOWN","path":"config.states.A.on.GO","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":29,"kind":"assertion","name":"escaped string detail","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":30,"kind":"assertion","name":"string detail escapes quote and backslash","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":31,"kind":"error","operation":"invalid machine","category":"E_MACHINE_INVALID","path":"createActor.machine","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":32,"kind":"assertion","name":"invalid machine","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":33,"kind":"error","operation":"unsupported actor options","category":"E_UNSUPPORTED_FEATURE","path":"createActor.options","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":34,"kind":"assertion","name":"unsupported actor options","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":35,"kind":"error","operation":"invalid actor receiver","category":"E_ACTOR_INVALID","path":"actor.start.this","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":36,"kind":"assertion","name":"invalid actor receiver","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":37,"kind":"error","operation":"invalid lifecycle state","category":"E_ACTOR_STATE","path":"actor.send","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":38,"kind":"assertion","name":"invalid lifecycle state","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":39,"kind":"assertion","name":"boundary lifecycle error leaves actor usable","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":40,"kind":"error","operation":"invalid event","category":"E_EVENT_INVALID","path":"actor.send.event","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":41,"kind":"assertion","name":"invalid event","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":42,"kind":"error","operation":"invalid listener","category":"E_LISTENER_INVALID","path":"actor.subscribe.listener","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":43,"kind":"assertion","name":"invalid listener","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":44,"kind":"assertion","name":"boundary input errors preserve stable snapshot","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":45,"kind":"error","operation":"invalid snapshot receiver","category":"E_RECEIVER_INVALID","path":"snapshot.matches.this","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":46,"kind":"assertion","name":"invalid snapshot receiver","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":47,"kind":"error","operation":"invalid subscription receiver","category":"E_RECEIVER_INVALID","path":"subscription.unsubscribe.this","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":48,"kind":"assertion","name":"invalid subscription receiver","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":49,"kind":"error","operation":"busy actor","category":"E_ACTOR_BUSY","path":"actor.send","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":50,"kind":"assertion","name":"caught busy rejection does not fault actor","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":51,"kind":"assertion","name":"application throw identity retained","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":52,"kind":"error","operation":"faulted actor","category":"E_ACTOR_FAULTED","path":"actor.send","errorType":"Error"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":53,"kind":"assertion","name":"faulted actor","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":54,"kind":"error","operation":"invalid runtime context","category":"E_CONTEXT_INVALID","path":"actor.start.context","errorType":"TypeError"}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":55,"kind":"assertion","name":"invalid runtime context","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":56,"kind":"assertion","name":"runtime context error faults before publication","pass":true}
+{"schema":"xfc.trace","version":1,"case":"XFC-CF-DIAG-006","sequence":57,"kind":"result","pass":true}
