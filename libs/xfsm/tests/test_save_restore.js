@@ -3,9 +3,11 @@ var XFSM = require("XFSM");
 var Storage = require("Storage");
 var phaseFile = "xfc_save_phase";
 var exitFile = "xfc_reset_exit";
+var resultFile = "xfc_save_result";
 
 Storage.erase(phaseFile);
 Storage.erase(exitFile);
+Storage.erase(resultFile);
 
 function capture(fn) {
   try { fn(); }
@@ -123,7 +125,7 @@ var xfcDiscardActor = XFSM.createActor(xfcDiscardMachine).start();
 E.on("init", function () {
   if (Storage.read(phaseFile) === undefined) {
     Storage.write(phaseFile, "saved");
-    setTimeout(function () { ESP32.reboot(); }, 500);
+    setTimeout(function () { E.reboot(); }, 500);
     return;
   }
 
@@ -200,6 +202,7 @@ E.on("init", function () {
     print("INFO save_restore_error=" + error);
   }
 
+  Storage.write(resultFile, passed ? "PASS" : "FAIL");
   print("TEST=xfsm_save_restore");
   print((passed ? "PASS " : "FAIL ") + "save_restore");
   print("DONE=" + (passed ? "PASS" : "FAIL"));

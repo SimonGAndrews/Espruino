@@ -36,6 +36,15 @@ var recoveryOk = false;
 var passed = false;
 var warmMachine;
 var warmActor;
+var fillerBytes = 0;
+var targetFreeBlocks = 512;
+
+function applyPressure() {
+  var memory = process.memory();
+  fillerBytes = Math.max(0,
+    (memory.free - targetFreeBlocks) * memory.blocksize);
+  return new Uint8Array(fillerBytes);
+}
 
 function isMemoryError(error) {
   return error instanceof Error &&
@@ -61,23 +70,29 @@ E.defrag();
 process.memory();
 beforeUsage = process.memory().usage;
 
-try {
-  filler = new Uint8Array(12000);
-  try { XFSM.createMachine(config, options); }
-  catch (error) { observedError = error; }
-} catch (pressureError) {
-  observedError = pressureError;
+var pressureLevels = [512, 384, 256, 192, 128, 96, 64];
+for (var pressureIndex = 0;
+     pressureIndex < pressureLevels.length && !warmupErrorOk;
+     pressureIndex++) {
+  targetFreeBlocks = pressureLevels[pressureIndex];
+  try {
+    filler = applyPressure();
+    try { XFSM.createMachine(config, options); }
+    catch (error) { observedError = error; }
+  } catch (pressureError) {
+    observedError = pressureError;
+  }
+  warmupErrorOk = isMemoryError(observedError);
+  filler = undefined;
+  observedError = undefined;
+  process.memory();
+  E.defrag();
+  process.memory();
 }
-warmupErrorOk = isMemoryError(observedError);
-filler = undefined;
-observedError = undefined;
-process.memory();
-E.defrag();
-process.memory();
 settledUsage = process.memory().usage;
 
 try {
-  filler = new Uint8Array(12000);
+  filler = applyPressure();
   pressureFree = process.memory().free;
   try { XFSM.createMachine(config, options); }
   catch (error) { observedError = error; }
@@ -117,7 +132,9 @@ passed = report("same_config_retry", recoveryOk) && passed;
 passed = report("post_retry_cleanup", recoveredUsage <= postFailureUsage) && passed;
 print("METRIC before_usage_blocks=" + beforeUsage);
 print("METRIC settled_usage_blocks=" + settledUsage);
+print("METRIC target_free_blocks=" + targetFreeBlocks);
 print("METRIC pressure_free_blocks=" + pressureFree);
+print("METRIC filler_bytes=" + fillerBytes);
 print("METRIC post_failure_usage_blocks=" + postFailureUsage);
 print("METRIC recovered_usage_blocks=" + recoveredUsage);
 result = passed;
