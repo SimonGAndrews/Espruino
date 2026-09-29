@@ -30,6 +30,11 @@ function report(name, ok) {
   print((ok ? "PASS " : "FAIL ") + name);
 }
 
+function readOutput(pin) {
+  var info = pin.getInfo();
+  return info && info.output !== undefined ? info.output : digitalRead(pin);
+}
+
 function removeCachedModule() {
   if (Modules.getCached().indexOf(moduleName) >= 0)
     Modules.removeCached(moduleName);
@@ -60,7 +65,7 @@ function finish() {
   report("storage_cleanup", Storage.read(moduleName) === undefined);
   report("module_cache_cleanup",
          Modules.getCached().indexOf(moduleName) < 0);
-  report("safe_pin_state", digitalRead(LED1) === 0);
+  report("safe_pin_state", readOutput(LED1) === 0);
 
   var finalUsage = process.memory().usage;
   print("METRIC initial_usage_blocks=" + initialUsage);
@@ -142,11 +147,11 @@ try {
       nativeHigh: nativeHigh,
       nativeLow: nativeLow,
       observeHigh: function () {
-        pinHigh = digitalRead(LED1);
+        pinHigh = readOutput(LED1);
         trace.push("pinHigh:" + pinHigh);
       },
       observeLow: function () {
-        pinLow = digitalRead(LED1);
+        pinLow = readOutput(LED1);
         trace.push("pinLow:" + pinLow);
       }
     },
@@ -181,7 +186,7 @@ try {
          trace.indexOf("closure:3") >= 0);
   report("native_guard", trace.indexOf("nativeGuard") >= 0);
   report("flash_guard_and_action", trace.indexOf("flash:3") >= 0);
-  report("bound_native_action", pinHigh === 1 && digitalRead(LED1) === 1);
+  report("bound_native_action", pinHigh === 1 && readOutput(LED1) === 1);
   report("module_source_in_storage",
          Storage.read(moduleName) !== undefined &&
          Modules.getCached().indexOf(moduleName) < 0);

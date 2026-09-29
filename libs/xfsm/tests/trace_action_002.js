@@ -157,6 +157,17 @@
     completionTypes[0] === "final:FINISH" &&
     completionTypes[1] === "done:xstate.done.state.completion-actions.Work");
 
+  actor = undefined;
+  machine = undefined;
+  stopActor = undefined;
+  completionActor.stop();
+  completionActor = undefined;
+  records = undefined;
+  receiverChecks = undefined;
+  argumentChecks = undefined;
+  completionTypes = undefined;
+  if (typeof E !== "undefined" && E.gc) E.gc();
+
   rejects("unresolved action rejected", function () {
     XFSM.createMachine({ initial: "A", states: { A: { entry: "missing" } } });
   }, "E_ACTION_UNRESOLVED", "config.states.A.entry");

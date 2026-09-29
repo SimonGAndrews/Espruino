@@ -14,6 +14,7 @@ var cleanupOk = false;
 var passed = false;
 var settledUsage = 0;
 var postFailureUsage = 0;
+var fillerBytes = 0;
 
 function isFallbackError(error) {
   return error instanceof Error &&
@@ -27,7 +28,9 @@ function report(name, ok) {
 
 function attempt(measure) {
   var localError;
-  var localFiller = new Uint8Array(8000);
+  var memory = process.memory();
+  fillerBytes = Math.max(0, (memory.free - 512) * memory.blocksize);
+  var localFiller = new Uint8Array(fillerBytes);
   if (!localFiller) return false;
   if (measure) pressureFree = process.memory().free;
   try { XFSM.createMachine(config); }
@@ -47,13 +50,15 @@ config = {
     Done: {}
   }
 };
-warmFallbackOk = attempt(false);
+warmFallbackOk = attempt(true);
 process.memory();
 E.defrag();
 process.memory();
-settledUsage = process.memory().usage;
 
 prePressureFree = process.memory().free;
+settledUsage = process.memory().usage;
+// The first numeric assignment may itself allocate a JsVar on constrained targets.
+settledUsage = process.memory().usage;
 print("METRIC pre_pressure_free_blocks=" + prePressureFree);
 fallbackOk = attempt(true);
 print("METRIC pressure_free_blocks=" + pressureFree);
@@ -78,6 +83,7 @@ print("METRIC baseline_usage_blocks=" + baselineUsage);
 print("METRIC settled_usage_blocks=" + settledUsage);
 print("METRIC pre_pressure_free_blocks=" + prePressureFree);
 print("METRIC pressure_free_blocks=" + pressureFree);
+print("METRIC filler_bytes=" + fillerBytes);
 print("METRIC post_failure_usage_blocks=" + postFailureUsage);
 print("METRIC final_usage_blocks=" + finalUsage);
 result = passed;
