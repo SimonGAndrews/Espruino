@@ -11,8 +11,7 @@
 #ifndef XFSM_H
 #define XFSM_H
 
+/* Profile number implemented by this XFSM library. */
 #define XFSM_PROFILE_VERSION 1
-
-const char *xfsmGetImplementationStatus(void);
 
 #endif

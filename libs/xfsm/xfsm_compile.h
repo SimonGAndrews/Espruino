@@ -13,7 +13,19 @@
 
 #include "jsvar.h"
 
+/*
+ * Compile the XState configuration and options passed to createMachine(). The
+ * returned XFSM machine owns its compiled data block and the JavaScript values
+ * used by it. On failure no partial machine is returned and an XFSM error is
+ * raised. Input arguments remain owned by the caller; a result is returned
+ * locked in the normal Espruino C API style.
+ */
 JsVar *xfcCompileMachine(JsVar *config, JsVar *options);
+
+/*
+ * Wrap an assign function or property map for use in createMachine(). The
+ * input remains owned by the caller. A result is returned locked.
+ */
 JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment);
 
 #endif

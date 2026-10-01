@@ -15,8 +15,16 @@
 
 #include "jsvar.h"
 
+/*
+ * Create an actor with its own state and context for a compiled machine. Input
+ * arguments remain owned by the caller; a result is returned locked.
+ */
 JsVar *xfcCreateActor(JsVar *machine, JsVar *options);
 
+/*
+ * Hidden type markers distinguish XFSM machines and assign descriptors from
+ * ordinary JavaScript objects. Creating a marker may allocate a hidden token.
+ */
 bool xfcBrandMachine(JsVar *machine);
 bool xfcIsMachine(JsVar *machine);
 bool xfcBrandAssignment(JsVar *descriptor);

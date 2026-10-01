@@ -22,9 +22,25 @@
 #include <limits.h>
 #include <string.h>
 
+/*
+ * Compiles Profile 1 machine definitions.
+ *
+ * Input is the standard XState configuration and options passed to
+ * createMachine(). Output is an XFSM machine containing a fixed compiled data
+ * block and the JavaScript actions, guards, assignments, and context values
+ * used by that data. This module does not execute those functions.
+ *
+ * createMachine() uses two passes. The first checks the configuration, resolves
+ * state targets, builds the symbol and retained-value lists, and counts the
+ * required records. The second writes the records into one exact-sized native
+ * data block. The machine is returned only after that data has been checked.
+ * xfcCompileMachine() releases all temporary JsVar locks on success or failure.
+ */
+/* Keep error detail short and reserve spare JsVars to report the error. */
 #define XFC_DIAGNOSTIC_DETAIL_MAX 48U
 #define XFC_DIAGNOSTIC_RESERVE_BLOCKS 32U
 
+/* Field positions in the initial, allocation-heavy per-state metadata array. */
 enum {
   XFC_META_CONFIG = 0,
   XFC_META_KEY,
@@ -35,6 +51,7 @@ enum {
   XFC_META_FIELD_COUNT
 };
 
+/* GC-owned values retained after numeric state metadata is compacted. */
 enum {
   XFC_STATE_OWNER_CONFIG = 0,
   XFC_STATE_OWNER_KEY,
@@ -42,17 +59,20 @@ enum {
   XFC_STATE_OWNER_FIELD_COUNT
 };
 
+/* Both passes read the same checked configuration in the same order. */
 enum {
   XFC_COMPILE_COUNT = 0,
   XFC_COMPILE_EMIT = 1
 };
 
+/* State types supported by the single-active-branch Profile 1 engine. */
 typedef enum {
   XFC_NODE_ATOMIC = 0,
   XFC_NODE_COMPOUND = 1,
   XFC_NODE_FINAL = 2
 } XfcNodeType;
 
+/* Errors that createMachine() can report with a configuration path. */
 typedef enum {
   XFC_DIAG_NONE = 0,
   XFC_DIAG_CONFIG_TYPE,
@@ -70,6 +90,7 @@ typedef enum {
   XFC_DIAG_INTERNAL
 } XfcDiagnostic;
 
+/* Record counts and total string bytes calculated by the first pass. */
 typedef struct {
   uint32_t states;
   uint32_t symbols;
@@ -79,11 +100,15 @@ typedef struct {
   uint32_t actions;
   uint32_t assignments;
   uint32_t assignment_entries;
-  uint32_t string_bytes;
+  uint32_t string_bytes; /* Sum of symbol byte lengths, without NULs. */
 } XfcCompileCounts;
 
+/*
+ * Second-pass view of the locked output data block. Each cursor is the next
+ * record index in its table; states and symbols are written by known indexes.
+ */
 typedef struct {
-  uint8_t *bytes;
+  uint8_t *bytes; /* Valid while the output data block remains locked. */
   XfcArenaHeader header;
   uint16_t handler;
   uint16_t transition;
@@ -93,28 +118,34 @@ typedef struct {
   uint16_t assignment_entry;
 } XfcArenaWriter;
 
+/* Four-byte state lookup record used only while compiling the machine. */
 typedef struct {
-  uint16_t parent;
+  uint16_t parent; /* State index, or XFC_INDEX_NONE for the root. */
   uint8_t depth;
-  uint8_t type;
+  uint8_t type; /* XfcNodeType value used only during compilation. */
 } XfcCompilerStateRecord;
 
+/*
+ * Working data for one createMachine() call. Each JsVar field is kept locked
+ * until xfcCompileMachine() finishes. Values in retained are also attached to
+ * the completed machine so its actions and guards remain available.
+ */
 typedef struct {
-  int phase;
+  int phase; /* XFC_COMPILE_COUNT or XFC_COMPILE_EMIT. */
   XfcCompileCounts counts;
-  XfcArenaWriter *writer;
-  JsVar *states;
-  JsVar *state_records;
-  bool states_compact;
-  JsVar *symbols;
-  JsVar *retained;
-  JsVar *actions_map;
-  JsVar *guards_map;
+  XfcArenaWriter *writer; /* Non-NULL only during the emit pass. */
+  JsVar *states; /* Full metadata, then config/key/ID entries for each state. */
+  JsVar *state_records; /* Compact numeric state lookup data. */
+  bool states_compact; /* True after switching to compact state data. */
+  JsVar *symbols; /* [text, roleFlags] entries in fixed index order. */
+  JsVar *retained; /* Functions and values kept alive by the machine. */
+  JsVar *actions_map; /* Locked options.actions implementation map. */
+  JsVar *guards_map;  /* Locked options.guards implementation map. */
   uint8_t context_kind;
-  uint16_t context_slot;
-  XfcDiagnostic diagnostic;
-  JsVar *error_path;
-  JsVar *error_detail;
+  uint16_t context_slot; /* Index in retained, or XFC_INDEX_NONE. */
+  XfcDiagnostic diagnostic; /* The first error found. */
+  JsVar *error_path;   /* Location in config or options. */
+  JsVar *error_detail; /* Optional value or short explanation. */
 } XfcCompiler;
 
 static const char *const xfcDiagnosticNames[] = {
@@ -125,6 +156,8 @@ static const char *const xfcDiagnosticNames[] = {
     "E_ID_DUPLICATE",          "E_ACTION_UNRESOLVED",
     "E_GUARD_UNRESOLVED",      "E_LIMIT_EXCEEDED",
     "E_NO_MEMORY",             "E_INTERNAL"};
+
+/* JavaScript value, string, path, and diagnostic helpers. */
 
 static bool xfcIsObject(const JsVar *value) {
   return value && jsvIsObject(value) && !jsvIsArray(value) &&
@@ -357,6 +390,7 @@ static JsVar *xfcPathIndex(JsVar *base, JsVarInt index) {
 static void xfcFail(XfcCompiler *compiler, XfcDiagnostic diagnostic,
                     JsVar *path, JsVar *detail) {
   JsVar *bounded_detail = 0;
+  /* Keep the first error and its most useful configuration location. */
   if (compiler->diagnostic != XFC_DIAG_NONE) return;
   if (!path && diagnostic != XFC_DIAG_NO_MEMORY) {
     compiler->diagnostic = XFC_DIAG_NO_MEMORY;
@@ -436,6 +470,8 @@ static bool xfcIncrement(XfcCompiler *compiler, uint32_t *value,
   return false;
 }
 
+/* Build the symbol and retained-value lists used by compiled records. */
+
 static int xfcFindRetained(XfcCompiler *compiler, JsVar *value) {
   JsVarInt length = jsvGetArrayLength(compiler->retained);
   JsVarInt index;
@@ -453,6 +489,7 @@ static uint16_t xfcRetain(XfcCompiler *compiler, JsVar *value,
   int found = xfcFindRetained(compiler, value);
   JsVarInt length;
   if (found >= 0) return (uint16_t)found;
+  /* The second pass must reuse slots created by the first pass. */
   if (compiler->phase == XFC_COMPILE_EMIT) {
     xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
     return XFC_INDEX_NONE;
@@ -521,6 +558,7 @@ static uint16_t xfcInternSymbol(XfcCompiler *compiler, JsVar *value,
     jsvUnLock(entry);
     return (uint16_t)found;
   }
+  /* A new symbol here means the two compiler passes do not match. */
   if (compiler->phase == XFC_COMPILE_EMIT) {
     xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
     return XFC_INDEX_NONE;
@@ -550,6 +588,8 @@ static uint16_t xfcInternSymbol(XfcCompiler *compiler, JsVar *value,
   compiler->counts.string_bytes += (uint32_t)length;
   return (uint16_t)(compiler->counts.symbols - 1);
 }
+
+/* Read state information before and after it is made compact. */
 
 static JsVar *xfcMetaGet(JsVar *meta, int field) {
   return jsvGetArrayItem(meta, (JsVarInt)field);
@@ -633,6 +673,8 @@ static int xfcStateTypeValue(XfcCompiler *compiler, uint16_t index) {
   XfcCompilerStateRecord record;
   return xfcStateRecord(compiler, index, &record) ? (int)record.type : -1;
 }
+
+/* Check supported configuration properties and discover the state hierarchy. */
 
 static bool xfcKeyInList(JsVar *key, const char *const *names,
                          size_t name_count) {
@@ -1197,13 +1239,17 @@ done:
   return ok;
 }
 
+/*
+ * Replace the larger per-state metadata arrays with compact numeric records.
+ * Keep each state's configuration, key, and ID in a small owner array so the
+ * garbage collector can still reach them. Switch only after the copy succeeds.
+ */
 static bool xfcCompactStateMetadata(XfcCompiler *compiler) {
   JsVar *owners = 0;
   JsVar *records = 0;
   JsVarInt state_count = jsvGetArrayLength(compiler->states);
   JsVarInt index;
   size_t byte_length;
-  /* Keep JS values rooted, but move numeric state metadata out of JsVar arrays. */
   if (state_count <= 0 ||
       (size_t)state_count > UINT_MAX / sizeof(XfcCompilerStateRecord)) {
     xfcFail(compiler, XFC_DIAG_LIMIT_EXCEEDED, 0, 0);
@@ -1269,6 +1315,10 @@ done:
   return false;
 }
 
+/*
+ * Check and index the complete state hierarchy once. Parents are indexed before
+ * children so later passes can walk upward using only parent indexes.
+ */
 static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
                                JsVar *config_path) {
   JsVar *root_id = 0;
@@ -1291,6 +1341,7 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
   }
   jsvUnLock(root_id);
 
+  /* Children are added to this work list after their parent has an index. */
   for (state_index = 0;
        state_index < jsvGetArrayLength(compiler->states) &&
        compiler->diagnostic == XFC_DIAG_NONE;
@@ -1359,6 +1410,8 @@ static bool xfcEnumerateStates(XfcCompiler *compiler, JsVar *config,
   return compiler->diagnostic == XFC_DIAG_NONE;
 }
 
+/* Resolve state targets and calculate each transition's exit/entry boundary. */
+
 static uint16_t xfcFindDirectChild(XfcCompiler *compiler,
                                    uint16_t parent_index, JsVar *key) {
   JsVarInt length = (JsVarInt)compiler->counts.states;
@@ -1409,6 +1462,12 @@ static uint16_t xfcTransitionDomain(XfcCompiler *compiler, uint16_t source,
                                     uint16_t target, bool reenter) {
   int candidate;
   int steps = 0;
+  /*
+   * The domain is the boundary that the runtime exits and then re-enters.
+   * Non-reentering descendant transitions keep their source active; all other
+   * targeted transitions use the deepest proper common ancestor of source and
+   * target, or the outside-root sentinel when no such state exists.
+   */
   if (target == XFC_INDEX_NONE) return XFC_INDEX_NONE;
   if (!reenter && xfcStateIsDescendantOrSelf(compiler, target, source))
     return source;
@@ -1507,6 +1566,11 @@ static bool xfcResolveDescendantPath(XfcCompiler *compiler, uint16_t base,
   return true;
 }
 
+/*
+ * Resolve XState-style absolute, child-relative, and sibling-relative target
+ * strings. A literal key containing punctuation wins over segmented parsing
+ * unless both interpretations resolve to different states, which is rejected.
+ */
 static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
                                  JsVar *target, JsVar *path) {
   uint16_t resolved = XFC_INDEX_NONE;
@@ -1527,6 +1591,7 @@ static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
     first = jsvStringIteratorGetChar(&iterator);
     jsvStringIteratorFree(&iterator);
   }
+  /* #id paths are absolute; dotted and bare paths are hierarchy-relative. */
   if (first == '#') {
     size_t position = 1;
     JsVar *id = 0;
@@ -1559,6 +1624,7 @@ static uint16_t xfcResolveTarget(XfcCompiler *compiler, uint16_t source,
       resolved = exact;
       goto target_resolved;
     }
+    /* Preserve punctuation in literal keys unless the spelling is ambiguous. */
     if (!has_escape && exact != XFC_INDEX_NONE &&
         segmented != XFC_INDEX_NONE && exact != segmented) {
       xfcFail(compiler, XFC_DIAG_TARGET_AMBIGUOUS, path, target);
@@ -1592,6 +1658,8 @@ target_resolved:
     xfcFail(compiler, XFC_DIAG_TARGET_UNKNOWN, path, target);
   return resolved;
 }
+
+/* Convert actions, guards, transitions, and states into compiled records. */
 
 static bool xfcWriteRecord(XfcArenaWriter *writer, uint16_t table,
                            uint16_t index, const void *record,
@@ -1635,6 +1703,10 @@ done:
   return valid;
 }
 
+/*
+ * Compile assign(function) or assign(propertyMap). JavaScript functions and
+ * values stay in the retained-value list; compiled records contain indexes.
+ */
 static bool xfcCompileAssignment(XfcCompiler *compiler, JsVar *assignment,
                                  JsVar *path, uint16_t *assignment_index) {
   XfcAssignmentRecord record;
@@ -1650,6 +1722,7 @@ static bool xfcCompileAssignment(XfcCompiler *compiler, JsVar *assignment,
   memset(&record, 0, sizeof(record));
   record.retained_slot = XFC_INDEX_NONE;
   record.entries.first = XFC_INDEX_NONE;
+  /* Keep JavaScript values in retained slots; compiled data stores indexes. */
   if (jsvIsFunction(assignment)) {
     record.kind = XFC_ASSIGN_PARTIAL;
     record.retained_slot = xfcRetain(compiler, assignment, path);
@@ -1734,6 +1807,7 @@ static bool xfcCompileOneAction(XfcCompiler *compiler, JsVar *action,
   uint16_t action_index;
   memset(&record, 0, sizeof(record));
 
+  /* Convert inline, named, descriptor, and assign forms to one record. */
   if (jsvIsFunction(action)) {
     record.kind = XFC_ACTION_USER;
     record.reference = xfcRetain(compiler, action, path);
@@ -1904,6 +1978,10 @@ static bool xfcReadReenter(XfcCompiler *compiler, JsVar *descriptor,
   return compiler->diagnostic == XFC_DIAG_NONE;
 }
 
+/*
+ * Compile one transition choice, including v4 aliases, and store its
+ * resolved target and domain so dispatch performs no hierarchy path search.
+ */
 static bool xfcCompileTransition(XfcCompiler *compiler, uint16_t source,
                                  JsVar *candidate, JsVar *path) {
   static const char *const allowed[] = {
@@ -2217,6 +2295,10 @@ done:
   return ok && compiler->diagnostic == XFC_DIAG_NONE;
 }
 
+/*
+ * Compile one state in fixed index order. The first pass counts its records;
+ * the second pass writes the same records into the allocated data block.
+ */
 static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   JsVar *configuration =
       xfcStateGet(compiler, state_index, XFC_META_CONFIG);
@@ -2379,6 +2461,8 @@ static bool xfcCompileContext(XfcCompiler *compiler, JsVar *config,
   return compiler->diagnostic == XFC_DIAG_NONE;
 }
 
+/* Lay out the compiled data block, check it, and create the machine object. */
+
 static bool xfcBuildHeader(XfcCompiler *compiler, XfcArenaHeader *header) {
   static const uint16_t sizes[XFC_TABLE_COUNT] = {
       (uint16_t)sizeof(XfcStateRecord),
@@ -2410,6 +2494,7 @@ static bool xfcBuildHeader(XfcCompiler *compiler, XfcArenaHeader *header) {
   header->retained_count =
       (uint16_t)jsvGetArrayLength(compiler->retained);
   header->context_kind = compiler->context_kind;
+  /* Write tables in the fixed format order with zero-filled 4-byte padding. */
   for (table = 0; table < XFC_TABLE_COUNT; table++) {
     uint32_t bytes;
     header->tables[table].count = (uint16_t)counts[table];
@@ -2476,6 +2561,7 @@ static bool xfcWriterComplete(const XfcArenaWriter *writer) {
              writer->header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].count;
 }
 
+/* Attach the compiled data, retained values, and hidden machine marker. */
 static JsVar *xfcPublishMachine(XfcCompiler *compiler, JsVar *arena) {
   JsVar *machine = jsvNewObject();
   if (!machine ||
@@ -2490,6 +2576,7 @@ static JsVar *xfcPublishMachine(XfcCompiler *compiler, JsVar *arena) {
   return machine;
 }
 
+/* Top-level createMachine() implementation and shared cleanup path. */
 JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
   XfcCompiler compiler;
   XfcArenaWriter writer;
@@ -2516,6 +2603,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
     xfcFail(&compiler, XFC_DIAG_CONFIG_TYPE, config_path, 0);
     goto done;
   }
+  /* Phase 1 checks, resolves, retains, and counts without an output block. */
   if (!xfcValidateOptions(&compiler, options, options_path) ||
       !xfcEnumerateStates(&compiler, config, config_path) ||
       !xfcCompactStateMetadata(&compiler) ||
@@ -2527,6 +2615,7 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
     xfcFail(&compiler, XFC_DIAG_LIMIT_EXCEEDED, config_path, 0);
     goto done;
   }
+  /* Phase 2 owns one exact-size block; all table writes stay within it. */
   arena = xfcTestTakeFault(XFC_TEST_FAULT_COMPILE_ARENA)
               ? 0
               : jsvNewFlatStringOfLength(
@@ -2556,10 +2645,12 @@ JsVar *xfcCompileMachine(JsVar *config, JsVar *options) {
     xfcFail(&compiler, XFC_DIAG_INTERNAL, config_path, 0);
     goto done;
   }
+  /* Create the machine object only after the compiled data passes its check. */
   machine = xfcPublishMachine(&compiler, arena);
   xfcMeasureMemorySample();
 
 done:
+  /* Release every temporary JavaScript value on success and failure. */
   if (!machine && compiler.diagnostic == XFC_DIAG_NONE)
     xfcFail(&compiler, XFC_DIAG_INTERNAL, config_path, 0);
   if (!machine) xfcThrowFailure(&compiler);
@@ -2578,6 +2669,11 @@ done:
   return machine;
 }
 
+/*
+ * Add the hidden assign marker without running the assignment. Property maps
+ * containing getters are rejected so createMachine() cannot call user code
+ * while reading them.
+ */
 JsVar *xfcCreateAssignmentDescriptor(JsVar *assignment) {
   JsVar *descriptor = 0;
   bool valid = jsvIsFunction(assignment) || xfcIsObject(assignment);

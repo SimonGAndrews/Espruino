@@ -15,20 +15,30 @@
 #include <limits.h>
 #include <string.h>
 
+/*
+ * Stores measurements for XFSM test builds. The compiler and actor runtime
+ * call the sampling functions at known points so tests can measure peak JsVar
+ * use and C stack use. Normal firmware does not expose these measurements.
+ */
 typedef struct {
+  /* Extra JsVar blocks used while createMachine() is running. */
   unsigned int construction_base_blocks;
   unsigned int construction_peak_blocks;
   unsigned int construction_end_blocks;
   unsigned int diagnostic_peak_blocks;
+  /* Free C stack at the start and lowest measured point of an actor call. */
   size_t operation_base_free;
   size_t operation_min_free;
+  /* Optional extra JsVar blocks used during an actor call. */
   unsigned int operation_base_blocks;
   unsigned int operation_peak_blocks;
   unsigned int operation_end_blocks;
   unsigned int maximum_operation_peak_blocks;
+  /* Results for the last actor call and the highest result seen. */
   size_t last_stack_bytes;
   size_t maximum_stack_bytes;
   unsigned int last_operation;
+  /* Sampling state and whether actor JsVar sampling was requested. */
   bool construction_active;
   bool operation_active;
   bool operation_memory;
@@ -77,6 +87,7 @@ void xfcMeasureOperationBegin(unsigned int operation) {
   xfcMeasurements.operation_end_blocks = 0;
   xfcMeasurements.last_stack_bytes = 0;
   xfcMeasurements.last_operation = operation;
+  /* Platforms without a free-stack reading simply disable operation samples. */
   xfcMeasurements.operation_active = free_stack != SIZE_MAX;
 }
 

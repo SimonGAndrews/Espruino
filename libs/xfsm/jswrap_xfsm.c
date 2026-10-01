@@ -8,7 +8,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * ----------------------------------------------------------------------------
- * JavaScript interface for the XFSM native state-machine engine
+ * JavaScript interface for the XFSM native state-machine engine.
+ *
+ * Espruino's wrapper generator reads the JSON declarations in this file. Each
+ * function passes the call directly to the XFSM compiler or actor runtime.
  * ----------------------------------------------------------------------------
  */
 

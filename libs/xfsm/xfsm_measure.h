@@ -15,14 +15,21 @@
 
 #include "jsvar.h"
 
+/*
+ * Resource measurements used by XFSM test builds. Normal builds replace the
+ * sampling calls with no-ops and do not expose the result functions.
+ */
 #ifdef XFC_MEASURE
 
+/* Start, sample, and finish createMachine() memory measurement. */
 void xfcMeasureConstructionBegin(void);
 void xfcMeasureMemorySample(void);
 void xfcMeasureConstructionEnd(bool failed);
+/* Start, sample, and finish one actor-operation measurement. */
 void xfcMeasureOperationBegin(unsigned int operation);
 void xfcMeasureStackSample(void);
 void xfcMeasureOperationEnd(void);
+/* Return the measurements through private test-only JavaScript methods. */
 JsVar *xfcMeasureGet(bool reset, bool operation_memory);
 int xfcMeasureMemoryUsage(void);
 

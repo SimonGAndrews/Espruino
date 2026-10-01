@@ -13,6 +13,10 @@
 
 #include "jsvar.h"
 
+/*
+ * C entry points exposed by require("XFSM"). Machine compilation and actor
+ * behaviour are implemented in xfsm_compile.c and xfsm_runtime.c.
+ */
 JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options);
 JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options);
 JsVar *jswrap_xfsm_assign(JsVar *assignment);

@@ -20,27 +20,50 @@
 
 #include <string.h>
 
+/*
+ * Implements createActor() and the Profile 1 actor methods.
+ *
+ * A compiled machine is fixed and can be shared by several actors. Each actor
+ * has its own current state, context reference, cached snapshot, subscriptions,
+ * and saved error. A pointer into compiled machine data is used only while its
+ * Espruino string remains locked, and is refreshed after calling JavaScript.
+ * Actor data remains owned by Espruino rather than a separate native memory
+ * allocation.
+ *
+ * Each actor operation runs synchronously in these steps:
+ *
+ *   open/validate -> prepare -> execute microsteps -> publish -> notify
+ *
+ * Engine-owned context and state are published only after execution succeeds.
+ * An action, guard, or context-factory failure faults the actor. Subscriber
+ * failures are reported only after the already-committed snapshot has been
+ * delivered to all eligible listeners.
+ */
+/* Maximum transitions processed by one start() or send() operation. */
 #define XFC_MAX_MICROSTEPS UINT16_C(256)
 
 #ifndef XFC_STACK_RESERVE
+/* C stack reserved for the XFSM transition coordinator. */
 #define XFC_STACK_RESERVE 1024U
 #endif
 
+/* Leave this additional stack space for the surrounding Espruino call. */
 #define XFC_ESPRUINO_STACK_SAFETY 512U
 
 typedef struct {
-  JsVar *arena;
-  JsVar *retained;
-  const uint8_t *bytes;
-  size_t length;
-  XfcArenaHeader header;
+  JsVar *arena;    /* Locked owner of bytes for the view lifetime. */
+  JsVar *retained; /* Locked array of callbacks and retained literals. */
+  const uint8_t *bytes; /* Borrowed; refresh after executing JavaScript. */
+  size_t length;        /* Current arena flat-string length in bytes. */
+  XfcArenaHeader header; /* Copied header, never a typed arena pointer. */
 } XfcRuntimeView;
 
+/* Temporary C data used during one actor method call. */
 typedef struct {
-  JsVar *actor;
-  JsVar *machine;
-  XfcRuntimeView view;
-  XfcActorData data;
+  JsVar *actor;   /* Actor passed to the current native method. */
+  JsVar *machine; /* Locked hidden child shared by this actor. */
+  XfcRuntimeView view; /* Locked machine storage and borrowed bytes. */
+  XfcActorData data;   /* Working copy committed through data storage. */
 } XfcRuntime;
 
 static JsVar *xfcActorStart(JsVar *actor);
@@ -50,6 +73,8 @@ static JsVar *xfcActorGetSnapshot(JsVar *actor);
 static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments);
 static bool xfcSnapshotMatches(JsVar *snapshot, JsVar *value);
 static void xfcSubscriptionUnsubscribe(JsVar *subscription);
+
+/* Hidden XFSM type markers, shared method objects, and object helpers. */
 
 static bool xfcIsPlainObject(JsVar *value) {
   return value && jsvIsObject(value) && !jsvIsArray(value);
@@ -162,6 +187,8 @@ static bool xfcAttachPrototype(JsVar *object, const char *root_name) {
   return ok;
 }
 
+/* Save JavaScript exceptions so native cleanup can finish before rethrowing. */
+
 static void xfcNoMemory(const char *path) {
   jsExceptionHere(JSET_ERROR, "XFC E_NO_MEMORY @ %s", path);
 }
@@ -182,6 +209,10 @@ static void xfcReceiverInvalid(const char *path) {
   jsExceptionHere(JSET_TYPEERROR, "XFC E_RECEIVER_INVALID @ %s", path);
 }
 
+/*
+ * Save the pending exception and clear EXEC_EXCEPTION so cleanup can continue.
+ * A hidden token preserves the special case of JavaScript `throw undefined`.
+ */
 static bool xfcTakeException(JsVar **exception) {
   if ((execInfo.execute & EXEC_EXCEPTION) == 0) return false;
   *exception = jspGetException();
@@ -205,7 +236,10 @@ static void xfcRaise(JsVar *exception) {
     jspSetException(xfcIsUndefinedException(exception) ? 0 : exception);
 }
 
+/* Access to compiled machine data and actor data during one method call. */
+
 static bool xfcRefreshView(XfcRuntimeView *view) {
+  /* A JS callback may move GC storage, so refresh before arena reads. */
   if (!view || !jsvIsString(view->arena)) return false;
   view->length = jsvGetStringLength(view->arena);
   view->bytes = (const uint8_t *)jsvGetFlatStringPointer(view->arena);
@@ -323,6 +357,10 @@ static JsVar *xfcSymbolString(const XfcRuntimeView *view, uint16_t index) {
   return jsvNewStringOfLength(symbol.byte_length, (const char *)bytes);
 }
 
+/*
+ * Lock a machine's compiled data and retained-value list. createActor() checks
+ * the whole data block; later actor calls still check each record read.
+ */
 static bool xfcOpenMachine(JsVar *machine, XfcRuntimeView *view,
                            bool full_validation) {
   memset(view, 0, sizeof(*view));
@@ -366,10 +404,15 @@ static void xfcWriteActorData(JsVar *storage, const XfcActorData *data) {
   if (bytes) memcpy(bytes, data, sizeof(*data));
 }
 
+/*
+ * Check and lock the machine data needed by one actor operation. data_storage
+ * keeps the actor's flat string alive while runtime->data is its working copy.
+ */
 static bool xfcOpenActor(JsVar *actor, const char *method, XfcRuntime *runtime,
                          JsVar **data_storage) {
   memset(runtime, 0, sizeof(*runtime));
   *data_storage = 0;
+  /* Hold machine, arena, retained array, and mutable data together. */
   if (!xfcHasBrand(actor, XFC_ACTOR_BRAND_NAME, XFC_ROOT_ACTOR_TOKEN)) {
     xfcActorInvalid(method);
     return false;
@@ -429,12 +472,15 @@ static bool xfcBeginOperation(XfcRuntime *runtime, JsVar *storage,
                     "XFC E_LIMIT_EXCEEDED @ actor.%s: stack", method);
     return false;
   }
+  /* Persist busy before invoking JS so reentrant actor calls are rejected. */
   runtime->data.operation = operation;
   runtime->data.microsteps = 0;
   xfcWriteActorData(storage, &runtime->data);
   xfcMeasureOperationBegin(operation);
   return true;
 }
+
+/* Call actions and guards, and build updated context objects. */
 
 static JsVar *xfcRetained(const XfcRuntimeView *view, uint16_t index) {
   if (index == XFC_INDEX_NONE ||
@@ -478,6 +524,11 @@ static bool xfcCopyProperties(JsVar *target, JsVar *source, JsVar **error) {
   return ok;
 }
 
+/*
+ * Build the result of one assign without changing the current context first.
+ * On success *context is replaced; on failure the old context stays selected.
+ * Every property expression sees the context from before this assign.
+ */
 static bool xfcExecuteAssignment(XfcRuntime *runtime,
                                  const XfcAssignmentRecord *assignment,
                                  JsVar **context, JsVar *event,
@@ -559,6 +610,10 @@ done:
   return ok;
 }
 
+/*
+ * Execute an action range in its declared order. User-action return values are
+ * ignored; assignments replace the context used by following actions.
+ */
 static bool xfcExecuteActions(XfcRuntime *runtime, XfcRange range,
                               JsVar **context, JsVar *event,
                               bool *context_changed, JsVar **error) {
@@ -619,6 +674,8 @@ static JsVar *xfcInternalEventFromSymbol(XfcRuntimeView *view,
   return event;
 }
 
+/* Select and execute transitions for the single active state branch. */
+
 static bool xfcBeginMicrostep(XfcRuntime *runtime, JsVar **error) {
   const char *method = runtime->data.operation == XFC_OPERATION_START
                            ? "start"
@@ -633,6 +690,10 @@ static bool xfcBeginMicrostep(XfcRuntime *runtime, JsVar **error) {
   return true;
 }
 
+/*
+ * Follow compound initial indexes until an atomic or final leaf is reached.
+ * The two booleans suppress actions on a target already entered by its caller.
+ */
 static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
                               bool enter_state, bool run_initial_actions,
                               JsVar **context,
@@ -641,6 +702,7 @@ static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
   XfcStateRecord state;
   uint16_t steps = 0;
   xfcMeasureStackSample();
+  /* Enter each compound state, run its initial actions, then follow initial. */
   while (steps++ <= XFC_MAX_STATE_DEPTH) {
     if (!xfcRefreshView(&runtime->view) ||
         !xfcReadState(&runtime->view, state_index, &state)) {
@@ -714,6 +776,11 @@ static bool xfcSelectFromRange(XfcRuntime *runtime, XfcRange range,
   return true;
 }
 
+/*
+ * Search the active leaf-to-root chain. For each state, test exact candidates
+ * then wildcard candidates in declaration order and stop at the first enabled
+ * transition.
+ */
 static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
                                 uint32_t event_hash, JsVar *context,
                                 JsVar *event,
@@ -723,6 +790,7 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
   uint16_t depth = 0;
   xfcMeasureStackSample();
   *found = false;
+  /* Leaf handlers take priority; bubble to ancestors only when none enable. */
   while (state_index != XFC_INDEX_NONE && depth++ <= XFC_MAX_STATE_DEPTH) {
     XfcStateRecord state;
     uint16_t handler_offset;
@@ -744,6 +812,7 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
                                        event_type, event_hash))
         exact = handler.transitions;
     }
+    /* Within one state, exact candidates precede wildcard candidates. */
     if (exact.count != 0) {
       bool ok = xfcSelectFromRange(runtime, exact, context, event, selected,
                                    found, error);
@@ -759,6 +828,11 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
   return true;
 }
 
+/*
+ * Run exit actions, transition actions, and entry actions using the transition
+ * boundary calculated by createMachine(). The fixed path array reverses the
+ * upward target walk into the required parent-to-child entry order.
+ */
 static bool xfcExecuteTransition(XfcRuntime *runtime,
                                  const XfcTransitionRecord *transition,
                                  JsVar **context, JsVar *event,
@@ -770,10 +844,12 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   uint16_t path_count = 0;
   uint16_t target;
   xfcMeasureStackSample();
+  /* Targetless transitions run actions without changing the active branch. */
   if (transition->target_state == XFC_INDEX_NONE)
     return xfcExecuteActions(runtime, transition->actions, context, event,
                              context_changed, error);
 
+  /* Exit leaf-to-domain, run transition actions, then enter toward target. */
   current = *leaf;
   while (current != transition->domain_state) {
     if (!xfcRefreshView(&runtime->view) ||
@@ -812,6 +888,7 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   return true;
 }
 
+/* Exit the complete active branch and mark the root machine done. */
 static bool xfcCompleteActor(XfcRuntime *runtime, JsVar **context,
                              JsVar *event, bool *context_changed,
                              uint16_t leaf, JsVar **error) {
@@ -835,6 +912,10 @@ static bool xfcCompleteActor(XfcRuntime *runtime, JsVar **context,
   return true;
 }
 
+/*
+ * Repeatedly process final-state completion until stable, targetless, or done.
+ * Each selected completion consumes the same operation's microstep budget.
+ */
 static bool xfcProcessCompletions(XfcRuntime *runtime, JsVar **context,
                                   JsVar *cause_event,
                                   bool *context_changed, uint16_t *leaf,
@@ -910,6 +991,8 @@ static bool xfcProcessCompletions(XfcRuntime *runtime, JsVar **context,
   return ok;
 }
 
+/* Cached snapshots, actor errors, and subscriptions. */
+
 static void xfcInvalidateSnapshot(JsVar *actor) {
   jsvObjectRemoveChild(actor, XFC_ACTOR_SNAPSHOT_NAME);
 }
@@ -939,6 +1022,7 @@ static void xfcClearSubscriptions(JsVar *actor) {
 }
 
 static void xfcFault(XfcRuntime *runtime, JsVar *storage, JsVar *error) {
+  /* Fault is terminal and invalidates externally observable cached state. */
   runtime->data.status = XFC_ACTOR_ERROR;
   runtime->data.operation = XFC_OPERATION_IDLE;
   runtime->data.microsteps = 0;
@@ -956,6 +1040,7 @@ static const char *xfcStatusName(uint8_t status) {
   return status <= XFC_ACTOR_ERROR ? names[status] : "error";
 }
 
+/* Build the XState string or nested-object state value from the active leaf. */
 static JsVar *xfcStateValue(XfcRuntimeView *view, uint16_t leaf) {
   uint16_t chain[XFC_MAX_STATE_DEPTH + 1];
   uint16_t count = 0;
@@ -997,6 +1082,7 @@ static JsVar *xfcStateValue(XfcRuntimeView *view, uint16_t leaf) {
   return value;
 }
 
+/* Build the public snapshot for the actor's current stable state. */
 static JsVar *xfcCreateSnapshot(XfcRuntime *runtime, JsVar *context) {
   JsVar *snapshot = 0;
   JsVar *value = 0;
@@ -1035,6 +1121,7 @@ done:
   return snapshot;
 }
 
+/* Return the cached stable snapshot, creating and caching it when absent. */
 static JsVar *xfcMaterializeSnapshot(XfcRuntime *runtime) {
   JsVar *snapshot =
       jsvObjectGetChildIfExists(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME);
@@ -1053,6 +1140,10 @@ static JsVar *xfcMaterializeSnapshot(XfcRuntime *runtime) {
   return snapshot;
 }
 
+/*
+ * Create any snapshot needed by subscribers before changing visible actor
+ * state. No snapshot is needed when there are no active subscribers.
+ */
 static bool xfcPrepareNotification(XfcRuntime *runtime, JsVar *context,
                                    bool changed, JsVar **snapshot,
                                    bool *cache_snapshot, JsVar **error) {
@@ -1079,10 +1170,15 @@ static bool xfcPrepareNotification(XfcRuntime *runtime, JsVar *context,
   return false;
 }
 
+/*
+ * Make the prepared snapshot, context, and actor state visible. If this fails,
+ * xfcFault() removes the partly published snapshot and marks the actor failed.
+ */
 static bool xfcCommitPublication(XfcRuntime *runtime, JsVar *storage,
                                  JsVar *context, bool publish_context,
                                  bool changed, JsVar *snapshot,
                                  bool cache_snapshot, JsVar **error) {
+  /* This is the operation's commit point for context, state, and snapshot. */
   if (cache_snapshot &&
       jsvObjectSetChild(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME, snapshot) !=
           snapshot) {
@@ -1102,6 +1198,11 @@ static bool xfcCommitPublication(XfcRuntime *runtime, JsVar *storage,
   return true;
 }
 
+/*
+ * Notify the subscribers that existed when notification started. All eligible
+ * listeners run even if one throws. The first error is rethrown after the actor
+ * returns to idle.
+ */
 static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage,
                         JsVar *snapshot) {
   xfcMeasureStackSample();
@@ -1124,6 +1225,7 @@ static JsVar *xfcNotify(XfcRuntime *runtime, JsVar *storage,
   }
   runtime->data.operation = XFC_OPERATION_NOTIFY;
   xfcWriteActorData(storage, &runtime->data);
+  /* Exclude subscriptions added by callbacks during this publication. */
   publication_sequence = jsvObjectGetIntegerChildOr(
       runtime->actor, XFC_ACTOR_SUBSCRIPTION_SEQUENCE_NAME, 0);
   for (index = 0; index < length; index++) {
@@ -1166,12 +1268,14 @@ static bool xfcEventTypeReserved(JsVar *type, size_t length) {
          (length >= 8 && memcmp(prefix, "@xstate.", 8) == 0);
 }
 
+/* Accept a string or { type } event; reject reserved internal event names. */
 static bool xfcPrepareEvent(JsVar *input, JsVar **event, JsVar **type,
                             bool *allocation_failure) {
   size_t type_length = 0;
   *event = 0;
   *type = 0;
   *allocation_failure = false;
+  /* Convert a string event to the { type: string } object callbacks receive. */
   if (jsvIsString(input)) {
     *type = jsvLockAgain(input);
     *event = xfcTestTakeFault(XFC_TEST_FAULT_SEND_EVENT) ? 0 : jsvNewObject();
@@ -1213,6 +1317,12 @@ static bool xfcPrepareEvent(JsVar *input, JsVar **event, JsVar **type,
   return true;
 }
 
+/* Public actor creation and lifecycle methods. */
+
+/*
+ * Check the complete compiled machine and create separate actor storage.
+ * No context factory, action, guard, or state entry occurs at this stage.
+ */
 JsVar *xfcCreateActor(JsVar *machine, JsVar *options) {
   XfcRuntimeView view;
   JsVar *actor = 0;
@@ -1251,6 +1361,7 @@ done:
   return actor;
 }
 
+/* Establish and publish the actor's first stable state configuration. */
 static JsVar *xfcActorStart(JsVar *actor) {
   XfcRuntime runtime;
   JsVar *storage = 0;
@@ -1273,6 +1384,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
     jsExceptionHere(JSET_ERROR, "XFC E_ACTOR_STATE @ actor.start");
     goto fail;
   }
+  /* Prepare context and the init event before entering the initial branch. */
   if (!xfcBeginOperation(&runtime, storage, XFC_OPERATION_START, "start"))
     goto fail;
   if (runtime.view.header.context_kind == XFC_CONTEXT_OMITTED) {
@@ -1317,6 +1429,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
                                &leaf, &state_changed, &error))
       goto fault;
   }
+  /* Publish the first stable configuration, then notify subscribers. */
   runtime.data.operation = XFC_OPERATION_IDLE;
   runtime.data.leaf_state = leaf;
   runtime.data.microsteps = 0;
@@ -1331,6 +1444,7 @@ static JsVar *xfcActorStart(JsVar *actor) {
   if (listener_error) xfcRaise(listener_error);
   goto success;
 fault:
+  /* Startup has no prior stable configuration to restore. */
   runtime.data.leaf_state = XFC_INDEX_NONE;
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
@@ -1348,6 +1462,7 @@ success:
   return jsvLockAgain(actor);
 }
 
+/* Process and publish one synchronous external event. */
 static void xfcActorSend(JsVar *actor, JsVar *input) {
   XfcRuntime runtime;
   JsVar *storage = 0;
@@ -1385,6 +1500,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   }
   if (!xfcBeginOperation(&runtime, storage, XFC_OPERATION_SEND, "send"))
     goto done;
+  /* Invalid caller input is rejected; allocation/callback failures fault. */
   if (!xfcPrepareEvent(input, &event, &event_type, &allocation_failure)) {
     if (allocation_failure) {
       xfcTakeException(&error);
@@ -1405,6 +1521,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
     }
     goto fault;
   }
+  /* An unhandled valid event is a successful no-op operation. */
   if (found) {
     bool targeted = transition.target_state != XFC_INDEX_NONE;
     if (!xfcBeginMicrostep(&runtime, &error)) goto fault;
@@ -1441,6 +1558,7 @@ static void xfcActorSend(JsVar *actor, JsVar *input) {
   if (listener_error) xfcRaise(listener_error);
   goto done;
 fault:
+  /* Keep the last published state index; xfcFault publishes terminal error. */
   runtime.data.leaf_state = stable_leaf;
   xfcFault(&runtime, storage, error);
   xfcRaise(error);
@@ -1453,6 +1571,7 @@ done:
   jsvUnLock(runtime.machine);
 }
 
+/* Exit the active branch, publish stopped, and release subscriptions. */
 static JsVar *xfcActorStop(JsVar *actor) {
   XfcRuntime runtime;
   JsVar *storage = 0;
@@ -1474,6 +1593,7 @@ static JsVar *xfcActorStop(JsVar *actor) {
     goto success;
   if (!xfcBeginOperation(&runtime, storage, XFC_OPERATION_STOP, "stop"))
     goto fail;
+  /* Active actors exit leaf-to-root before publishing the stopped snapshot. */
   if (runtime.data.status == XFC_ACTOR_ACTIVE) {
     uint16_t current = runtime.data.leaf_state;
     XfcStateRecord state;
@@ -1527,6 +1647,7 @@ success:
   return jsvLockAgain(actor);
 }
 
+/* Return the current cached snapshot, or create it on first request. */
 static JsVar *xfcActorGetSnapshot(JsVar *actor) {
   XfcRuntime runtime;
   JsVar *storage = 0;
@@ -1538,6 +1659,11 @@ static JsVar *xfcActorGetSnapshot(JsVar *actor) {
   return snapshot;
 }
 
+/*
+ * Register one listener while the actor can still publish. Sequence numbers
+ * prevent a listener added by another listener from receiving the current
+ * notification, without copying the subscription array.
+ */
 static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments) {
   XfcRuntime runtime;
   JsVar *storage = 0;
@@ -1602,6 +1728,7 @@ static JsVar *xfcActorSubscribe(JsVar *actor, JsVar *arguments) {
   return subscription;
 }
 
+/* Detach the subscription; calling unsubscribe() again remains a safe no-op. */
 static void xfcSubscriptionUnsubscribe(JsVar *subscription) {
   JsVar *actor = 0;
   JsVar *subscriptions = 0;
@@ -1667,6 +1794,7 @@ static bool xfcSingleVisibleProperty(JsVar *object, JsVar **key,
   return true;
 }
 
+/* Match a string or nested object against the snapshot's active state path. */
 static bool xfcSnapshotMatches(JsVar *snapshot, JsVar *value) {
   JsVar *machine = 0;
   JsVar *leaf_value = 0;

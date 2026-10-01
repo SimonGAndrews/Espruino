@@ -40,6 +40,46 @@ to ease migration from older XState machine definitions.
 The detailed source of truth for supported syntax and behaviour is the
 [Xstate-fsm-c Profile 1 specification](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/specification.md).
 
+## Implementation Map
+
+The implementation is split by responsibility:
+
+- `jswrap_xfsm.c` defines the Espruino module surface and forwards calls into
+  the engine.
+- `xfsm_compile.c` validates JavaScript configuration and compiles it into an
+  immutable machine data block plus its JavaScript functions and values.
+- `xfsm_native.h` defines the compiled data format; `xfsm_native.c` checks its
+  offsets, ranges, indexes, byte order, and padding before it is used.
+- `xfsm_runtime.c` owns actor lifecycle, transition selection, ordered action
+  execution, context publication, snapshots, and subscriptions.
+- `xfsm_measure.c` and `xfsm_test.c` provide build-only resource measurement
+  and deterministic fault injection. They are absent from the normal API.
+
+The project documentation includes separate diagrams of
+[memory ownership](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/memory-ownership.md)
+and [memory lifetime](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/memory-lifetime.md).
+
+### Compiler Flow
+
+`createMachine()` checks the XState configuration and implementation options,
+indexes the state hierarchy, resolves state targets, and collects the
+JavaScript values that the machine must retain. A first pass counts the native
+records and string bytes. A second pass writes them into one exact-sized
+compiled data block. The machine object is returned only after that block has
+passed the native-format checks; a failure releases all temporary values and
+returns no partial machine.
+
+### Actor Operation Flow
+
+When `start()`, `send()`, or `stop()` has work to perform, it opens the actor and
+its compiled machine data and marks the actor busy. The runtime then selects
+and executes transitions using state indexes and bounded parent walks. Actions
+and assignments run in their declared order, followed by completion transitions
+where required. Once the operation is stable, the runtime makes the new state,
+context, and snapshot visible and then calls subscribers. Action, guard,
+context-factory, or runtime allocation failures during these operations put the
+actor into its terminal error state.
+
 ## How to Exercise XFSM
 
 This section is for developers building or verifying the library. Run these

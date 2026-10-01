@@ -15,6 +15,7 @@
 
 #include "jsvar.h"
 
+/* Allocation points covered by the private XFSM fault-injection tests. */
 typedef enum {
   XFC_TEST_FAULT_NONE = 0,
   XFC_TEST_FAULT_COMPILE_WORKSPACE,
@@ -31,6 +32,7 @@ typedef enum {
   XFC_TEST_FAULT_SUBSCRIBE
 } XfcTestFault;
 
+/* Request and consume one failure; unavailable in normal firmware. */
 #ifdef XFC_TEST
 bool xfcTestTakeFault(XfcTestFault fault);
 void xfcTestSetFault(JsVar *name);

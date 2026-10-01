@@ -14,9 +14,13 @@
 
 #include "jsparse.h"
 
+/*
+ * Implements XFSM._failNext() for allocation-failure tests. A requested fault
+ * is used once when the matching compiler or actor code is next reached.
+ */
 typedef struct {
-  const char *name;
-  XfcTestFault fault;
+  const char *name; /* JavaScript name accepted by XFSM._failNext(). */
+  XfcTestFault fault; /* Matching internal test point. */
 } XfcTestFaultName;
 
 static XfcTestFault xfcPendingFault;

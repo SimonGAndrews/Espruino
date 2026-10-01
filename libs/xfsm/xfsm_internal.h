@@ -13,13 +13,21 @@
 
 #include "jsutils.h"
 
+/*
+ * Private fields used on XFSM JavaScript objects. JS_HIDDEN_CHAR_STR keeps them
+ * out of normal property listing. Hidden type tokens distinguish genuine XFSM
+ * machines, actors, snapshots, assignments, and subscriptions.
+ */
+/* Compiled machine: data block, retained values, and type marker. */
 #define XFC_MACHINE_ARENA_NAME JS_HIDDEN_CHAR_STR "xfcA"
 #define XFC_MACHINE_RETAINED_NAME JS_HIDDEN_CHAR_STR "xfcR"
 #define XFC_MACHINE_BRAND_NAME JS_HIDDEN_CHAR_STR "xfcM"
 
+/* assign(): type marker and original function or property map. */
 #define XFC_ASSIGN_BRAND_NAME JS_HIDDEN_CHAR_STR "xfcB"
 #define XFC_ASSIGN_VALUE_NAME JS_HIDDEN_CHAR_STR "xfcV"
 
+/* Actor: machine, mutable data, context, snapshot, error, and listeners. */
 #define XFC_ACTOR_BRAND_NAME JS_HIDDEN_CHAR_STR "xfaB"
 #define XFC_ACTOR_MACHINE_NAME JS_HIDDEN_CHAR_STR "xfaM"
 #define XFC_ACTOR_DATA_NAME JS_HIDDEN_CHAR_STR "xfaD"
@@ -29,15 +37,18 @@
 #define XFC_ACTOR_SUBSCRIPTIONS_NAME JS_HIDDEN_CHAR_STR "xfaL"
 #define XFC_ACTOR_SUBSCRIPTION_SEQUENCE_NAME JS_HIDDEN_CHAR_STR "xfaN"
 
+/* Snapshot: type marker plus machine and active-leaf references. */
 #define XFC_SNAPSHOT_BRAND_NAME JS_HIDDEN_CHAR_STR "xfsB"
 #define XFC_SNAPSHOT_MACHINE_NAME JS_HIDDEN_CHAR_STR "xfsM"
 #define XFC_SNAPSHOT_LEAF_NAME JS_HIDDEN_CHAR_STR "xfsL"
 
+/* Subscription: type marker, actor, listener, and registration order. */
 #define XFC_SUBSCRIPTION_BRAND_NAME JS_HIDDEN_CHAR_STR "xfuB"
 #define XFC_SUBSCRIPTION_ACTOR_NAME JS_HIDDEN_CHAR_STR "xfuA"
 #define XFC_SUBSCRIPTION_LISTENER_NAME JS_HIDDEN_CHAR_STR "xfuL"
 #define XFC_SUBSCRIPTION_SEQUENCE_NAME JS_HIDDEN_CHAR_STR "xfuN"
 
+/* Shared hidden type tokens and method prototypes. */
 #define XFC_ROOT_MACHINE_TOKEN JS_HIDDEN_CHAR_STR "xfTM"
 #define XFC_ROOT_ASSIGN_TOKEN JS_HIDDEN_CHAR_STR "xfTD"
 #define XFC_ROOT_ACTOR_TOKEN JS_HIDDEN_CHAR_STR "xfTA"

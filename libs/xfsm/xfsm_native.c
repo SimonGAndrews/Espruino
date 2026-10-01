@@ -13,11 +13,23 @@
 #include <limits.h>
 #include <string.h>
 
+/*
+ * Defines and checks the compiled XFSM machine format.
+ *
+ * The checks cover the overall byte layout first, followed by individual
+ * records and their links to other records. This file allocates no memory and
+ * executes no JavaScript.
+ *
+ * Keep all physical-layout assumptions here. The compiler and runtime copy
+ * records with memcpy rather than dereferencing typed arena pointers, so
+ * record access remains valid on targets that require aligned loads.
+ */
 #define XFC_JOIN_INNER(left, right) left##right
 #define XFC_JOIN(left, right) XFC_JOIN_INNER(left, right)
 #define XFC_STATIC_ASSERT(expression) \
   typedef char XFC_JOIN(xfc_static_assert_, __LINE__)[(expression) ? 1 : -1]
 
+/* Check the required C type and record sizes when the firmware is built. */
 XFC_STATIC_ASSERT(CHAR_BIT == 8);
 XFC_STATIC_ASSERT(UINT8_MAX == UINT8_C(0xFF));
 XFC_STATIC_ASSERT(UINT16_MAX == UINT16_C(0xFFFF));
@@ -79,10 +91,12 @@ static const uint16_t xfcTableRecordSizes[XFC_TABLE_COUNT] = {
     (uint16_t)sizeof(XfcAssignmentEntryRecord)};
 
 typedef struct {
-  const uint8_t *bytes;
-  size_t length;
-  XfcArenaHeader header;
+  const uint8_t *bytes; /* Input bytes used only during this check. */
+  size_t length;        /* Supplied byte length, checked against the header. */
+  XfcArenaHeader header; /* Aligned local copy of the machine header. */
 } XfcArenaView;
+
+/* Arithmetic checks used before calculating byte offsets. */
 
 bool xfcCheckedAddU32(uint32_t left, uint32_t right, uint32_t *result) {
   if (!result || right > UINT32_MAX - left) return false;
@@ -144,6 +158,8 @@ bool xfcHashedBytesEqual(uint32_t left_hash, const uint8_t *left,
   if (!left || !right) return false;
   return memcmp(left, right, left_length) == 0;
 }
+
+/* Read records only after checking table indexes and byte bounds. */
 
 static bool xfcBytesAreZero(const uint8_t *bytes, uint32_t first,
                             uint32_t end) {
@@ -215,6 +231,8 @@ static bool xfcRetainedSlotIsValid(const XfcArenaView *view,
          retained_slot < view->header.retained_count;
 }
 
+/* Recalculate hierarchy relationships that stored indexes must match. */
+
 static bool xfcStateIsDescendantOrSelf(const XfcArenaView *view,
                                        uint16_t state_index,
                                        uint16_t ancestor_index) {
@@ -270,6 +288,10 @@ static XfcValidationResult xfcValidateTransitionForSource(
              : XFC_VALIDATION_DOMAIN;
 }
 
+/*
+ * Check machine identity, version, byte order, table placement, zero padding,
+ * string storage, and the root-state index.
+ */
 static XfcValidationResult xfcValidateHeaderAndTables(XfcArenaView *view,
                                                        const void *arena,
                                                        size_t arena_length) {
@@ -342,6 +364,7 @@ static XfcValidationResult xfcValidateHeaderAndTables(XfcArenaView *view,
   return XFC_VALIDATION_OK;
 }
 
+/* Check simpler tables before the records that refer to them. */
 static XfcValidationResult xfcValidateSymbols(const XfcArenaView *view) {
   uint16_t count = view->header.tables[XFC_TABLE_SYMBOL].count;
   uint16_t index;
@@ -607,6 +630,7 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
   return root_count == 1 ? XFC_VALIDATION_OK : XFC_VALIDATION_ROOT;
 }
 
+/* Complete check for a newly compiled or restored machine data block. */
 XfcValidationResult xfcValidateArena(const void *arena, size_t arena_length) {
   XfcArenaView view;
   XfcValidationResult result =
@@ -622,6 +646,7 @@ XfcValidationResult xfcValidateArena(const void *arena, size_t arena_length) {
   } else {
     return XFC_VALIDATION_FLAGS;
   }
+  /* The remaining order follows record dependencies, not table order. */
   result = xfcValidateSymbols(&view);
   if (result != XFC_VALIDATION_OK) return result;
   result = xfcValidateGuards(&view);
@@ -646,6 +671,7 @@ bool xfcArenaSymbolMatches(const void *arena, size_t arena_length,
   XfcSymbolRecord symbol;
   uint32_t symbol_end;
   uint32_t pool_end;
+  /* Hash and length reject cheaply; byte equality remains definitive. */
   if (xfcValidateHeaderAndTables(&view, arena, arena_length) !=
           XFC_VALIDATION_OK ||
       !xfcReadSymbol(&view, symbol_index, &symbol) ||
@@ -661,6 +687,7 @@ bool xfcArenaSymbolMatches(const void *arena, size_t arena_length,
       hash, bytes, byte_length);
 }
 
+/* Initialize the standard not-started actor data. */
 void xfcActorDataInit(XfcActorData *actor) {
   if (!actor) return;
   memset(actor, 0, sizeof(*actor));
@@ -671,6 +698,7 @@ void xfcActorDataInit(XfcActorData *actor) {
   actor->leaf_state = XFC_INDEX_NONE;
 }
 
+/* Validate mutable actor bytes before a public method uses them. */
 XfcValidationResult xfcValidateActorData(const XfcActorData *actor,
                                          uint16_t state_count) {
   if (!actor) return XFC_VALIDATION_NULL;
