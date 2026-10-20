@@ -24,9 +24,9 @@
  * uses the processor's byte order and must match the firmware format version.
  * A retained slot is an index into the JavaScript values stored on the machine.
  */
-#define XFC_ARENA_FORMAT_VERSION UINT16_C(1)
-#define XFC_ARENA_HEADER_SIZE UINT16_C(96) /* Bytes in XfcArenaHeader. */
-#define XFC_ACTOR_DATA_SIZE ((size_t)16) /* Bytes in XfcActorData. */
+#define XFC_ARENA_FORMAT_VERSION UINT16_C(2)
+#define XFC_ARENA_HEADER_SIZE UINT16_C(104) /* Bytes in XfcArenaHeader. */
+#define XFC_ACTOR_HEADER_SIZE ((size_t)16) /* Bytes before history banks. */
 #define XFC_MAX_STATE_DEPTH UINT8_C(32) /* Root depth is zero. */
 
 typedef uint16_t XfcIndex;
@@ -47,7 +47,7 @@ typedef struct {
   uint16_t record_size; /* Firmware-expected record size in bytes. */
 } XfcTableRef;
 
-/* Physical table order is part of arena format version 1. */
+/* Physical table order is part of arena format version 2. */
 enum {
   XFC_TABLE_STATE = 0,
   XFC_TABLE_SYMBOL,
@@ -57,6 +57,7 @@ enum {
   XFC_TABLE_ACTION,
   XFC_TABLE_ASSIGNMENT,
   XFC_TABLE_ASSIGNMENT_ENTRY,
+  XFC_TABLE_HISTORY,
   XFC_TABLE_COUNT
 };
 
@@ -85,7 +86,7 @@ typedef struct {
   uint16_t context_slot;  /* Retained slot, or XFC_INDEX_NONE. */
   uint16_t retained_count; /* Bounds every retained-value reference. */
   uint8_t context_kind;   /* One of XFC_CONTEXT_*. */
-  uint8_t reserved;       /* Must be zero in format version 1. */
+  uint8_t reserved;       /* Must be zero. */
   uint32_t string_offset; /* First byte of the stored string area. */
   uint32_t string_size;   /* String-pool length in bytes. */
   XfcTableRef tables[XFC_TABLE_COUNT]; /* Indexed by XFC_TABLE_*. */
@@ -96,6 +97,7 @@ enum {
   XFC_STATE_ATOMIC = UINT16_C(0x0000),
   XFC_STATE_COMPOUND = UINT16_C(0x0001),
   XFC_STATE_FINAL = UINT16_C(0x0002),
+  XFC_STATE_HISTORY = UINT16_C(0x0003),
   XFC_STATE_TYPE_MASK = UINT16_C(0x0003),
   XFC_STATE_ROOT = UINT16_C(0x0004),
   XFC_STATE_KNOWN_FLAGS = UINT16_C(0x0007)
@@ -104,7 +106,7 @@ enum {
 /* One state node; all relationships and action lists are arena indexes. */
 typedef struct {
   uint16_t parent; /* Parent state, or XFC_INDEX_NONE for the root. */
-  uint16_t initial; /* Initial child, or XFC_INDEX_NONE if not compound. */
+  uint16_t initial; /* Initial child, or NONE if not compound. */
   uint16_t key_symbol; /* Local state-key symbol; absent on the root. */
   uint16_t completion_event_symbol; /* Compound done event, if applicable. */
   XfcRange handlers; /* Event handlers declared by this state. */
@@ -213,6 +215,14 @@ typedef struct {
   uint16_t reserved;      /* Must be zero. */
 } XfcAssignmentEntryRecord;
 
+/* One shallow-history owner, its target node, and optional first-use child. */
+typedef struct {
+  uint16_t owner_state;    /* Non-root compound state. */
+  uint16_t history_state;  /* Direct history child of owner_state. */
+  uint16_t fallback_state; /* Direct ordinary child, or NONE. */
+  uint16_t reserved;       /* Must be zero. */
+} XfcHistoryRecord;
+
 /* Persisted actor lifecycle states exposed through snapshot.status. */
 enum {
   XFC_ACTOR_NOT_STARTED = 0,
@@ -231,7 +241,12 @@ enum {
   XFC_OPERATION_NOTIFY = 4
 };
 
-/* Mutable execution state stored in the actor's GC-owned flat string. */
+enum {
+  XFC_ACTOR_HISTORY_BANK_1 = UINT16_C(0x0001),
+  XFC_ACTOR_KNOWN_FLAGS = UINT16_C(0x0001)
+};
+
+/* Header for mutable execution state in the actor's GC-owned flat string. */
 typedef struct {
   uint8_t magic[4];       /* "XFCA" identifies actor runtime data. */
   uint16_t format_version; /* Must match the machine format version. */
@@ -239,7 +254,7 @@ typedef struct {
   uint8_t operation;      /* XFC_OPERATION_* reentrancy guard. */
   uint16_t leaf_state;    /* Active leaf, or NONE before start. */
   uint16_t microsteps;    /* Current operation budget consumption. */
-  uint16_t flags;         /* Reserved; must be zero. */
+  uint16_t flags;         /* Active history bank. */
   uint16_t reserved;      /* Must be zero. */
 } XfcActorData;
 
@@ -294,9 +309,13 @@ bool xfcArenaSymbolMatches(const void *arena, size_t arena_length,
                            uint16_t byte_length, uint32_t hash);
 
 /* Actor data is a separate mutable block referring to an immutable arena. */
-void xfcActorDataInit(XfcActorData *actor);
-XfcValidationResult xfcValidateActorData(const XfcActorData *actor,
-                                         uint16_t state_count);
+bool xfcActorDataSize(uint16_t history_count, size_t *size_out);
+bool xfcActorDataInit(void *storage, size_t storage_length,
+                      uint16_t history_count);
+XfcValidationResult xfcValidateActorData(const void *storage,
+                                         size_t storage_length,
+                                         uint16_t state_count,
+                                         uint16_t history_count);
 
 /* Short stable name used by sanitizer tests and diagnostic output. */
 const char *xfcValidationResultName(XfcValidationResult result);

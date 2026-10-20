@@ -72,8 +72,8 @@ config.states.Parent.initial = "Done";
 
 result =
   arena.substr(0, 4) === "XFCM" &&
-  u16(4) === 1 &&
-  u16(6) === 96 &&
+  u16(4) === 2 &&
+  u16(6) === 104 &&
   u32(8) === arena.length &&
   u16(16) === 0 &&
   u16(18) === 0 &&
@@ -88,6 +88,7 @@ result =
   tableCount(5) === 3 &&
   tableCount(6) === 1 &&
   tableCount(7) === 2 &&
+  tableCount(8) === 0 &&
   stateU16(0, 2) === 1 &&
   stateU16(1, 2) === 3 &&
   stateU16(3, 8) === 0 &&

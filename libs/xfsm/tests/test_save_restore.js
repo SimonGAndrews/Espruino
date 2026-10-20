@@ -122,6 +122,59 @@ var xfcDiscardMachine = XFSM.createMachine({
 });
 var xfcDiscardActor = XFSM.createActor(xfcDiscardMachine).start();
 
+var xfcHistoryTrace = [];
+function historyMark(name) {
+  return function () { xfcHistoryTrace.push(name); };
+}
+function actorU16(actor, offset) {
+  var data = actor["\xFFxfaD"];
+  return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
+}
+function committedHistory(actor) {
+  return actorU16(actor, actorU16(actor, 12) & 1 ? 18 : 16);
+}
+var xfcHistoryMachine = XFSM.createMachine({
+  id: "savedHistory",
+  initial: "owner",
+  states: {
+    owner: {
+      id: "savedHistoryOwner",
+      initial: "fast",
+      entry: "enterOwner",
+      states: {
+        history: { type: "history" },
+        fast: {
+          entry: "enterFast",
+          on: { SLOW: { target: "slow", actions: "moveSlow" } }
+        },
+        slow: {
+          entry: "enterSlow",
+          on: { FAST: { target: "fast", actions: "moveFast" } }
+        }
+      },
+      on: { EXIT: { target: "away", actions: "leaveOwner" } }
+    },
+    away: {
+      entry: "enterAway",
+      on: { RESUME: "#savedHistoryOwner.history" }
+    }
+  }
+}, {
+  actions: {
+    enterOwner: historyMark("enterOwner"),
+    enterFast: historyMark("enterFast"),
+    enterSlow: historyMark("enterSlow"),
+    enterAway: historyMark("enterAway"),
+    moveSlow: historyMark("moveSlow"),
+    moveFast: historyMark("moveFast"),
+    leaveOwner: historyMark("leaveOwner")
+  }
+});
+var xfcHistoryActor = XFSM.createActor(xfcHistoryMachine).start();
+xfcHistoryActor.send("SLOW");
+xfcHistoryActor.send("EXIT");
+var xfcHistoryBeforeSave = xfcHistoryTrace.join("|");
+
 E.on("init", function () {
   if (Storage.read(phaseFile) === undefined) {
     Storage.write(phaseFile, "saved");
@@ -152,6 +205,18 @@ E.on("init", function () {
     passed = passed && xfcTrace.join("|") === expectedBefore;
     passed = passed && xfcDiscardActor.getSnapshot().matches("Active");
     passed = passed && Storage.read(exitFile) === undefined;
+    passed = passed && xfcHistoryActor.getSnapshot().matches("away");
+    passed = passed && xfcHistoryTrace.join("|") === xfcHistoryBeforeSave;
+
+    xfcHistoryActor.send("RESUME");
+    passed = passed &&
+      xfcHistoryActor.getSnapshot().matches({ owner: "slow" });
+    passed = passed && xfcHistoryTrace.join("|") ===
+      xfcHistoryBeforeSave + "|enterOwner|enterSlow";
+    xfcHistoryActor.send("FAST");
+    var historyBeforeStop = committedHistory(xfcHistoryActor);
+    xfcHistoryActor.stop();
+    passed = passed && committedHistory(xfcHistoryActor) === historyBeforeStop;
 
     passed = passed && xfcNotStartedActor.getSnapshot() ===
       xfcNotStartedSnapshot;

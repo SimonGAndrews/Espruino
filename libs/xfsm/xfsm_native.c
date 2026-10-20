@@ -36,7 +36,7 @@ XFC_STATIC_ASSERT(UINT16_MAX == UINT16_C(0xFFFF));
 XFC_STATIC_ASSERT(UINT32_MAX == UINT32_C(0xFFFFFFFF));
 XFC_STATIC_ASSERT(sizeof(XfcRange) == 4);
 XFC_STATIC_ASSERT(sizeof(XfcTableRef) == 8);
-XFC_STATIC_ASSERT(sizeof(XfcArenaHeader) == 96);
+XFC_STATIC_ASSERT(sizeof(XfcArenaHeader) == 104);
 XFC_STATIC_ASSERT(sizeof(XfcStateRecord) == 32);
 XFC_STATIC_ASSERT(sizeof(XfcSymbolRecord) == 12);
 XFC_STATIC_ASSERT(sizeof(XfcHandlerRecord) == 8);
@@ -45,6 +45,7 @@ XFC_STATIC_ASSERT(sizeof(XfcGuardRecord) == 4);
 XFC_STATIC_ASSERT(sizeof(XfcActionRecord) == 8);
 XFC_STATIC_ASSERT(sizeof(XfcAssignmentRecord) == 12);
 XFC_STATIC_ASSERT(sizeof(XfcAssignmentEntryRecord) == 8);
+XFC_STATIC_ASSERT(sizeof(XfcHistoryRecord) == 8);
 XFC_STATIC_ASSERT(sizeof(XfcActorData) == 16);
 XFC_STATIC_ASSERT(offsetof(XfcRange, first) == 0);
 XFC_STATIC_ASSERT(offsetof(XfcRange, count) == 2);
@@ -72,6 +73,7 @@ XFC_STATIC_ASSERT(offsetof(XfcActionRecord, reserved) == 6);
 XFC_STATIC_ASSERT(offsetof(XfcAssignmentRecord, entries) == 4);
 XFC_STATIC_ASSERT(offsetof(XfcAssignmentRecord, reserved) == 10);
 XFC_STATIC_ASSERT(offsetof(XfcAssignmentEntryRecord, reserved) == 6);
+XFC_STATIC_ASSERT(offsetof(XfcHistoryRecord, fallback_state) == 4);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, format_version) == 4);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, status) == 6);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, leaf_state) == 8);
@@ -88,7 +90,8 @@ static const uint16_t xfcTableRecordSizes[XFC_TABLE_COUNT] = {
     (uint16_t)sizeof(XfcGuardRecord),
     (uint16_t)sizeof(XfcActionRecord),
     (uint16_t)sizeof(XfcAssignmentRecord),
-    (uint16_t)sizeof(XfcAssignmentEntryRecord)};
+    (uint16_t)sizeof(XfcAssignmentEntryRecord),
+    (uint16_t)sizeof(XfcHistoryRecord)};
 
 typedef struct {
   const uint8_t *bytes; /* Input bytes used only during this check. */
@@ -217,6 +220,12 @@ static bool xfcReadTransition(const XfcArenaView *view, uint16_t index,
                             sizeof(*record));
 }
 
+static bool xfcReadHistory(const XfcArenaView *view, uint16_t index,
+                           XfcHistoryRecord *record) {
+  return xfcReadTableRecord(view, XFC_TABLE_HISTORY, index, record,
+                            sizeof(*record));
+}
+
 static bool xfcSymbolHasRole(const XfcArenaView *view, uint16_t symbol_index,
                              uint16_t role) {
   XfcSymbolRecord symbol;
@@ -277,11 +286,17 @@ static XfcValidationResult xfcValidateTransitionForSource(
     const XfcArenaView *view, uint16_t source_state,
     uint16_t transition_index) {
   XfcTransitionRecord transition;
+  XfcStateRecord target;
   if (!xfcReadTransition(view, transition_index, &transition))
     return XFC_VALIDATION_INDEX;
   if (transition.target_state == XFC_INDEX_NONE)
     return transition.domain_state == XFC_INDEX_NONE ? XFC_VALIDATION_OK
                                                       : XFC_VALIDATION_DOMAIN;
+  if (!xfcReadState(view, transition.target_state, &target))
+    return XFC_VALIDATION_INDEX;
+  if ((target.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY &&
+      xfcStateIsDescendantOrSelf(view, source_state, target.parent))
+    return XFC_VALIDATION_DOMAIN;
   return transition.domain_state ==
                  xfcExpectedDomain(view, source_state, &transition)
              ? XFC_VALIDATION_OK
@@ -542,6 +557,8 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
       view->header.tables[XFC_TABLE_TRANSITION].count;
   uint16_t action_count = view->header.tables[XFC_TABLE_ACTION].count;
   uint16_t root_count = 0;
+  uint16_t history_count = 0;
+  uint16_t previous_history_owner = XFC_INDEX_NONE;
   uint16_t index;
   for (index = 0; index < state_count; index++) {
     XfcStateRecord state;
@@ -553,14 +570,13 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
       return XFC_VALIDATION_FLAGS;
     if (state.reserved != 0) return XFC_VALIDATION_RESERVED;
     type = state.flags & XFC_STATE_TYPE_MASK;
-    if (type == XFC_STATE_TYPE_MASK) return XFC_VALIDATION_STATE;
     root = (state.flags & XFC_STATE_ROOT) != 0;
     if (root) {
       root_count++;
       if (index != view->header.root_state ||
           state.parent != XFC_INDEX_NONE ||
           state.key_symbol != XFC_INDEX_NONE || state.depth != 0 ||
-          type == XFC_STATE_FINAL ||
+          (type != XFC_STATE_ATOMIC && type != XFC_STATE_COMPOUND) ||
           state.completion_event_symbol != XFC_INDEX_NONE ||
           state.completion_transitions.count != 0)
         return XFC_VALIDATION_ROOT;
@@ -586,12 +602,40 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
       XfcStateRecord initial;
       if (state.initial >= state_count ||
           !xfcReadState(view, state.initial, &initial) ||
-          initial.parent != index)
+          initial.parent != index ||
+          (initial.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY)
         return XFC_VALIDATION_STATE;
       if (!root &&
           !xfcSymbolHasRole(view, state.completion_event_symbol,
                             XFC_SYMBOL_COMPLETION_EVENT))
         return XFC_VALIDATION_STATE;
+    } else if (type == XFC_STATE_HISTORY) {
+      XfcHistoryRecord history;
+      if (root || state.parent == view->header.root_state ||
+          state.handlers.count != 0 ||
+          state.completion_transitions.count != 0 ||
+          state.initial_actions.count != 0 ||
+          state.entry_actions.count != 0 || state.exit_actions.count != 0 ||
+          state.initial != XFC_INDEX_NONE ||
+          state.completion_event_symbol != XFC_INDEX_NONE ||
+          !xfcReadHistory(view, history_count, &history))
+        return XFC_VALIDATION_STATE;
+      if (history.reserved != 0) return XFC_VALIDATION_RESERVED;
+      if (history.history_state != index ||
+          history.owner_state != state.parent ||
+          (previous_history_owner != XFC_INDEX_NONE &&
+           history.owner_state <= previous_history_owner))
+        return XFC_VALIDATION_STATE;
+      if (history.fallback_state != XFC_INDEX_NONE) {
+        XfcStateRecord fallback;
+        if (history.fallback_state >= state_count ||
+            !xfcReadState(view, history.fallback_state, &fallback) ||
+            fallback.parent != state.parent ||
+            (fallback.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY)
+          return XFC_VALIDATION_STATE;
+      }
+      previous_history_owner = history.owner_state;
+      history_count++;
     } else {
       if (state.initial != XFC_INDEX_NONE ||
           state.initial_actions.count != 0 ||
@@ -627,6 +671,8 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
       if (result != XFC_VALIDATION_OK) return result;
     }
   }
+  if (history_count != view->header.tables[XFC_TABLE_HISTORY].count)
+    return XFC_VALIDATION_STATE;
   return root_count == 1 ? XFC_VALIDATION_OK : XFC_VALIDATION_ROOT;
 }
 
@@ -687,21 +733,61 @@ bool xfcArenaSymbolMatches(const void *arena, size_t arena_length,
       hash, bytes, byte_length);
 }
 
-/* Initialize the standard not-started actor data. */
-void xfcActorDataInit(XfcActorData *actor) {
-  if (!actor) return;
-  memset(actor, 0, sizeof(*actor));
-  memcpy(actor->magic, xfcActorMagic, sizeof(xfcActorMagic));
-  actor->format_version = XFC_ARENA_FORMAT_VERSION;
-  actor->status = XFC_ACTOR_NOT_STARTED;
-  actor->operation = XFC_OPERATION_IDLE;
-  actor->leaf_state = XFC_INDEX_NONE;
+bool xfcActorDataSize(uint16_t history_count, size_t *size_out) {
+  uint32_t history_bytes;
+  uint32_t total;
+  if (!size_out ||
+      !xfcCheckedMultiplyU32((uint32_t)history_count, UINT32_C(4),
+                             &history_bytes) ||
+      !xfcCheckedAddU32((uint32_t)XFC_ACTOR_HEADER_SIZE, history_bytes,
+                        &total))
+    return false;
+#if SIZE_MAX < UINT32_MAX
+  if (total > (uint32_t)SIZE_MAX) return false;
+#endif
+  *size_out = (size_t)total;
+  return true;
+}
+
+/* Initialize the standard not-started actor header and both history banks. */
+bool xfcActorDataInit(void *storage, size_t storage_length,
+                      uint16_t history_count) {
+  XfcActorData actor;
+  uint8_t *history;
+  size_t expected;
+  size_t index;
+  uint16_t empty = XFC_INDEX_NONE;
+  if (!storage || !xfcActorDataSize(history_count, &expected) ||
+      storage_length != expected)
+    return false;
+  memset(&actor, 0, sizeof(actor));
+  memcpy(actor.magic, xfcActorMagic, sizeof(xfcActorMagic));
+  actor.format_version = XFC_ARENA_FORMAT_VERSION;
+  actor.status = XFC_ACTOR_NOT_STARTED;
+  actor.operation = XFC_OPERATION_IDLE;
+  actor.leaf_state = XFC_INDEX_NONE;
+  memcpy(storage, &actor, sizeof(actor));
+  history = (uint8_t *)storage + XFC_ACTOR_HEADER_SIZE;
+  for (index = 0; index < (size_t)history_count * 2U; index++)
+    memcpy(history + index * sizeof(empty), &empty, sizeof(empty));
+  return true;
 }
 
 /* Validate mutable actor bytes before a public method uses them. */
-XfcValidationResult xfcValidateActorData(const XfcActorData *actor,
-                                         uint16_t state_count) {
-  if (!actor) return XFC_VALIDATION_NULL;
+XfcValidationResult xfcValidateActorData(const void *storage,
+                                         size_t storage_length,
+                                         uint16_t state_count,
+                                         uint16_t history_count) {
+  XfcActorData actor_data;
+  const XfcActorData *actor = &actor_data;
+  const uint8_t *history;
+  size_t expected;
+  size_t index;
+  if (!storage) return XFC_VALIDATION_NULL;
+  if (!xfcActorDataSize(history_count, &expected) ||
+      storage_length != expected)
+    return XFC_VALIDATION_SIZE;
+  memcpy(&actor_data, storage, sizeof(actor_data));
   if (memcmp(actor->magic, xfcActorMagic, sizeof(xfcActorMagic)) != 0)
     return XFC_VALIDATION_MAGIC;
   if (actor->format_version != XFC_ARENA_FORMAT_VERSION)
@@ -709,7 +795,8 @@ XfcValidationResult xfcValidateActorData(const XfcActorData *actor,
   if (actor->status > XFC_ACTOR_ERROR ||
       actor->operation > XFC_OPERATION_NOTIFY)
     return XFC_VALIDATION_ACTOR;
-  if (actor->flags != 0) return XFC_VALIDATION_FLAGS;
+  if ((actor->flags & ~XFC_ACTOR_KNOWN_FLAGS) != 0)
+    return XFC_VALIDATION_FLAGS;
   if (actor->reserved != 0) return XFC_VALIDATION_RESERVED;
   if (actor->leaf_state != XFC_INDEX_NONE &&
       actor->leaf_state >= state_count)
@@ -723,6 +810,16 @@ XfcValidationResult xfcValidateActorData(const XfcActorData *actor,
     return XFC_VALIDATION_ACTOR;
   if (actor->operation == XFC_OPERATION_IDLE && actor->microsteps != 0)
     return XFC_VALIDATION_ACTOR;
+  history = (const uint8_t *)storage + XFC_ACTOR_HEADER_SIZE;
+  for (index = 0; index < (size_t)history_count * 2U; index++) {
+    uint16_t state;
+    memcpy(&state, history + index * sizeof(state), sizeof(state));
+    if (state != XFC_INDEX_NONE && state >= state_count)
+      return XFC_VALIDATION_INDEX;
+    if (actor->status == XFC_ACTOR_NOT_STARTED &&
+        state != XFC_INDEX_NONE)
+      return XFC_VALIDATION_ACTOR;
+  }
   return XFC_VALIDATION_OK;
 }
 

@@ -113,7 +113,8 @@ static size_t buildAtomicRootArena(TestArena *arena) {
         (uint16_t)sizeof(XfcGuardRecord),
         (uint16_t)sizeof(XfcActionRecord),
         (uint16_t)sizeof(XfcAssignmentRecord),
-        (uint16_t)sizeof(XfcAssignmentEntryRecord)};
+        (uint16_t)sizeof(XfcAssignmentEntryRecord),
+        (uint16_t)sizeof(XfcHistoryRecord)};
     cursor = addTable(&header, index, 0, sizes[index], cursor);
   }
   if (!xfcCheckedAlignU32(cursor, UINT32_C(4), &header.string_offset))
@@ -139,7 +140,8 @@ static size_t buildRichArena(TestArena *arena) {
       XFC_SYMBOL_EVENT,
       XFC_SYMBOL_EVENT | XFC_SYMBOL_COMPLETION_EVENT,
       XFC_SYMBOL_CONTEXT_KEY};
-  static const uint16_t counts[XFC_TABLE_COUNT] = {5, 7, 1, 2, 1, 2, 1, 1};
+  static const uint16_t counts[XFC_TABLE_COUNT] = {
+      5, 7, 1, 2, 1, 2, 1, 1, 0};
   static const uint16_t sizes[XFC_TABLE_COUNT] = {
       (uint16_t)sizeof(XfcStateRecord),
       (uint16_t)sizeof(XfcSymbolRecord),
@@ -148,7 +150,8 @@ static size_t buildRichArena(TestArena *arena) {
       (uint16_t)sizeof(XfcGuardRecord),
       (uint16_t)sizeof(XfcActionRecord),
       (uint16_t)sizeof(XfcAssignmentRecord),
-      (uint16_t)sizeof(XfcAssignmentEntryRecord)};
+      (uint16_t)sizeof(XfcAssignmentEntryRecord),
+      (uint16_t)sizeof(XfcHistoryRecord)};
   XfcArenaHeader header;
   XfcStateRecord states[5];
   XfcSymbolRecord symbols[7];
@@ -295,6 +298,126 @@ static size_t buildRichArena(TestArena *arena) {
   return header.arena_size;
 }
 
+static size_t buildHistoryArena(TestArena *arena) {
+  static const char *const strings[] = {
+      "Owner", "History", "Idle", "Away", "xstate.done.state.Owner"};
+  XfcArenaHeader header;
+  XfcStateRecord states[8];
+  XfcSymbolRecord symbols[5];
+  XfcHistoryRecord histories[2];
+  uint32_t cursor = XFC_ARENA_HEADER_SIZE;
+  uint16_t index;
+
+  memset(arena, 0, sizeof(*arena));
+  memset(&header, 0, sizeof(header));
+  memcpy(header.magic, "XFCM", 4);
+  header.format_version = XFC_ARENA_FORMAT_VERSION;
+  header.header_size = XFC_ARENA_HEADER_SIZE;
+  header.flags = xfcNativeByteOrderFlag();
+  header.root_state = 0;
+  header.context_slot = XFC_INDEX_NONE;
+  header.context_kind = XFC_CONTEXT_OMITTED;
+  cursor = addTable(&header, XFC_TABLE_STATE, 8,
+                    (uint16_t)sizeof(XfcStateRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_SYMBOL, 5,
+                    (uint16_t)sizeof(XfcSymbolRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_HANDLER, 0,
+                    (uint16_t)sizeof(XfcHandlerRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_TRANSITION, 0,
+                    (uint16_t)sizeof(XfcTransitionRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_GUARD, 0,
+                    (uint16_t)sizeof(XfcGuardRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_ACTION, 0,
+                    (uint16_t)sizeof(XfcActionRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_ASSIGNMENT, 0,
+                    (uint16_t)sizeof(XfcAssignmentRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_ASSIGNMENT_ENTRY, 0,
+                    (uint16_t)sizeof(XfcAssignmentEntryRecord), cursor);
+  cursor = addTable(&header, XFC_TABLE_HISTORY, 2,
+                    (uint16_t)sizeof(XfcHistoryRecord), cursor);
+  if (!xfcCheckedAlignU32(cursor, UINT32_C(4), &header.string_offset))
+    abort();
+  cursor = header.string_offset;
+  for (index = 0; index < 5; index++) {
+    size_t length = strlen(strings[index]);
+    symbols[index].hash = xfcFnv1a((const uint8_t *)strings[index], length);
+    symbols[index].string_offset = cursor;
+    symbols[index].byte_length = (uint16_t)length;
+    symbols[index].flags = index == 4
+                               ? XFC_SYMBOL_EVENT |
+                                     XFC_SYMBOL_COMPLETION_EVENT
+                               : XFC_SYMBOL_STATE_KEY;
+    memcpy(arena->bytes + cursor, strings[index], length);
+    cursor += (uint32_t)length;
+  }
+  header.string_size = cursor - header.string_offset;
+  header.arena_size = cursor;
+
+  for (index = 0; index < 8; index++) initializeState(&states[index]);
+  states[0].initial = 1;
+  states[0].flags = XFC_STATE_ROOT | XFC_STATE_COMPOUND;
+
+  states[1].parent = 0;
+  states[1].initial = 3;
+  states[1].key_symbol = 0;
+  states[1].completion_event_symbol = 4;
+  states[1].flags = XFC_STATE_COMPOUND;
+  states[1].depth = 1;
+
+  states[2].parent = 1;
+  states[2].key_symbol = 1;
+  states[2].flags = XFC_STATE_HISTORY;
+  states[2].depth = 2;
+
+  states[3].parent = 1;
+  states[3].key_symbol = 2;
+  states[3].flags = XFC_STATE_ATOMIC;
+  states[3].depth = 2;
+
+  states[4].parent = 0;
+  states[4].initial = 6;
+  states[4].key_symbol = 0;
+  states[4].completion_event_symbol = 4;
+  states[4].flags = XFC_STATE_COMPOUND;
+  states[4].depth = 1;
+
+  states[5].parent = 4;
+  states[5].key_symbol = 1;
+  states[5].flags = XFC_STATE_HISTORY;
+  states[5].depth = 2;
+
+  states[6].parent = 4;
+  states[6].key_symbol = 2;
+  states[6].flags = XFC_STATE_ATOMIC;
+  states[6].depth = 2;
+
+  states[7].parent = 0;
+  states[7].key_symbol = 3;
+  states[7].flags = XFC_STATE_ATOMIC;
+  states[7].depth = 1;
+
+  histories[0].owner_state = 1;
+  histories[0].history_state = 2;
+  histories[0].fallback_state = 3;
+  histories[0].reserved = 0;
+  histories[1].owner_state = 4;
+  histories[1].history_state = 5;
+  histories[1].fallback_state = 6;
+  histories[1].reserved = 0;
+
+  for (index = 0; index < 8; index++)
+    writeRecord(arena, &header, XFC_TABLE_STATE, index, &states[index],
+                sizeof(states[index]));
+  for (index = 0; index < 5; index++)
+    writeRecord(arena, &header, XFC_TABLE_SYMBOL, index, &symbols[index],
+                sizeof(symbols[index]));
+  for (index = 0; index < 2; index++)
+    writeRecord(arena, &header, XFC_TABLE_HISTORY, index, &histories[index],
+                sizeof(histories[index]));
+  memcpy(arena->bytes, &header, sizeof(header));
+  return header.arena_size;
+}
+
 static void copyArena(TestArena *destination, const TestArena *source) {
   memcpy(destination, source, sizeof(*destination));
 }
@@ -364,22 +487,22 @@ static void testValidArenas(void) {
   XfcArenaHeader header;
   size_t atomic_size = buildAtomicRootArena(&atomic_arena);
   size_t rich_size = buildRichArena(&rich_arena);
-  CHECK(atomic_size == 128);
+  CHECK(atomic_size == 136);
   CHECK(xfcValidateArena(atomic_arena.bytes, atomic_size) ==
         XFC_VALIDATION_OK);
-  CHECK(rich_size == 465);
+  CHECK(rich_size == 473);
   CHECK(xfcValidateArena(rich_arena.bytes, rich_size) ==
         XFC_VALIDATION_OK);
   readHeader(&rich_arena, &header);
-  CHECK(header.tables[XFC_TABLE_STATE].offset == 96);
-  CHECK(header.tables[XFC_TABLE_SYMBOL].offset == 256);
-  CHECK(header.tables[XFC_TABLE_HANDLER].offset == 340);
-  CHECK(header.tables[XFC_TABLE_TRANSITION].offset == 348);
-  CHECK(header.tables[XFC_TABLE_GUARD].offset == 372);
-  CHECK(header.tables[XFC_TABLE_ACTION].offset == 376);
-  CHECK(header.tables[XFC_TABLE_ASSIGNMENT].offset == 392);
-  CHECK(header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].offset == 404);
-  CHECK(header.string_offset == 412 && header.string_size == 53);
+  CHECK(header.tables[XFC_TABLE_STATE].offset == 104);
+  CHECK(header.tables[XFC_TABLE_SYMBOL].offset == 264);
+  CHECK(header.tables[XFC_TABLE_HANDLER].offset == 348);
+  CHECK(header.tables[XFC_TABLE_TRANSITION].offset == 356);
+  CHECK(header.tables[XFC_TABLE_GUARD].offset == 380);
+  CHECK(header.tables[XFC_TABLE_ACTION].offset == 384);
+  CHECK(header.tables[XFC_TABLE_ASSIGNMENT].offset == 400);
+  CHECK(header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].offset == 412);
+  CHECK(header.string_offset == 420 && header.string_size == 53);
   CHECK(xfcArenaSymbolMatches(rich_arena.bytes, rich_size, 4,
                               (const uint8_t *)"GO", 2,
                               xfcFnv1a((const uint8_t *)"GO", 2)));
@@ -637,24 +760,125 @@ static void testArenaCorruption(void) {
         XFC_VALIDATION_ALIGNMENT);
 }
 
+static void testHistoryRecords(void) {
+  TestArena valid;
+  TestArena changed;
+  XfcArenaHeader header;
+  XfcStateRecord state;
+  XfcHistoryRecord history;
+  size_t length = buildHistoryArena(&valid);
+
+  CHECK(xfcValidateArena(valid.bytes, length) == XFC_VALIDATION_OK);
+  readHeader(&valid, &header);
+  CHECK(header.tables[XFC_TABLE_HISTORY].count == 2);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.owner_state = 0;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  state.parent = 0;
+  state.depth = 1;
+  writeRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.owner_state = 0;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.history_state = 3;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.fallback_state = 4;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.reserved = 1;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_RESERVED);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 1, &history,
+             sizeof(history));
+  history.owner_state = 1;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 1, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  state.entry_actions.first = 0;
+  state.entry_actions.count = 1;
+  writeRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_RANGE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  state.flags |= UINT16_C(0x0010);
+  writeRecord(&changed, &header, XFC_TABLE_STATE, 2, &state, sizeof(state));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_FLAGS);
+}
+
 static void testActorData(void) {
-  XfcActorData actor;
-  xfcActorDataInit(&actor);
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_OK);
-  actor.status = XFC_ACTOR_ACTIVE;
-  actor.leaf_state = 2;
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_OK);
-  actor.leaf_state = 5;
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_INDEX);
-  xfcActorDataInit(&actor);
-  actor.microsteps = 1;
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_ACTOR);
-  xfcActorDataInit(&actor);
-  actor.reserved = 1;
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_RESERVED);
-  xfcActorDataInit(&actor);
-  actor.magic[0] = 'B';
-  CHECK(xfcValidateActorData(&actor, 5) == XFC_VALIDATION_MAGIC);
+  union {
+    uint32_t alignment;
+    uint8_t bytes[24];
+  } storage;
+  XfcActorData *actor = (XfcActorData *)storage.bytes;
+  uint16_t history = 3;
+  size_t size = 0;
+  CHECK(xfcActorDataSize(2, &size) && size == sizeof(storage.bytes));
+  CHECK(xfcActorDataInit(storage.bytes, size, 2));
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_OK);
+  actor->status = XFC_ACTOR_ACTIVE;
+  actor->leaf_state = 2;
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_OK);
+  memcpy(storage.bytes + XFC_ACTOR_HEADER_SIZE, &history, sizeof(history));
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_OK);
+  history = 5;
+  memcpy(storage.bytes + XFC_ACTOR_HEADER_SIZE, &history, sizeof(history));
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_INDEX);
+  CHECK(xfcActorDataInit(storage.bytes, size, 2));
+  actor->microsteps = 1;
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_ACTOR);
+  CHECK(xfcActorDataInit(storage.bytes, size, 2));
+  actor->reserved = 1;
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_RESERVED);
+  CHECK(xfcActorDataInit(storage.bytes, size, 2));
+  actor->flags = UINT16_C(0x8000);
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_FLAGS);
+  CHECK(xfcActorDataInit(storage.bytes, size, 2));
+  actor->magic[0] = 'B';
+  CHECK(xfcValidateActorData(storage.bytes, size, 5, 2) ==
+        XFC_VALIDATION_MAGIC);
+  CHECK(xfcValidateActorData(storage.bytes, size - 1U, 5, 2) ==
+        XFC_VALIDATION_SIZE);
 }
 
 int main(void) {
@@ -663,6 +887,7 @@ int main(void) {
   testValidArenas();
   testHandlersAndTransitionDomains();
   testArenaCorruption();
+  testHistoryRecords();
   testActorData();
   if (tests_failed != 0) {
     fprintf(stderr, "%u of %u XFSM native tests failed\n", tests_failed,

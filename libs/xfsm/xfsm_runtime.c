@@ -18,6 +18,7 @@
 #include "xfsm_native.h"
 #include "xfsm_test.h"
 
+#include <limits.h>
 #include <string.h>
 
 /*
@@ -62,6 +63,7 @@ typedef struct {
 typedef struct {
   JsVar *actor;   /* Actor passed to the current native method. */
   JsVar *machine; /* Locked hidden child shared by this actor. */
+  JsVar *data_storage; /* Locked actor header and two history banks. */
   XfcRuntimeView view; /* Locked machine storage and borrowed bytes. */
   XfcActorData data;   /* Working copy committed through data storage. */
 } XfcRuntime;
@@ -282,6 +284,30 @@ XFC_READ_FUNCTION(xfcReadAssignment, XFC_TABLE_ASSIGNMENT,
                   XfcAssignmentRecord)
 XFC_READ_FUNCTION(xfcReadAssignmentEntry, XFC_TABLE_ASSIGNMENT_ENTRY,
                   XfcAssignmentEntryRecord)
+XFC_READ_FUNCTION(xfcReadHistoryRecord, XFC_TABLE_HISTORY, XfcHistoryRecord)
+
+static bool xfcFindHistory(const XfcRuntimeView *view, uint16_t state_index,
+                           bool by_owner, uint16_t *slot,
+                           XfcHistoryRecord *record) {
+  uint32_t low = 0;
+  uint32_t high = view->header.tables[XFC_TABLE_HISTORY].count;
+  while (low < high) {
+    uint32_t middle = low + (high - low) / 2U;
+    uint16_t candidate;
+    if (!xfcReadHistoryRecord(view, (uint16_t)middle, record)) return false;
+    candidate = by_owner ? record->owner_state : record->history_state;
+    if (candidate < state_index)
+      low = middle + 1U;
+    else
+      high = middle;
+  }
+  if (low >= view->header.tables[XFC_TABLE_HISTORY].count ||
+      !xfcReadHistoryRecord(view, (uint16_t)low, record) ||
+      (by_owner ? record->owner_state : record->history_state) != state_index)
+    return false;
+  *slot = (uint16_t)low;
+  return true;
+}
 
 static bool xfcSymbolBounds(const XfcRuntimeView *view, uint16_t index,
                             XfcSymbolRecord *symbol, const uint8_t **bytes) {
@@ -385,11 +411,13 @@ static void xfcCloseView(XfcRuntimeView *view) {
 }
 
 static bool xfcReadActorData(JsVar *actor, XfcActorData *data,
-                             JsVar **storage) {
+                             uint16_t history_count, JsVar **storage) {
   JsVar *value = jsvObjectGetChildIfExists(actor, XFC_ACTOR_DATA_NAME);
   const char *bytes;
+  size_t expected;
   if (!jsvIsString(value) ||
-      jsvGetStringLength(value) != XFC_ACTOR_DATA_SIZE ||
+      !xfcActorDataSize(history_count, &expected) ||
+      jsvGetStringLength(value) != expected ||
       !(bytes = jsvGetFlatStringPointer(value))) {
     jsvUnLock(value);
     return false;
@@ -402,6 +430,71 @@ static bool xfcReadActorData(JsVar *actor, XfcActorData *data,
 static void xfcWriteActorData(JsVar *storage, const XfcActorData *data) {
   char *bytes = jsvGetFlatStringPointer(storage);
   if (bytes) memcpy(bytes, data, sizeof(*data));
+}
+
+static uint16_t xfcHistoryCount(const XfcRuntimeView *view) {
+  return view->header.tables[XFC_TABLE_HISTORY].count;
+}
+
+static size_t xfcHistoryBankOffset(const XfcRuntime *runtime,
+                                   uint16_t bank) {
+  return XFC_ACTOR_HEADER_SIZE +
+         (size_t)bank * (size_t)xfcHistoryCount(&runtime->view) *
+             sizeof(uint16_t);
+}
+
+static bool xfcPrepareHistory(XfcRuntime *runtime) {
+  char *bytes;
+  uint16_t active;
+  uint16_t working;
+  size_t bank_size = (size_t)xfcHistoryCount(&runtime->view) *
+                     sizeof(uint16_t);
+  if (bank_size == 0) return true;
+  bytes = jsvGetFlatStringPointer(runtime->data_storage);
+  if (!bytes) return false;
+  active = (runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0 ? 1U : 0U;
+  working = (uint16_t)(1U - active);
+  memcpy(bytes + xfcHistoryBankOffset(runtime, working),
+         bytes + xfcHistoryBankOffset(runtime, active), bank_size);
+  return true;
+}
+
+static bool xfcReadHistory(const XfcRuntime *runtime, uint16_t slot,
+                           bool working, uint16_t *state_index) {
+  const char *bytes;
+  uint16_t bank;
+  size_t offset;
+  if (!state_index || slot >= xfcHistoryCount(&runtime->view)) return false;
+  bytes = jsvGetFlatStringPointer(runtime->data_storage);
+  if (!bytes) return false;
+  bank = (runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0 ? 1U : 0U;
+  if (working) bank = (uint16_t)(1U - bank);
+  offset = xfcHistoryBankOffset(runtime, bank) +
+           (size_t)slot * sizeof(*state_index);
+  memcpy(state_index, bytes + offset, sizeof(*state_index));
+  return true;
+}
+
+static bool xfcWriteWorkingHistory(XfcRuntime *runtime, uint16_t slot,
+                                   uint16_t state_index) {
+  char *bytes;
+  uint16_t bank;
+  size_t offset;
+  if (slot >= xfcHistoryCount(&runtime->view)) return false;
+  bytes = jsvGetFlatStringPointer(runtime->data_storage);
+  if (!bytes) return false;
+  bank = (uint16_t)((runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0
+                        ? 0U
+                        : 1U);
+  offset = xfcHistoryBankOffset(runtime, bank) +
+           (size_t)slot * sizeof(state_index);
+  memcpy(bytes + offset, &state_index, sizeof(state_index));
+  return true;
+}
+
+static void xfcCommitHistory(XfcRuntime *runtime) {
+  if (xfcHistoryCount(&runtime->view) != 0)
+    runtime->data.flags ^= XFC_ACTOR_HISTORY_BANK_1;
 }
 
 /*
@@ -422,10 +515,13 @@ static bool xfcOpenActor(JsVar *actor, const char *method, XfcRuntime *runtime,
       jsvObjectGetChildIfExists(actor, XFC_ACTOR_MACHINE_NAME);
   if (!runtime->machine ||
       !xfcOpenMachine(runtime->machine, &runtime->view, false) ||
-      !xfcReadActorData(actor, &runtime->data, data_storage) ||
+      !xfcReadActorData(actor, &runtime->data,
+                        xfcHistoryCount(&runtime->view), data_storage) ||
       xfcValidateActorData(
-          &runtime->data,
-          runtime->view.header.tables[XFC_TABLE_STATE].count) !=
+          jsvGetFlatStringPointer(*data_storage),
+          jsvGetStringLength(*data_storage),
+          runtime->view.header.tables[XFC_TABLE_STATE].count,
+          xfcHistoryCount(&runtime->view)) !=
           XFC_VALIDATION_OK) {
     jsvUnLock(*data_storage);
     *data_storage = 0;
@@ -435,6 +531,7 @@ static bool xfcOpenActor(JsVar *actor, const char *method, XfcRuntime *runtime,
     xfcActorInvalid(method);
     return false;
   }
+  runtime->data_storage = *data_storage;
   return true;
 }
 
@@ -475,6 +572,11 @@ static bool xfcBeginOperation(XfcRuntime *runtime, JsVar *storage,
   /* Persist busy before invoking JS so reentrant actor calls are rejected. */
   runtime->data.operation = operation;
   runtime->data.microsteps = 0;
+  if (!xfcPrepareHistory(runtime)) {
+    runtime->data.operation = XFC_OPERATION_IDLE;
+    jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.%s.history", method);
+    return false;
+  }
   xfcWriteActorData(storage, &runtime->data);
   xfcMeasureOperationBegin(operation);
   return true;
@@ -828,6 +930,48 @@ static bool xfcSelectTransition(XfcRuntime *runtime, JsVar *event_type,
   return true;
 }
 
+static bool xfcImmediateChild(const XfcRuntimeView *view, uint16_t leaf,
+                              uint16_t owner, uint16_t *child) {
+  XfcStateRecord state;
+  uint16_t current = leaf;
+  uint16_t steps = 0;
+  while (current != XFC_INDEX_NONE &&
+         steps++ <= (uint16_t)XFC_MAX_STATE_DEPTH) {
+    if (!xfcReadState(view, current, &state)) return false;
+    if (state.parent == owner) {
+      *child = current;
+      return true;
+    }
+    current = state.parent;
+  }
+  return false;
+}
+
+static bool xfcResolveHistoryTarget(XfcRuntime *runtime,
+                                    uint16_t history_state,
+                                    uint16_t *target,
+                                    bool *direct_child) {
+  XfcHistoryRecord history;
+  uint16_t slot;
+  uint16_t remembered;
+  if (!xfcFindHistory(&runtime->view, history_state, false, &slot, &history) ||
+      !xfcReadHistory(runtime, slot, true, &remembered))
+    return false;
+  if (remembered != XFC_INDEX_NONE) {
+    if (!xfcImmediateChild(&runtime->view, remembered, history.owner_state,
+                           target))
+      return false;
+    *direct_child = true;
+  } else if (history.fallback_state != XFC_INDEX_NONE) {
+    *target = history.fallback_state;
+    *direct_child = true;
+  } else {
+    *target = history.owner_state;
+    *direct_child = false;
+  }
+  return true;
+}
+
 /*
  * Run exit actions, transition actions, and entry actions using the transition
  * boundary calculated by createMachine(). The fixed path array reverses the
@@ -843,6 +987,7 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   uint16_t path[XFC_MAX_STATE_DEPTH + 1];
   uint16_t path_count = 0;
   uint16_t target;
+  bool history_direct_child = false;
   xfcMeasureStackSample();
   /* Targetless transitions run actions without changing the active branch. */
   if (transition->target_state == XFC_INDEX_NONE)
@@ -852,9 +997,16 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   /* Exit leaf-to-domain, run transition actions, then enter toward target. */
   current = *leaf;
   while (current != transition->domain_state) {
+    XfcHistoryRecord history;
+    uint16_t history_slot;
     if (!xfcRefreshView(&runtime->view) ||
-        !xfcReadState(&runtime->view, current, &state) ||
-        !xfcExecuteActions(runtime, state.exit_actions, context, event,
+        !xfcReadState(&runtime->view, current, &state))
+      return false;
+    if (xfcFindHistory(&runtime->view, current, true, &history_slot,
+                       &history) &&
+        !xfcWriteWorkingHistory(runtime, history_slot, *leaf))
+      return false;
+    if (!xfcExecuteActions(runtime, state.exit_actions, context, event,
                            context_changed, error))
       return false;
     current = state.parent;
@@ -864,6 +1016,11 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
     return false;
 
   target = transition->target_state;
+  if (!xfcReadState(&runtime->view, target, &state)) return false;
+  if ((state.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY &&
+      !xfcResolveHistoryTarget(runtime, target, &target,
+                               &history_direct_child))
+    return false;
   current = target;
   while (current != transition->domain_state) {
     if (path_count > XFC_MAX_STATE_DEPTH ||
@@ -881,7 +1038,10 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
       return false;
   }
   if (!xfcInitialDescent(runtime, target, false,
-                         transition->domain_state != target, context, event,
+                         history_direct_child
+                             ? false
+                             : transition->domain_state != target,
+                         context, event,
                          context_changed, leaf, error))
     return false;
   *state_changed = *leaf != runtime->data.leaf_state;
@@ -1193,6 +1353,7 @@ static bool xfcCommitPublication(XfcRuntime *runtime, JsVar *storage,
     xfcTakeException(error);
     return false;
   }
+  xfcCommitHistory(runtime);
   xfcWriteActorData(storage, &runtime->data);
   if (changed && !cache_snapshot) xfcInvalidateSnapshot(runtime->actor);
   return true;
@@ -1327,7 +1488,7 @@ JsVar *xfcCreateActor(JsVar *machine, JsVar *options) {
   XfcRuntimeView view;
   JsVar *actor = 0;
   JsVar *storage = 0;
-  XfcActorData data;
+  size_t storage_size = 0;
   bool ok = false;
   if (options && !jsvIsUndefined(options)) {
     jsExceptionHere(JSET_ERROR,
@@ -1339,13 +1500,20 @@ JsVar *xfcCreateActor(JsVar *machine, JsVar *options) {
                     "XFC E_MACHINE_INVALID @ createActor.machine");
     return 0;
   }
+  if (!xfcActorDataSize(xfcHistoryCount(&view), &storage_size) ||
+      storage_size > UINT_MAX) {
+    xfcCloseView(&view);
+    jsExceptionHere(JSET_ERROR, "XFC E_LIMIT_EXCEEDED @ createActor.history");
+    return 0;
+  }
   if (!xfcTestTakeFault(XFC_TEST_FAULT_CREATE_ACTOR)) {
     actor = jsvNewObject();
-    storage = jsvNewFlatStringOfLength(XFC_ACTOR_DATA_SIZE);
+    storage = jsvNewFlatStringOfLength((unsigned int)storage_size);
   }
   if (!actor || !storage) goto done;
-  xfcActorDataInit(&data);
-  memcpy(jsvGetFlatStringPointer(storage), &data, sizeof(data));
+  if (!xfcActorDataInit(jsvGetFlatStringPointer(storage), storage_size,
+                        xfcHistoryCount(&view)))
+    goto done;
   ok = xfcSetBrand(actor, XFC_ACTOR_BRAND_NAME, XFC_ROOT_ACTOR_TOKEN) &&
        xfcAttachPrototype(actor, XFC_ROOT_ACTOR_PROTOTYPE) &&
        jsvObjectSetChild(actor, XFC_ACTOR_MACHINE_NAME, machine) == machine &&

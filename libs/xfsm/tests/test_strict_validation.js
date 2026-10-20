@@ -38,7 +38,7 @@ checks.push(fails(base(), { unknown: {} },
   "E_UNKNOWN_PROPERTY", "options.unknown"));
 
 var unsupported = ["invoke", "after", "always", "activities", "tags",
-                   "history", "delimiter"];
+                   "delimiter"];
 for (var i = 0; i < unsupported.length; i++) {
   var state = {};
   state[unsupported[i]] = {};
@@ -47,8 +47,10 @@ for (var i = 0; i < unsupported.length; i++) {
 }
 checks.push(fails(base({ type: "parallel" }), undefined,
   "E_UNSUPPORTED_FEATURE", "config.states.Idle.type"));
+checks.push(fails(base({ history: {} }), undefined,
+  "E_UNKNOWN_PROPERTY", "config.states.Idle.history"));
 checks.push(fails(base({ type: "history" }), undefined,
-  "E_UNSUPPORTED_FEATURE", "config.states.Idle.type"));
+  "E_CONFIG_TYPE", "config.states.Idle.type"));
 checks.push(fails(base({ output: 1 }), undefined,
   "E_UNSUPPORTED_FEATURE", "config.states.Idle.output"));
 checks.push(fails(base(), { services: { work: function () {} } },

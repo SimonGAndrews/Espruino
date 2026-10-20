@@ -14,6 +14,12 @@ smaller than the complete XState feature set: parallel states, delayed and
 eventless transitions, invoked services, spawned actors, and history states
 are not included.
 
+The `experiment/xfsm-history` branch adds the separately specified shallow-
+history experiment. It supports one shallow-history node per compound owner;
+deep history remains unsupported. This branch uses private native Format
+Version 2 and does not alter the completed Profile 1 or its frozen Format
+Version 1.
+
 Applications load the built-in module with `require("XFSM")`. The engine is
 selected by adding `XFSM` to a board's `info.build.libraries` list, which makes
 Espruino's board processing set `USE_XFSM=1` and include this directory's
@@ -122,6 +128,9 @@ bin/espruino --test libs/xfsm/tests/test_subscriptions.js
 bin/espruino --test libs/xfsm/tests/test_strict_validation.js
 bin/espruino --test libs/xfsm/tests/test_strict_validation_embedded.js
 bin/espruino --test libs/xfsm/tests/test_limits.js
+bin/espruino --test libs/xfsm/tests/test_history.js
+bin/espruino --test libs/xfsm/tests/test_history_embedded.js
+bin/espruino --test libs/xfsm/tests/test_history_diagnostics.js
 ```
 
 `test_limits.js` creates event strings at the 65,535-byte boundary and is a
@@ -130,6 +139,10 @@ microstep boundaries with target-sized fixtures instead. The compact
 `test_strict_validation_embedded.js` corpus is intended for constrained
 physical targets whose JavaScript test heap cannot hold the full validation
 suite and all of its source fixtures at once.
+
+`test_history_embedded.js` provides target-sized shallow-history semantic
+coverage. It uses independently collectable scopes so several compiled test
+machines are not retained at once.
 
 ### Canonical Conformance Traces
 

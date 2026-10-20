@@ -48,6 +48,7 @@ enum {
   XFC_META_DEPTH,
   XFC_META_EFFECTIVE_ID,
   XFC_META_TYPE,
+  XFC_META_HISTORY_SLOT,
   XFC_META_FIELD_COUNT
 };
 
@@ -69,7 +70,8 @@ enum {
 typedef enum {
   XFC_NODE_ATOMIC = 0,
   XFC_NODE_COMPOUND = 1,
-  XFC_NODE_FINAL = 2
+  XFC_NODE_FINAL = 2,
+  XFC_NODE_HISTORY = 3
 } XfcNodeType;
 
 /* Errors that createMachine() can report with a configuration path. */
@@ -100,6 +102,7 @@ typedef struct {
   uint32_t actions;
   uint32_t assignments;
   uint32_t assignment_entries;
+  uint32_t histories;
   uint32_t string_bytes; /* Sum of symbol byte lengths, without NULs. */
 } XfcCompileCounts;
 
@@ -116,11 +119,13 @@ typedef struct {
   uint16_t action;
   uint16_t assignment;
   uint16_t assignment_entry;
+  uint16_t history;
 } XfcArenaWriter;
 
-/* Four-byte state lookup record used only while compiling the machine. */
+/* Compact state lookup record used only while compiling the machine. */
 typedef struct {
   uint16_t parent; /* State index, or XFC_INDEX_NONE for the root. */
+  uint16_t history_slot; /* Slot index for history nodes, or NONE. */
   uint8_t depth;
   uint8_t type; /* XfcNodeType value used only during compilation. */
 } XfcCompilerStateRecord;
@@ -143,6 +148,7 @@ typedef struct {
   JsVar *guards_map;  /* Locked options.guards implementation map. */
   uint8_t context_kind;
   uint16_t context_slot; /* Index in retained, or XFC_INDEX_NONE. */
+  uint16_t history_count; /* Actor history slots assigned during indexing. */
   XfcDiagnostic diagnostic; /* The first error found. */
   JsVar *error_path;   /* Location in config or options. */
   JsVar *error_detail; /* Optional value or short explanation. */
@@ -645,6 +651,9 @@ static bool xfcStateRecord(XfcCompiler *compiler, uint16_t index,
     if (!meta) return false;
     parent = xfcMetaInteger(meta, XFC_META_PARENT);
     record->parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
+    parent = xfcMetaInteger(meta, XFC_META_HISTORY_SLOT);
+    record->history_slot =
+        parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
     record->depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
     record->type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
     jsvUnLock(meta);
@@ -672,6 +681,14 @@ static int xfcStateDepthValue(XfcCompiler *compiler, uint16_t index) {
 static int xfcStateTypeValue(XfcCompiler *compiler, uint16_t index) {
   XfcCompilerStateRecord record;
   return xfcStateRecord(compiler, index, &record) ? (int)record.type : -1;
+}
+
+static int xfcStateHistorySlotValue(XfcCompiler *compiler, uint16_t index) {
+  XfcCompilerStateRecord record;
+  if (!xfcStateRecord(compiler, index, &record) ||
+      record.history_slot == XFC_INDEX_NONE)
+    return -1;
+  return (int)record.history_slot;
 }
 
 /* Check supported configuration properties and discover the state hierarchy. */
@@ -1023,8 +1040,9 @@ static bool xfcDetermineNodeType(XfcCompiler *compiler, JsVar *configuration,
       node_type = XFC_NODE_ATOMIC;
     } else if (jsvIsStringEqual(type, "final")) {
       node_type = XFC_NODE_FINAL;
-    } else if (jsvIsStringEqual(type, "parallel") ||
-               jsvIsStringEqual(type, "history")) {
+    } else if (jsvIsStringEqual(type, "history")) {
+      node_type = XFC_NODE_HISTORY;
+    } else if (jsvIsStringEqual(type, "parallel")) {
       xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "type",
                       type);
     } else {
@@ -1039,11 +1057,13 @@ static bool xfcDetermineNodeType(XfcCompiler *compiler, JsVar *configuration,
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
     else if (node_type == XFC_NODE_ATOMIC && child_count != 0)
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
-    else if (node_type == XFC_NODE_FINAL &&
+    else if ((node_type == XFC_NODE_FINAL ||
+              node_type == XFC_NODE_HISTORY) &&
              has_states && !jsvIsUndefined(states))
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "states", 0);
     else if ((node_type == XFC_NODE_ATOMIC ||
-              node_type == XFC_NODE_FINAL) &&
+              node_type == XFC_NODE_FINAL ||
+              node_type == XFC_NODE_HISTORY) &&
              has_initial && !jsvIsUndefined(initial))
       xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "initial", 0);
     else if (node_type == XFC_NODE_COMPOUND &&
@@ -1067,7 +1087,9 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
       "preserveActionOrder", "output"};
   static const char *const state_allowed[] = {
       "id", "type", "initial", "states", "on", "onDone", "entry",
-      "exit", "description", "meta", "output"};
+      "exit", "description", "meta", "output", "history", "target"};
+  static const char *const history_allowed[] = {
+      "type", "history", "target"};
   JsVar *value = 0;
   bool has_on = false;
   bool has_on_done = false;
@@ -1126,6 +1148,37 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
       !xfcDetermineNodeType(compiler, configuration, path, root, type_out,
                             child_count_out))
     return false;
+  if (*type_out == XFC_NODE_HISTORY) {
+    JsVar *history = 0;
+    if (root) {
+      xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "type", 0);
+    } else if (!xfcValidateProperties(
+                   compiler, configuration, path, history_allowed,
+                   sizeof(history_allowed) / sizeof(history_allowed[0]))) {
+      return false;
+    } else if (xfcGetOwn(configuration, "history", &history) &&
+               !jsvIsUndefined(history)) {
+      if (!jsvIsString(history))
+        xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "history", 0);
+      else if (jsvIsStringEqual(history, "deep"))
+        xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path,
+                        "history", history);
+      else if (!jsvIsStringEqual(history, "shallow"))
+        xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "history",
+                        history);
+    }
+    jsvUnLock(history);
+  } else {
+    if (xfcGetOwn(configuration, "history", &value))
+      xfcFailProperty(compiler, XFC_DIAG_UNKNOWN_PROPERTY, path, "history",
+                      0);
+    jsvUnLock(value);
+    value = 0;
+    if (xfcGetOwn(configuration, "target", &value))
+      xfcFailProperty(compiler, XFC_DIAG_UNKNOWN_PROPERTY, path, "target", 0);
+    jsvUnLock(value);
+  }
+  if (compiler->diagnostic != XFC_DIAG_NONE) return false;
   if (root && *type_out == XFC_NODE_FINAL) {
     xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "type", 0);
   } else if (*type_out == XFC_NODE_FINAL && has_on) {
@@ -1158,6 +1211,7 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   JsVar *parent_value = 0;
   JsVar *depth_value = 0;
   JsVar *type_value = 0;
+  JsVar *history_slot_value = 0;
   JsVar *null_key = 0;
   XfcNodeType node_type;
   uint32_t child_count;
@@ -1167,6 +1221,21 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
                        &child_count))
     goto done;
   (void)child_count;
+  if (node_type == XFC_NODE_HISTORY) {
+    uint16_t index;
+    if (parent <= 0) {
+      xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "type", 0);
+      goto done;
+    }
+    for (index = 1; index < (uint16_t)compiler->counts.states; index++) {
+      if (xfcStateParentValue(compiler, index) == parent &&
+          xfcStateTypeValue(compiler, index) == XFC_NODE_HISTORY) {
+        xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path, "type",
+                        0);
+        goto done;
+      }
+    }
+  }
   if (xfcGetOwn(configuration, "id", &explicit_id) &&
       !jsvIsUndefined(explicit_id)) {
     effective_id = jsvLockAgain(explicit_id);
@@ -1212,19 +1281,24 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   parent_value = jsvNewFromInteger(parent);
   depth_value = jsvNewFromInteger((JsVarInt)depth);
   type_value = jsvNewFromInteger((JsVarInt)node_type);
+  history_slot_value = jsvNewFromInteger(
+      node_type == XFC_NODE_HISTORY ? (JsVarInt)compiler->history_count : -1);
   null_key = jsvNewNull();
-  if (!meta || !parent_value || !depth_value || !type_value || !null_key ||
+  if (!meta || !parent_value || !depth_value || !type_value ||
+      !history_slot_value || !null_key ||
       !xfcAppendMetaField(meta, configuration) ||
       !xfcAppendMetaField(meta, root ? null_key : key) ||
       !xfcAppendMetaField(meta, parent_value) ||
       !xfcAppendMetaField(meta, depth_value) ||
       !xfcAppendMetaField(meta, effective_id) ||
       !xfcAppendMetaField(meta, type_value) ||
+      !xfcAppendMetaField(meta, history_slot_value) ||
       !xfcArrayAppend(compiler->states, meta)) {
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     goto done;
   }
   compiler->counts.states++;
+  if (node_type == XFC_NODE_HISTORY) compiler->history_count++;
   ok = true;
 
 done:
@@ -1235,6 +1309,7 @@ done:
   jsvUnLock(parent_value);
   jsvUnLock(depth_value);
   jsvUnLock(type_value);
+  jsvUnLock(history_slot_value);
   jsvUnLock(null_key);
   return ok;
 }
@@ -1286,6 +1361,9 @@ static bool xfcCompactStateMetadata(XfcCompiler *compiler) {
     }
     parent = xfcMetaInteger(meta, XFC_META_PARENT);
     record.parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
+    parent = xfcMetaInteger(meta, XFC_META_HISTORY_SLOT);
+    record.history_slot =
+        parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
     record.depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
     record.type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
     bytes = (uint8_t *)jsvGetFlatStringPointer(records);
@@ -2065,6 +2143,15 @@ static bool xfcCompileTransition(XfcCompiler *compiler, uint16_t source,
     record.target_state = xfcResolveTarget(compiler, source, target,
                                            target_path);
     if (compiler->diagnostic != XFC_DIAG_NONE) goto done;
+    if (xfcStateTypeValue(compiler, record.target_state) ==
+        XFC_NODE_HISTORY) {
+      int owner = xfcStateParentValue(compiler, record.target_state);
+      if (owner < 0 || xfcStateIsDescendantOrSelf(
+                           compiler, source, (uint16_t)owner)) {
+        xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, target_path, target);
+        goto done;
+      }
+    }
   }
   if (guard && !jsvIsUndefined(guard)) {
     if (!guard_path) {
@@ -2269,7 +2356,8 @@ static bool xfcCompileInitial(XfcCompiler *compiler, uint16_t state_index,
     goto done;
   }
   resolved = xfcFindDirectChild(compiler, state_index, target);
-  if (resolved == XFC_INDEX_NONE) {
+  if (resolved == XFC_INDEX_NONE ||
+      xfcStateTypeValue(compiler, resolved) == XFC_NODE_HISTORY) {
     xfcFail(compiler, XFC_DIAG_INITIAL_UNKNOWN, target_path, target);
     goto done;
   }
@@ -2310,10 +2398,12 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   JsVar *exit = 0;
   JsVar *on = 0;
   JsVar *on_done = 0;
+  JsVar *history_target = 0;
   JsVar *entry_path = 0;
   JsVar *exit_path = 0;
   JsVar *on_path = 0;
   JsVar *on_done_path = 0;
+  JsVar *history_target_path = 0;
   XfcStateRecord record;
   int parent = xfcStateParentValue(compiler, state_index);
   int depth = xfcStateDepthValue(compiler, state_index);
@@ -2345,7 +2435,8 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   record.flags = type == XFC_NODE_COMPOUND
                      ? XFC_STATE_COMPOUND
                      : (type == XFC_NODE_FINAL ? XFC_STATE_FINAL
-                                               : XFC_STATE_ATOMIC);
+                         : (type == XFC_NODE_HISTORY ? XFC_STATE_HISTORY
+                                                     : XFC_STATE_ATOMIC));
   if (state_index == 0) record.flags |= XFC_STATE_ROOT;
   record.depth = (uint8_t)depth;
   if (state_index != 0) {
@@ -2362,6 +2453,55 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
           compiler, completion,
           XFC_SYMBOL_EVENT | XFC_SYMBOL_COMPLETION_EVENT, path);
       if (record.completion_event_symbol == XFC_INDEX_NONE) goto done;
+    }
+  } else if (type == XFC_NODE_HISTORY) {
+    XfcHistoryRecord history_record;
+    int history_slot = xfcStateHistorySlotValue(compiler, state_index);
+    memset(&history_record, 0, sizeof(history_record));
+    history_record.owner_state = (uint16_t)parent;
+    history_record.history_state = state_index;
+    history_record.fallback_state = XFC_INDEX_NONE;
+    if (history_slot < 0) {
+      xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
+      goto done;
+    }
+    if (xfcGetOwn(configuration, "target", &history_target) &&
+        !jsvIsUndefined(history_target)) {
+      uint16_t fallback;
+      history_target_path = xfcPathProperty(path, "target");
+      if (!history_target_path) {
+        xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
+        goto done;
+      }
+      if (!jsvIsString(history_target)) {
+        xfcFail(compiler, XFC_DIAG_CONFIG_TYPE, history_target_path, 0);
+        goto done;
+      }
+      fallback = xfcResolveTarget(compiler, state_index, history_target,
+                                  history_target_path);
+      if (compiler->diagnostic != XFC_DIAG_NONE) goto done;
+      if (xfcStateParentValue(compiler, fallback) != parent ||
+          xfcStateTypeValue(compiler, fallback) == XFC_NODE_HISTORY) {
+        xfcFail(compiler, XFC_DIAG_TARGET_UNKNOWN, history_target_path,
+                history_target);
+        goto done;
+      }
+      history_record.fallback_state = fallback;
+    }
+    if (compiler->phase == XFC_COMPILE_COUNT) {
+      if ((uint16_t)history_slot != (uint16_t)compiler->counts.histories ||
+          !xfcIncrement(compiler, &compiler->counts.histories, path,
+                        "histories"))
+        goto done;
+    } else {
+      uint16_t history_index = compiler->writer->history++;
+      if (history_index != (uint16_t)history_slot ||
+          !xfcWriteRecord(compiler->writer, XFC_TABLE_HISTORY,
+                          history_index, &history_record,
+                          sizeof(history_record))) {
+        xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
+        goto done;
+      }
     }
   }
   if (xfcGetOwn(configuration, "entry", &entry)) {
@@ -2423,10 +2563,12 @@ done:
   jsvUnLock(exit);
   jsvUnLock(on);
   jsvUnLock(on_done);
+  jsvUnLock(history_target);
   jsvUnLock(entry_path);
   jsvUnLock(exit_path);
   jsvUnLock(on_path);
   jsvUnLock(on_done_path);
+  jsvUnLock(history_target_path);
   return ok && compiler->diagnostic == XFC_DIAG_NONE;
 }
 
@@ -2472,7 +2614,8 @@ static bool xfcBuildHeader(XfcCompiler *compiler, XfcArenaHeader *header) {
       (uint16_t)sizeof(XfcGuardRecord),
       (uint16_t)sizeof(XfcActionRecord),
       (uint16_t)sizeof(XfcAssignmentRecord),
-      (uint16_t)sizeof(XfcAssignmentEntryRecord)};
+      (uint16_t)sizeof(XfcAssignmentEntryRecord),
+      (uint16_t)sizeof(XfcHistoryRecord)};
   const uint32_t counts[XFC_TABLE_COUNT] = {
       compiler->counts.states,
       compiler->counts.symbols,
@@ -2481,7 +2624,8 @@ static bool xfcBuildHeader(XfcCompiler *compiler, XfcArenaHeader *header) {
       compiler->counts.guards,
       compiler->counts.actions,
       compiler->counts.assignments,
-      compiler->counts.assignment_entries};
+      compiler->counts.assignment_entries,
+      compiler->counts.histories};
   uint32_t cursor = XFC_ARENA_HEADER_SIZE;
   uint16_t table;
   memset(header, 0, sizeof(*header));
@@ -2558,7 +2702,9 @@ static bool xfcWriterComplete(const XfcArenaWriter *writer) {
          writer->assignment ==
              writer->header.tables[XFC_TABLE_ASSIGNMENT].count &&
          writer->assignment_entry ==
-             writer->header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].count;
+             writer->header.tables[XFC_TABLE_ASSIGNMENT_ENTRY].count &&
+         writer->history ==
+             writer->header.tables[XFC_TABLE_HISTORY].count;
 }
 
 /* Attach the compiled data, retained values, and hidden machine marker. */
