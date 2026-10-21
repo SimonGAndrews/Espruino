@@ -399,11 +399,11 @@ static size_t buildHistoryArena(TestArena *arena) {
   histories[0].owner_state = 1;
   histories[0].history_state = 2;
   histories[0].fallback_state = 3;
-  histories[0].reserved = 0;
+  histories[0].flags = 0;
   histories[1].owner_state = 4;
   histories[1].history_state = 5;
   histories[1].fallback_state = 6;
-  histories[1].reserved = 0;
+  histories[1].flags = 0;
 
   for (index = 0; index < 8; index++)
     writeRecord(arena, &header, XFC_TABLE_STATE, index, &states[index],
@@ -811,10 +811,50 @@ static void testHistoryRecords(void) {
   copyArena(&changed, &valid);
   readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
              sizeof(history));
-  history.reserved = 1;
+  history.flags = UINT16_C(0x0002);
   writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
               sizeof(history));
   CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_RESERVED);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.flags = XFC_HISTORY_DEEP;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_OK);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_STATE, 3, &state, sizeof(state));
+  state.flags = XFC_STATE_COMPOUND;
+  state.initial = 7;
+  state.completion_event_symbol = 4;
+  writeRecord(&changed, &header, XFC_TABLE_STATE, 3, &state, sizeof(state));
+  readRecord(&changed, &header, XFC_TABLE_STATE, 7, &state, sizeof(state));
+  state.parent = 3;
+  state.depth = 3;
+  writeRecord(&changed, &header, XFC_TABLE_STATE, 7, &state, sizeof(state));
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.flags = XFC_HISTORY_DEEP;
+  history.fallback_state = 7;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_OK);
+
+  history.flags = 0;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
+
+  copyArena(&changed, &valid);
+  readRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+             sizeof(history));
+  history.flags = XFC_HISTORY_DEEP;
+  history.fallback_state = 4;
+  writeRecord(&changed, &header, XFC_TABLE_HISTORY, 0, &history,
+              sizeof(history));
+  CHECK(xfcValidateArena(changed.bytes, length) == XFC_VALIDATION_STATE);
 
   copyArena(&changed, &valid);
   readRecord(&changed, &header, XFC_TABLE_HISTORY, 1, &history,

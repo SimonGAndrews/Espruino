@@ -139,17 +139,22 @@ var xfcHistoryMachine = XFSM.createMachine({
   states: {
     owner: {
       id: "savedHistoryOwner",
-      initial: "fast",
+      initial: "mode",
       entry: "enterOwner",
       states: {
-        history: { type: "history" },
-        fast: {
-          entry: "enterFast",
-          on: { SLOW: { target: "slow", actions: "moveSlow" } }
-        },
-        slow: {
-          entry: "enterSlow",
-          on: { FAST: { target: "fast", actions: "moveFast" } }
+        history: { type: "history", history: "deep" },
+        mode: {
+          initial: "fast",
+          states: {
+            fast: {
+              entry: "enterFast",
+              on: { SLOW: { target: "slow", actions: "moveSlow" } }
+            },
+            slow: {
+              entry: "enterSlow",
+              on: { FAST: { target: "fast", actions: "moveFast" } }
+            }
+          }
         }
       },
       on: { EXIT: { target: "away", actions: "leaveOwner" } }
@@ -210,7 +215,7 @@ E.on("init", function () {
 
     xfcHistoryActor.send("RESUME");
     passed = passed &&
-      xfcHistoryActor.getSnapshot().matches({ owner: "slow" });
+      xfcHistoryActor.getSnapshot().matches({ owner: { mode: "slow" } });
     passed = passed && xfcHistoryTrace.join("|") ===
       xfcHistoryBeforeSave + "|enterOwner|enterSlow";
     xfcHistoryActor.send("FAST");

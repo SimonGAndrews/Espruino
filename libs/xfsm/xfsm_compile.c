@@ -1160,10 +1160,8 @@ static bool xfcValidateNode(XfcCompiler *compiler, JsVar *configuration,
                !jsvIsUndefined(history)) {
       if (!jsvIsString(history))
         xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "history", 0);
-      else if (jsvIsStringEqual(history, "deep"))
-        xfcFailProperty(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, path,
-                        "history", history);
-      else if (!jsvIsStringEqual(history, "shallow"))
+      else if (!jsvIsStringEqual(history, "shallow") &&
+               !jsvIsStringEqual(history, "deep"))
         xfcFailProperty(compiler, XFC_DIAG_CONFIG_TYPE, path, "history",
                         history);
     }
@@ -2398,6 +2396,7 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
   JsVar *exit = 0;
   JsVar *on = 0;
   JsVar *on_done = 0;
+  JsVar *history_mode = 0;
   JsVar *history_target = 0;
   JsVar *entry_path = 0;
   JsVar *exit_path = 0;
@@ -2461,6 +2460,10 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
     history_record.owner_state = (uint16_t)parent;
     history_record.history_state = state_index;
     history_record.fallback_state = XFC_INDEX_NONE;
+    if (xfcGetOwn(configuration, "history", &history_mode) &&
+        !jsvIsUndefined(history_mode) &&
+        jsvIsStringEqual(history_mode, "deep"))
+      history_record.flags |= XFC_HISTORY_DEEP;
     if (history_slot < 0) {
       xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
       goto done;
@@ -2480,8 +2483,12 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
       fallback = xfcResolveTarget(compiler, state_index, history_target,
                                   history_target_path);
       if (compiler->diagnostic != XFC_DIAG_NONE) goto done;
-      if (xfcStateParentValue(compiler, fallback) != parent ||
-          xfcStateTypeValue(compiler, fallback) == XFC_NODE_HISTORY) {
+      if (xfcStateTypeValue(compiler, fallback) == XFC_NODE_HISTORY ||
+          ((history_record.flags & XFC_HISTORY_DEEP) != 0
+               ? (fallback == (uint16_t)parent ||
+                  !xfcStateIsDescendantOrSelf(compiler, fallback,
+                                              (uint16_t)parent))
+               : xfcStateParentValue(compiler, fallback) != parent)) {
         xfcFail(compiler, XFC_DIAG_TARGET_UNKNOWN, history_target_path,
                 history_target);
         goto done;
@@ -2563,6 +2570,7 @@ done:
   jsvUnLock(exit);
   jsvUnLock(on);
   jsvUnLock(on_done);
+  jsvUnLock(history_mode);
   jsvUnLock(history_target);
   jsvUnLock(entry_path);
   jsvUnLock(exit_path);

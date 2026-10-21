@@ -215,12 +215,17 @@ typedef struct {
   uint16_t reserved;      /* Must be zero. */
 } XfcAssignmentEntryRecord;
 
-/* One shallow-history owner, its target node, and optional first-use child. */
+enum {
+  XFC_HISTORY_DEEP = UINT16_C(0x0001),
+  XFC_HISTORY_KNOWN_FLAGS = UINT16_C(0x0001)
+};
+
+/* One history owner, its target node, mode, and optional first-use state. */
 typedef struct {
   uint16_t owner_state;    /* Non-root compound state. */
   uint16_t history_state;  /* Direct history child of owner_state. */
-  uint16_t fallback_state; /* Direct ordinary child, or NONE. */
-  uint16_t reserved;       /* Must be zero. */
+  uint16_t fallback_state; /* Mode-valid ordinary descendant, or NONE. */
+  uint16_t flags;          /* Zero for shallow, or XFC_HISTORY_DEEP. */
 } XfcHistoryRecord;
 
 /* Persisted actor lifecycle states exposed through snapshot.status. */

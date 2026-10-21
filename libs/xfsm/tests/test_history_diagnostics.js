@@ -26,6 +26,16 @@ function fails(config, category, path) {
   return false;
 }
 
+function accepts(config) {
+  try {
+    XFSM.createMachine(config);
+    return true;
+  } catch (error) {
+    print("UNEXPECTED=" + error);
+    return false;
+  }
+}
+
 function owner(history, extra) {
   var config = {
     initial: "away",
@@ -42,8 +52,7 @@ function owner(history, extra) {
 }
 
 var checks = [];
-checks.push(fails(owner({ type: "history", history: "deep" }),
-  "E_UNSUPPORTED_FEATURE", "config.states.owner.states.history.history"));
+checks.push(accepts(owner({ type: "history", history: "deep" })));
 checks.push(fails(owner({ type: "history", history: "other" }),
   "E_CONFIG_TYPE", "config.states.owner.states.history.history"));
 checks.push(fails(owner({ type: "history", history: true }),
@@ -85,6 +94,18 @@ checks.push(fails(owner({ type: "history", target: "#deep" }, function (config) 
   config.states.owner.states.a = {
     initial: "deep", states: { deep: { id: "deep" } }
   };
+}), "E_TARGET_UNKNOWN", "config.states.owner.states.history.target"));
+checks.push(accepts(owner({
+  type: "history", history: "deep", target: "#deep"
+}, function (config) {
+  config.states.owner.states.a = {
+    initial: "deep", states: { deep: { id: "deep" } }
+  };
+})));
+checks.push(fails(owner({
+  type: "history", history: "deep", target: "#outside"
+}, function (config) {
+  config.states.away.id = "outside";
 }), "E_TARGET_UNKNOWN", "config.states.owner.states.history.target"));
 checks.push(fails(owner({ type: "history" }, function (config) {
   config.states.owner.states.a.on = {

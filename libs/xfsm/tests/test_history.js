@@ -194,6 +194,54 @@ compoundMachine = undefined;
 compoundTrace = undefined;
 collect();
 
+var nestedDefaultTrace = [];
+var nestedDefaultMachine = XFSM.createMachine({
+  id: "nestedDefaultFallback",
+  initial: "away",
+  states: {
+    away: { on: { GO: "#nestedDefaultOwner.history" } },
+    owner: {
+      id: "nestedDefaultOwner",
+      initial: { target: "branch", actions: "ownerInitial" },
+      states: {
+        history: { type: "history" },
+        branch: {
+          initial: { target: "middle", actions: "branchInitial" },
+          entry: "enterBranch",
+          states: {
+            middle: {
+              initial: { target: "leaf", actions: "middleInitial" },
+              entry: "enterMiddle",
+              states: { leaf: { entry: "enterLeaf" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}, {
+  actions: {
+    ownerInitial: marker(nestedDefaultTrace, "ownerInitial"),
+    branchInitial: marker(nestedDefaultTrace, "branchInitial"),
+    middleInitial: marker(nestedDefaultTrace, "middleInitial"),
+    enterBranch: marker(nestedDefaultTrace, "enterBranch"),
+    enterMiddle: marker(nestedDefaultTrace, "enterMiddle"),
+    enterLeaf: marker(nestedDefaultTrace, "enterLeaf")
+  }
+});
+var nestedDefaultActor = XFSM.createActor(nestedDefaultMachine).start();
+nestedDefaultActor.send("GO");
+checks.push(nestedDefaultActor.getSnapshot().matches({
+  owner: { branch: { middle: "leaf" } }
+}) && nestedDefaultTrace.join("|") ===
+  "ownerInitial:GO|enterBranch:GO|enterMiddle:GO|" +
+  "middleInitial:GO|enterLeaf:GO");
+nestedDefaultActor.stop();
+nestedDefaultActor = undefined;
+nestedDefaultMachine = undefined;
+nestedDefaultTrace = undefined;
+collect();
+
 function dataU16(data, offset) {
   return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
 }

@@ -74,6 +74,7 @@ XFC_STATIC_ASSERT(offsetof(XfcAssignmentRecord, entries) == 4);
 XFC_STATIC_ASSERT(offsetof(XfcAssignmentRecord, reserved) == 10);
 XFC_STATIC_ASSERT(offsetof(XfcAssignmentEntryRecord, reserved) == 6);
 XFC_STATIC_ASSERT(offsetof(XfcHistoryRecord, fallback_state) == 4);
+XFC_STATIC_ASSERT(offsetof(XfcHistoryRecord, flags) == 6);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, format_version) == 4);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, status) == 6);
 XFC_STATIC_ASSERT(offsetof(XfcActorData, leaf_state) == 8);
@@ -620,7 +621,8 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
           state.completion_event_symbol != XFC_INDEX_NONE ||
           !xfcReadHistory(view, history_count, &history))
         return XFC_VALIDATION_STATE;
-      if (history.reserved != 0) return XFC_VALIDATION_RESERVED;
+      if ((history.flags & ~XFC_HISTORY_KNOWN_FLAGS) != 0)
+        return XFC_VALIDATION_RESERVED;
       if (history.history_state != index ||
           history.owner_state != state.parent ||
           (previous_history_owner != XFC_INDEX_NONE &&
@@ -628,10 +630,14 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
         return XFC_VALIDATION_STATE;
       if (history.fallback_state != XFC_INDEX_NONE) {
         XfcStateRecord fallback;
+        bool deep = (history.flags & XFC_HISTORY_DEEP) != 0;
         if (history.fallback_state >= state_count ||
             !xfcReadState(view, history.fallback_state, &fallback) ||
-            fallback.parent != state.parent ||
-            (fallback.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY)
+            (fallback.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY ||
+            (deep ? (history.fallback_state == history.owner_state ||
+                     !xfcStateIsDescendantOrSelf(
+                         view, history.fallback_state, history.owner_state))
+                  : fallback.parent != history.owner_state))
           return XFC_VALIDATION_STATE;
       }
       previous_history_owner = history.owner_state;

@@ -14,11 +14,11 @@ smaller than the complete XState feature set: parallel states, delayed and
 eventless transitions, invoked services, spawned actors, and history states
 are not included.
 
-The `experiment/xfsm-history` branch adds the separately specified shallow-
-history experiment. It supports one shallow-history node per compound owner;
-deep history remains unsupported. This branch uses private native Format
-Version 2 and does not alter the completed Profile 1 or its frozen Format
-Version 1.
+The `experiment/xfsm-history` branch adds the separately specified history-
+state experiment. It supports one shallow- or deep-history node per compound
+owner while retaining the single active branch and other Profile 1 limits.
+This branch uses private native Format Version 2 and does not alter the
+completed Profile 1 or its frozen Format Version 1.
 
 Applications load the built-in module with `require("XFSM")`. The engine is
 selected by adding `XFSM` to a board's `info.build.libraries` list, which makes
@@ -131,6 +131,7 @@ bin/espruino --test libs/xfsm/tests/test_limits.js
 bin/espruino --test libs/xfsm/tests/test_history.js
 bin/espruino --test libs/xfsm/tests/test_history_embedded.js
 bin/espruino --test libs/xfsm/tests/test_history_diagnostics.js
+bin/espruino --test libs/xfsm/tests/test_deep_history.js
 ```
 
 `test_limits.js` creates event strings at the 65,535-byte boundary and is a
@@ -143,6 +144,14 @@ suite and all of its source fixtures at once.
 `test_history_embedded.js` provides target-sized shallow-history semantic
 coverage. It uses independently collectable scopes so several compiled test
 machines are not retained at once.
+
+`test_deep_history.js` uses the same target-sized structure for exact nested
+restoration, fallback, nested owners, final completion, and rollback.
+
+Measurement builds can run `measure_deep_history.js` to compare otherwise
+identical shallow and deep machines without including the general history
+feature delta. Normal production builds can run
+`measure_deep_history_timing.js` for a matched repeated restore benchmark.
 
 ### Canonical Conformance Traces
 
@@ -285,7 +294,11 @@ bin/espruino --test libs/xfsm/tests/measure_m5_completion.js
 bin/espruino --test libs/xfsm/tests/measure_post_m6.js
 bin/espruino --test libs/xfsm/tests/measure_post_m6_depth.js
 bin/espruino --test libs/xfsm/tests/measure_compile_pressure.js
+bin/espruino --test libs/xfsm/tests/measure_deep_history.js
 ```
+
+The production-safe `measure_deep_history_timing.js` benchmark does not use
+the private measurement API and runs against an ordinary `USE_XFSM=1` build.
 
 `measure_post_m6.js` uses a feature-rich Profile 1 fixture to report the
 compiled arena, retained bindings, persistent machine and actor records,

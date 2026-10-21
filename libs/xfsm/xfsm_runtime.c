@@ -798,6 +798,7 @@ static bool xfcBeginMicrostep(XfcRuntime *runtime, JsVar **error) {
  */
 static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
                               bool enter_state, bool run_initial_actions,
+                              bool suppress_child_initial_actions,
                               JsVar **context,
                               JsVar *event, bool *context_changed,
                               uint16_t *leaf, JsVar **error) {
@@ -826,7 +827,8 @@ static bool xfcInitialDescent(XfcRuntime *runtime, uint16_t state_index,
       return false;
     state_index = state.initial;
     enter_state = true;
-    run_initial_actions = true;
+    run_initial_actions = !suppress_child_initial_actions;
+    suppress_child_initial_actions = false;
   }
   jsExceptionHere(JSET_ERROR, "XFC E_LIMIT_EXCEEDED @ actor.start.initial");
   xfcTakeException(error);
@@ -950,7 +952,8 @@ static bool xfcImmediateChild(const XfcRuntimeView *view, uint16_t leaf,
 static bool xfcResolveHistoryTarget(XfcRuntime *runtime,
                                     uint16_t history_state,
                                     uint16_t *target,
-                                    bool *direct_child) {
+                                    bool *selected_target,
+                                    bool *default_initial) {
   XfcHistoryRecord history;
   uint16_t slot;
   uint16_t remembered;
@@ -958,16 +961,19 @@ static bool xfcResolveHistoryTarget(XfcRuntime *runtime,
       !xfcReadHistory(runtime, slot, true, &remembered))
     return false;
   if (remembered != XFC_INDEX_NONE) {
-    if (!xfcImmediateChild(&runtime->view, remembered, history.owner_state,
-                           target))
+    if ((history.flags & XFC_HISTORY_DEEP) != 0) {
+      *target = remembered;
+    } else if (!xfcImmediateChild(&runtime->view, remembered,
+                                  history.owner_state, target)) {
       return false;
-    *direct_child = true;
+    }
+    *selected_target = true;
   } else if (history.fallback_state != XFC_INDEX_NONE) {
     *target = history.fallback_state;
-    *direct_child = true;
+    *selected_target = true;
   } else {
     *target = history.owner_state;
-    *direct_child = false;
+    *default_initial = true;
   }
   return true;
 }
@@ -987,7 +993,8 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   uint16_t path[XFC_MAX_STATE_DEPTH + 1];
   uint16_t path_count = 0;
   uint16_t target;
-  bool history_direct_child = false;
+  bool history_selected_target = false;
+  bool history_default_initial = false;
   xfcMeasureStackSample();
   /* Targetless transitions run actions without changing the active branch. */
   if (transition->target_state == XFC_INDEX_NONE)
@@ -1019,7 +1026,8 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
   if (!xfcReadState(&runtime->view, target, &state)) return false;
   if ((state.flags & XFC_STATE_TYPE_MASK) == XFC_STATE_HISTORY &&
       !xfcResolveHistoryTarget(runtime, target, &target,
-                               &history_direct_child))
+                               &history_selected_target,
+                               &history_default_initial))
     return false;
   current = target;
   while (current != transition->domain_state) {
@@ -1038,9 +1046,10 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
       return false;
   }
   if (!xfcInitialDescent(runtime, target, false,
-                         history_direct_child
+                         history_selected_target
                              ? false
                              : transition->domain_state != target,
+                         history_default_initial,
                          context, event,
                          context_changed, leaf, error))
     return false;
@@ -1588,7 +1597,8 @@ static JsVar *xfcActorStart(JsVar *actor) {
   }
   if (!xfcBeginMicrostep(&runtime, &error)) goto fault;
   if (!xfcInitialDescent(&runtime, runtime.view.header.root_state, true, true,
-                         &context, event, &context_changed, &leaf, &error))
+                         false, &context, event, &context_changed, &leaf,
+                         &error))
     goto fault;
   runtime.data.status = XFC_ACTOR_ACTIVE;
   {
