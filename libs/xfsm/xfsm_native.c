@@ -611,6 +611,7 @@ static XfcValidationResult xfcValidateStates(const XfcArenaView *view) {
                             XFC_SYMBOL_COMPLETION_EVENT))
         return XFC_VALIDATION_STATE;
     } else if (type == XFC_STATE_HISTORY) {
+      /* Match each pseudo-state to one ordered record and legal fallback. */
       XfcHistoryRecord history;
       if (root || state.parent == view->header.root_state ||
           state.handlers.count != 0 ||
@@ -742,6 +743,7 @@ bool xfcArenaSymbolMatches(const void *arena, size_t arena_length,
 bool xfcActorDataSize(uint16_t history_count, size_t *size_out) {
   uint32_t history_bytes;
   uint32_t total;
+  /* Each slot occupies one uint16_t in each of the two history banks. */
   if (!size_out ||
       !xfcCheckedMultiplyU32((uint32_t)history_count, UINT32_C(4),
                              &history_bytes) ||

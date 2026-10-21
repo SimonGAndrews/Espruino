@@ -22,6 +22,7 @@ function historyU16(data, offset) {
   return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
 }
 
+/* Restore the latest child and verify action order. */
 (function () {
   var trace = [];
   function mark(name) { return function () { trace.push(name); }; }
@@ -56,6 +57,7 @@ function historyU16(data, offset) {
 })();
 historyCollect();
 
+/* Exercise normal and explicit first-use fallbacks separately. */
 (function () {
   function run(custom) {
     var history = { type: "history", history: "shallow" };
@@ -83,6 +85,7 @@ historyCollect();
 })();
 historyCollect();
 
+/* Verify compound fallback descent and initial-action compatibility. */
 (function () {
   var trace = [];
   function mark(name) { return function () { trace.push(name); }; }
@@ -115,6 +118,7 @@ historyCollect();
 })();
 historyCollect();
 
+/* Verify actor isolation and preservation of history across stop(). */
 (function () {
   var machine = XFSM.createMachine({
     id: "isolation", initial: "owner", states: {
@@ -134,6 +138,7 @@ historyCollect();
   historyCollect();
   first.send("RETURN");
   second.send("RETURN");
+  /* Actor flags are at byte 12; the one-slot banks start at 16 and 18. */
   var data = first["\xFFxfaD"];
   first.send("PREVIOUS");
   var bank = historyU16(data, 12) & 1;
@@ -146,6 +151,7 @@ historyCollect();
 })();
 historyCollect();
 
+/* Verify that a failed exit cannot replace committed history. */
 (function () {
   var machine = XFSM.createMachine({
     id: "fault", initial: "owner", states: {
@@ -178,6 +184,7 @@ historyCollect();
 })();
 historyCollect();
 
+/* Verify independent shallow restoration for nested owners. */
 (function () {
   var machine = XFSM.createMachine({
     id: "nested", initial: "outer", states: {
@@ -207,6 +214,7 @@ historyCollect();
 })();
 historyCollect();
 
+/* Restoring a final child immediately completes its owner again. */
 (function () {
   var machine = XFSM.createMachine({
     id: "finalHistory", initial: "owner", states: {

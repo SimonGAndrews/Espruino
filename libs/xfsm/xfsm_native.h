@@ -26,7 +26,7 @@
  */
 #define XFC_ARENA_FORMAT_VERSION UINT16_C(2)
 #define XFC_ARENA_HEADER_SIZE UINT16_C(104) /* Bytes in XfcArenaHeader. */
-#define XFC_ACTOR_HEADER_SIZE ((size_t)16) /* Bytes before history banks. */
+#define XFC_ACTOR_HEADER_SIZE ((size_t)16) /* Bytes before two history banks. */
 #define XFC_MAX_STATE_DEPTH UINT8_C(32) /* Root depth is zero. */
 
 typedef uint16_t XfcIndex;
@@ -220,7 +220,11 @@ enum {
   XFC_HISTORY_KNOWN_FLAGS = UINT16_C(0x0001)
 };
 
-/* One history owner, its target node, mode, and optional first-use state. */
+/*
+ * A history node is a transition-only pseudo-state and is never active. Each
+ * record connects one compound owner to its history node and optional fallback.
+ * The record index is also the actor's history-slot index.
+ */
 typedef struct {
   uint16_t owner_state;    /* Non-root compound state. */
   uint16_t history_state;  /* Direct history child of owner_state. */
@@ -246,6 +250,11 @@ enum {
   XFC_OPERATION_NOTIFY = 4
 };
 
+/*
+ * Actor storage is the header followed by two uint16_t arrays with one entry
+ * per history record. The flag selects the committed array; the other array is
+ * changed during an operation and selected only when publication succeeds.
+ */
 enum {
   XFC_ACTOR_HISTORY_BANK_1 = UINT16_C(0x0001),
   XFC_ACTOR_KNOWN_FLAGS = UINT16_C(0x0001)
@@ -259,7 +268,7 @@ typedef struct {
   uint8_t operation;      /* XFC_OPERATION_* reentrancy guard. */
   uint16_t leaf_state;    /* Active leaf, or NONE before start. */
   uint16_t microsteps;    /* Current operation budget consumption. */
-  uint16_t flags;         /* Active history bank. */
+  uint16_t flags;         /* Selects the committed history bank. */
   uint16_t reserved;      /* Must be zero. */
 } XfcActorData;
 

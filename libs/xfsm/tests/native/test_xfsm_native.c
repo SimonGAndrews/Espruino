@@ -298,6 +298,7 @@ static size_t buildRichArena(TestArena *arena) {
   return header.arena_size;
 }
 
+/* Build two history owners so record matching and ordering can be corrupted. */
 static size_t buildHistoryArena(TestArena *arena) {
   static const char *const strings[] = {
       "Owner", "History", "Idle", "Away", "xstate.done.state.Owner"};
@@ -760,6 +761,7 @@ static void testArenaCorruption(void) {
         XFC_VALIDATION_ALIGNMENT);
 }
 
+/* Reject malformed history ownership, fallback, flags, order, and shape. */
 static void testHistoryRecords(void) {
   TestArena valid;
   TestArena changed;

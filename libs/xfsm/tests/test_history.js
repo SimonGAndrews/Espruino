@@ -8,6 +8,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+/* Full Linux coverage for shallow-history behavior and actor ownership. */
 echo(false);
 (function () {
 var XFSM = require("XFSM");
@@ -22,6 +23,7 @@ function collect() {
   if (E.defrag) E.defrag();
 }
 
+/* Restore the latest child and verify exit, transition, and entry order. */
 var resumeTrace = [];
 var resumeMachine = XFSM.createMachine({
   id: "controller",
@@ -97,6 +99,7 @@ resumeTrace = undefined;
 resumeExpected = undefined;
 collect();
 
+/* Compare normal initial entry with an explicit first-use fallback. */
 function firstUseMachine(customFallback, trace) {
   var history = { type: "history", history: "shallow" };
   if (customFallback) history.target = "slow";
@@ -147,6 +150,7 @@ customActor = undefined;
 customTrace = undefined;
 collect();
 
+/* A compound fallback follows XState initial-descent action order. */
 var compoundTrace = [];
 var compoundMachine = XFSM.createMachine({
   id: "compoundFallback",
@@ -194,6 +198,7 @@ compoundMachine = undefined;
 compoundTrace = undefined;
 collect();
 
+/* Empty history without a fallback follows the owner's nested initial path. */
 var nestedDefaultTrace = [];
 var nestedDefaultMachine = XFSM.createMachine({
   id: "nestedDefaultFallback",
@@ -242,6 +247,7 @@ nestedDefaultMachine = undefined;
 nestedDefaultTrace = undefined;
 collect();
 
+/* Actor flags are at byte 12; the one-slot history banks start at 16 and 18. */
 function dataU16(data, offset) {
   return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
 }
@@ -251,6 +257,7 @@ function actorHistory(actor) {
   return dataU16(data, dataU16(data, 12) & 1 ? 18 : 16);
 }
 
+/* Actors own independent history; stop() does not change committed history. */
 var isolationMachine = XFSM.createMachine({
   id: "isolation",
   initial: "owner",
@@ -291,6 +298,7 @@ isolationMachine = undefined;
 historyBeforeStop = undefined;
 collect();
 
+/* A failed exit leaves the previously committed history bank selected. */
 var faultMachine = XFSM.createMachine({
   id: "faultHistory",
   initial: "owner",
@@ -340,6 +348,7 @@ faultData = undefined;
 faultError = undefined;
 collect();
 
+/* Nested owners remember their shallow children independently. */
 var nestedMachine = XFSM.createMachine({
   id: "nested",
   initial: "outer",
@@ -383,6 +392,7 @@ nestedActor = undefined;
 nestedMachine = undefined;
 collect();
 
+/* Restoring a final child immediately runs the owner's completion. */
 var completionTrace = [];
 var completionMachine = XFSM.createMachine({
   id: "completionHistory",

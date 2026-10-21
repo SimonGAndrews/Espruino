@@ -8,6 +8,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+/* Configuration acceptance and diagnostics for the history extension. */
 echo(false);
 (function () {
 var XFSM = require("XFSM");

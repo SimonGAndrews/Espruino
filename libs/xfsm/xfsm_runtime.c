@@ -286,6 +286,11 @@ XFC_READ_FUNCTION(xfcReadAssignmentEntry, XFC_TABLE_ASSIGNMENT_ENTRY,
                   XfcAssignmentEntryRecord)
 XFC_READ_FUNCTION(xfcReadHistoryRecord, XFC_TABLE_HISTORY, XfcHistoryRecord)
 
+/*
+ * History records follow state-index order. With one history node per owner,
+ * both owner_state and history_state increase, so either key can use this
+ * bounded binary search. Native validation checks this ordering.
+ */
 static bool xfcFindHistory(const XfcRuntimeView *view, uint16_t state_index,
                            bool by_owner, uint16_t *slot,
                            XfcHistoryRecord *record) {
@@ -436,6 +441,12 @@ static uint16_t xfcHistoryCount(const XfcRuntimeView *view) {
   return view->header.tables[XFC_TABLE_HISTORY].count;
 }
 
+/*
+ * History changes use two banks so they commit with state and context. At the
+ * start of an operation the committed bank is copied to the working bank.
+ * Transitions change only the working bank, and successful publication swaps
+ * the bank flag. A fault leaves the committed bank selected.
+ */
 static size_t xfcHistoryBankOffset(const XfcRuntime *runtime,
                                    uint16_t bank) {
   return XFC_ACTOR_HEADER_SIZE +
@@ -960,6 +971,7 @@ static bool xfcResolveHistoryTarget(XfcRuntime *runtime,
   if (!xfcFindHistory(&runtime->view, history_state, false, &slot, &history) ||
       !xfcReadHistory(runtime, slot, true, &remembered))
     return false;
+  /* Prefer remembered history, then explicit fallback, then owner initial. */
   if (remembered != XFC_INDEX_NONE) {
     if ((history.flags & XFC_HISTORY_DEEP) != 0) {
       *target = remembered;
@@ -1009,6 +1021,11 @@ static bool xfcExecuteTransition(XfcRuntime *runtime,
     if (!xfcRefreshView(&runtime->view) ||
         !xfcReadState(&runtime->view, current, &state))
       return false;
+    /*
+     * Record the old leaf for each history owner being exited. Deep restore
+     * uses it directly; shallow restore later finds its immediate child.
+     * The write is provisional until the whole operation is published.
+     */
     if (xfcFindHistory(&runtime->view, current, true, &history_slot,
                        &history) &&
         !xfcWriteWorkingHistory(runtime, history_slot, *leaf))

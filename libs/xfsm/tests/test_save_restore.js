@@ -130,6 +130,7 @@ function actorU16(actor, offset) {
   var data = actor["\xFFxfaD"];
   return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
 }
+/* Actor flags are at byte 12; the one-slot history banks start at 16 and 18. */
 function committedHistory(actor) {
   return actorU16(actor, actorU16(actor, 12) & 1 ? 18 : 16);
 }

@@ -22,6 +22,7 @@ function deepHistoryU16(data, offset) {
   return data.charCodeAt(offset) | (data.charCodeAt(offset + 1) << 8);
 }
 
+/* Restore the exact leaf without running initial-transition actions. */
 (function () {
   var trace = [];
   function mark(name) { return function () { trace.push(name); }; }
@@ -68,6 +69,7 @@ function deepHistoryU16(data, offset) {
 })();
 deepHistoryCollect();
 
+/* Compare normal initial entry with a descendant first-use fallback. */
 (function () {
   function run(custom) {
     var trace = [];
@@ -113,6 +115,7 @@ deepHistoryCollect();
 })();
 deepHistoryCollect();
 
+/* Nested owners retain and restore their exact leaves independently. */
 (function () {
   var machine = XFSM.createMachine({
     id: "deepNested", initial: "outer", states: {
@@ -145,6 +148,7 @@ deepHistoryCollect();
 })();
 deepHistoryCollect();
 
+/* Restoring a final leaf runs completion before publishing a snapshot. */
 (function () {
   var trace = [];
   function mark(name) { return function () { trace.push(name); }; }
@@ -186,6 +190,7 @@ deepHistoryCollect();
 })();
 deepHistoryCollect();
 
+/* A failed exit changes only the uncommitted history bank. */
 (function () {
   var machine = XFSM.createMachine({
     id: "deepFault", initial: "working", states: {
@@ -208,6 +213,7 @@ deepHistoryCollect();
   actor.send("EXIT");
   actor.send("RESUME");
   actor.send("BACK");
+  /* Actor flags are at byte 12; the one-slot banks start at 16 and 18. */
   var data = actor["\xFFxfaD"];
   var flags = deepHistoryU16(data, 12);
   var committed = deepHistoryU16(data, flags & 1 ? 18 : 16);

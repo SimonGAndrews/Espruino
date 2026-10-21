@@ -2144,6 +2144,7 @@ static bool xfcCompileTransition(XfcCompiler *compiler, uint16_t source,
     if (xfcStateTypeValue(compiler, record.target_state) ==
         XFC_NODE_HISTORY) {
       int owner = xfcStateParentValue(compiler, record.target_state);
+      /* Keep domains static by accepting only outside-owner history entry. */
       if (owner < 0 || xfcStateIsDescendantOrSelf(
                            compiler, source, (uint16_t)owner)) {
         xfcFail(compiler, XFC_DIAG_UNSUPPORTED_FEATURE, target_path, target);
@@ -2454,6 +2455,10 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
       if (record.completion_event_symbol == XFC_INDEX_NONE) goto done;
     }
   } else if (type == XFC_NODE_HISTORY) {
+    /*
+     * Compile one record per history node. Shallow fallback is a direct child;
+     * deep fallback may be any ordinary descendant of the same owner.
+     */
     XfcHistoryRecord history_record;
     int history_slot = xfcStateHistorySlotValue(compiler, state_index);
     memset(&history_record, 0, sizeof(history_record));
