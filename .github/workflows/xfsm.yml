@@ -75,7 +75,11 @@ jobs:
             test_subscriptions.js \
             test_strict_validation.js \
             test_strict_validation_embedded.js \
-            test_limits.js
+            test_limits.js \
+            test_history.js \
+            test_history_embedded.js \
+            test_history_diagnostics.js \
+            test_deep_history.js
           do
             bin/espruino --test "libs/xfsm/tests/$test"
           done

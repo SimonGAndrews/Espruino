@@ -42,7 +42,7 @@ Native finite-state machine and statechart engine.
   ],
   "return" : ["JsVar", "An opaque compiled machine"]
 }
-Compile a Profile 1 machine configuration.
+Compile a Profile 2 machine configuration.
 */
 JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options) {
   return xfcCompileMachine(config, options);
@@ -55,11 +55,11 @@ JsVar *jswrap_xfsm_createMachine(JsVar *config, JsVar *options) {
   "generate" : "jswrap_xfsm_createActor",
   "params" : [
     ["machine", "JsVar", "A compiled XFSM machine"],
-    ["options", "JsVar", "Reserved; Profile 1 accepts only undefined"]
+    ["options", "JsVar", "Reserved; Profile 2 accepts only undefined"]
   ],
   "return" : ["JsVar", "A new actor"]
 }
-Create an actor for a compiled Profile 1 machine.
+Create an actor for a compiled Profile 2 machine.
 */
 JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options) {
   return xfcCreateActor(machine, options);
@@ -75,7 +75,7 @@ JsVar *jswrap_xfsm_createActor(JsVar *machine, JsVar *options) {
   ],
   "return" : ["JsVar", "An opaque assignment descriptor"]
 }
-Create a Profile 1 context-assignment descriptor.
+Create a Profile 2 context-assignment descriptor.
 */
 JsVar *jswrap_xfsm_assign(JsVar *assignment) {
   return xfcCreateAssignmentDescriptor(assignment);

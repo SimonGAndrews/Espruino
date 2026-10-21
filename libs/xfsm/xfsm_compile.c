@@ -23,7 +23,7 @@
 #include <string.h>
 
 /*
- * Compiles Profile 1 machine definitions.
+ * Compiles Profile 2 machine definitions.
  *
  * Input is the standard XState configuration and options passed to
  * createMachine(). Output is an XFSM machine containing a fixed compiled data
@@ -65,7 +65,7 @@ enum {
   XFC_COMPILE_EMIT = 1
 };
 
-/* State types supported by the single-active-branch Profile 1 engine. */
+/* State types supported by the single-active-branch Profile 2 engine. */
 typedef enum {
   XFC_NODE_ATOMIC = 0,
   XFC_NODE_COMPOUND = 1,

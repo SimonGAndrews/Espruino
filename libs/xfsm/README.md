@@ -7,18 +7,17 @@ provides a compact, deterministic subset of XState-style statecharts for
 embedded control applications while keeping the compiled machine structure
 and execution coordinator in native C.
 
-The initial supported feature set is called **Profile 1**. It covers machines
-with one active state branch, including nested states, events, guards, actions,
-context data, final states, and completion transitions. It is deliberately
-smaller than the complete XState feature set: parallel states, delayed and
-eventless transitions, invoked services, spawned actors, and history states
-are not included.
+The current supported feature set is **Profile 2**. It covers machines with one
+active state branch, including nested states, events, guards, actions, context
+data, final states, completion transitions, and one shallow- or deep-history
+node per compound owner. It is deliberately smaller than complete XState:
+parallel states, delayed and eventless transitions, invoked services, and
+spawned actors are not included.
 
-The `experiment/xfsm-history` branch adds the separately specified history-
-state experiment. It supports one shallow- or deep-history node per compound
-owner while retaining the single active branch and other Profile 1 limits.
-This branch uses private native Format Version 2 and does not alter the
-completed Profile 1 or its frozen Format Version 1.
+Profile 2 retains the completed Profile 1 behavior and limits while adding the
+qualified history-state contract. It uses frozen private Native Format Version
+2. Profile 1 and its frozen Format Version 1 remain available on the
+`feature/xfsm-profile1` branch.
 
 Applications load the built-in module with `require("XFSM")`. The engine is
 selected by adding `XFSM` to a board's `info.build.libraries` list, which makes
@@ -44,7 +43,7 @@ categorized configuration and runtime errors. Selected aliases are accepted
 to ease migration from older XState machine definitions.
 
 The detailed source of truth for supported syntax and behaviour is the
-[Xstate-fsm-c Profile 1 specification](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/specification.md).
+[Xstate-fsm-c Profile 2 specification](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/feature/xfsm-profile2/projects/Xstate-fsm-c/docs/specification-profile-2.md).
 
 ## Implementation Map
 

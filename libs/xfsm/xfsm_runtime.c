@@ -22,7 +22,7 @@
 #include <string.h>
 
 /*
- * Implements createActor() and the Profile 1 actor methods.
+ * Implements createActor() and the Profile 2 actor methods.
  *
  * A compiled machine is fixed and can be shared by several actors. Each actor
  * has its own current state, recorded history, context reference, cached
