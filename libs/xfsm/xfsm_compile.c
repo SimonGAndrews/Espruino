@@ -48,7 +48,6 @@ enum {
   XFC_META_DEPTH,
   XFC_META_EFFECTIVE_ID,
   XFC_META_TYPE,
-  XFC_META_HISTORY_SLOT,
   XFC_META_FIELD_COUNT
 };
 
@@ -125,7 +124,6 @@ typedef struct {
 /* Compact state lookup record used only while compiling the machine. */
 typedef struct {
   uint16_t parent; /* State index, or XFC_INDEX_NONE for the root. */
-  uint16_t history_slot; /* Slot index for history nodes, or NONE. */
   uint8_t depth;
   uint8_t type; /* XfcNodeType value used only during compilation. */
 } XfcCompilerStateRecord;
@@ -148,7 +146,6 @@ typedef struct {
   JsVar *guards_map;  /* Locked options.guards implementation map. */
   uint8_t context_kind;
   uint16_t context_slot; /* Index in retained, or XFC_INDEX_NONE. */
-  uint16_t history_count; /* Actor history slots assigned during indexing. */
   XfcDiagnostic diagnostic; /* The first error found. */
   JsVar *error_path;   /* Location in config or options. */
   JsVar *error_detail; /* Optional value or short explanation. */
@@ -651,9 +648,6 @@ static bool xfcStateRecord(XfcCompiler *compiler, uint16_t index,
     if (!meta) return false;
     parent = xfcMetaInteger(meta, XFC_META_PARENT);
     record->parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
-    parent = xfcMetaInteger(meta, XFC_META_HISTORY_SLOT);
-    record->history_slot =
-        parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
     record->depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
     record->type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
     jsvUnLock(meta);
@@ -681,14 +675,6 @@ static int xfcStateDepthValue(XfcCompiler *compiler, uint16_t index) {
 static int xfcStateTypeValue(XfcCompiler *compiler, uint16_t index) {
   XfcCompilerStateRecord record;
   return xfcStateRecord(compiler, index, &record) ? (int)record.type : -1;
-}
-
-static int xfcStateHistorySlotValue(XfcCompiler *compiler, uint16_t index) {
-  XfcCompilerStateRecord record;
-  if (!xfcStateRecord(compiler, index, &record) ||
-      record.history_slot == XFC_INDEX_NONE)
-    return -1;
-  return (int)record.history_slot;
 }
 
 /* Check supported configuration properties and discover the state hierarchy. */
@@ -1209,7 +1195,6 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   JsVar *parent_value = 0;
   JsVar *depth_value = 0;
   JsVar *type_value = 0;
-  JsVar *history_slot_value = 0;
   JsVar *null_key = 0;
   XfcNodeType node_type;
   uint32_t child_count;
@@ -1279,24 +1264,20 @@ static bool xfcAddStateMetadata(XfcCompiler *compiler, JsVar *configuration,
   parent_value = jsvNewFromInteger(parent);
   depth_value = jsvNewFromInteger((JsVarInt)depth);
   type_value = jsvNewFromInteger((JsVarInt)node_type);
-  history_slot_value = jsvNewFromInteger(
-      node_type == XFC_NODE_HISTORY ? (JsVarInt)compiler->history_count : -1);
   null_key = jsvNewNull();
   if (!meta || !parent_value || !depth_value || !type_value ||
-      !history_slot_value || !null_key ||
+      !null_key ||
       !xfcAppendMetaField(meta, configuration) ||
       !xfcAppendMetaField(meta, root ? null_key : key) ||
       !xfcAppendMetaField(meta, parent_value) ||
       !xfcAppendMetaField(meta, depth_value) ||
       !xfcAppendMetaField(meta, effective_id) ||
       !xfcAppendMetaField(meta, type_value) ||
-      !xfcAppendMetaField(meta, history_slot_value) ||
       !xfcArrayAppend(compiler->states, meta)) {
     xfcFail(compiler, XFC_DIAG_NO_MEMORY, 0, 0);
     goto done;
   }
   compiler->counts.states++;
-  if (node_type == XFC_NODE_HISTORY) compiler->history_count++;
   ok = true;
 
 done:
@@ -1307,7 +1288,6 @@ done:
   jsvUnLock(parent_value);
   jsvUnLock(depth_value);
   jsvUnLock(type_value);
-  jsvUnLock(history_slot_value);
   jsvUnLock(null_key);
   return ok;
 }
@@ -1359,9 +1339,6 @@ static bool xfcCompactStateMetadata(XfcCompiler *compiler) {
     }
     parent = xfcMetaInteger(meta, XFC_META_PARENT);
     record.parent = parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
-    parent = xfcMetaInteger(meta, XFC_META_HISTORY_SLOT);
-    record.history_slot =
-        parent < 0 ? XFC_INDEX_NONE : (uint16_t)parent;
     record.depth = (uint8_t)xfcMetaInteger(meta, XFC_META_DEPTH);
     record.type = (uint8_t)xfcMetaInteger(meta, XFC_META_TYPE);
     bytes = (uint8_t *)jsvGetFlatStringPointer(records);
@@ -2460,7 +2437,6 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
      * deep fallback may be any ordinary descendant of the same owner.
      */
     XfcHistoryRecord history_record;
-    int history_slot = xfcStateHistorySlotValue(compiler, state_index);
     memset(&history_record, 0, sizeof(history_record));
     history_record.owner_state = (uint16_t)parent;
     history_record.history_state = state_index;
@@ -2469,10 +2445,6 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
         !jsvIsUndefined(history_mode) &&
         jsvIsStringEqual(history_mode, "deep"))
       history_record.flags |= XFC_HISTORY_DEEP;
-    if (history_slot < 0) {
-      xfcFail(compiler, XFC_DIAG_INTERNAL, path, 0);
-      goto done;
-    }
     if (xfcGetOwn(configuration, "target", &history_target) &&
         !jsvIsUndefined(history_target)) {
       uint16_t fallback;
@@ -2501,13 +2473,14 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
       history_record.fallback_state = fallback;
     }
     if (compiler->phase == XFC_COMPILE_COUNT) {
-      if ((uint16_t)history_slot != (uint16_t)compiler->counts.histories ||
-          !xfcIncrement(compiler, &compiler->counts.histories, path,
+      if (!xfcIncrement(compiler, &compiler->counts.histories, path,
                         "histories"))
         goto done;
     } else {
+      /* State-index traversal gives count and emit the same slot order. */
       uint16_t history_index = compiler->writer->history++;
-      if (history_index != (uint16_t)history_slot ||
+      if (history_index >=
+              compiler->writer->header.tables[XFC_TABLE_HISTORY].count ||
           !xfcWriteRecord(compiler->writer, XFC_TABLE_HISTORY,
                           history_index, &history_record,
                           sizeof(history_record))) {
