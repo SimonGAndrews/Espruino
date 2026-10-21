@@ -132,20 +132,26 @@ historyCollect();
   });
   var first = XFSM.createActor(machine).start();
   var second = XFSM.createActor(machine).start();
+  var data = first["\xFFxfaD"];
+  var beforeOrdinaryFlags = historyU16(data, 12);
+  first.send("UNKNOWN");
   first.send("NEXT");
+  var afterOrdinaryFlags = historyU16(data, 12);
   first.send("LEAVE");
+  var afterHistoryFlags = historyU16(data, 12);
   second.send("LEAVE");
   historyCollect();
   first.send("RETURN");
   second.send("RETURN");
   /* Actor flags are at byte 12; the one-slot banks start at 16 and 18. */
-  var data = first["\xFFxfaD"];
   first.send("PREVIOUS");
   var bank = historyU16(data, 12) & 1;
   var beforeStop = historyU16(data, bank ? 18 : 16);
   first.stop();
   historyChecks.push(first.getSnapshot().matches({ owner: "a" }) &&
     second.getSnapshot().matches({ owner: "a" }) &&
+    beforeOrdinaryFlags === afterOrdinaryFlags &&
+    afterHistoryFlags !== afterOrdinaryFlags &&
     historyU16(data, bank ? 18 : 16) === beforeStop);
   second.stop();
 })();

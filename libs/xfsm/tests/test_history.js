@@ -277,15 +277,22 @@ var isolationMachine = XFSM.createMachine({
 });
 var actorA = XFSM.createActor(isolationMachine).start();
 var actorB = XFSM.createActor(isolationMachine).start();
+var actorAData = actorA["\xFFxfaD"];
+var beforeOrdinaryFlags = dataU16(actorAData, 12);
+actorA.send("UNKNOWN");
 actorA.send("NEXT");
+var afterOrdinaryFlags = dataU16(actorAData, 12);
 actorA.send("LEAVE");
+var afterHistoryFlags = dataU16(actorAData, 12);
 actorB.send("LEAVE");
 process.memory();
 if (E.defrag) E.defrag();
 actorA.send("RETURN");
 actorB.send("RETURN");
 checks.push(actorA.getSnapshot().matches({ owner: "b" }) &&
-  actorB.getSnapshot().matches({ owner: "a" }));
+  actorB.getSnapshot().matches({ owner: "a" }) &&
+  beforeOrdinaryFlags === afterOrdinaryFlags &&
+  afterHistoryFlags !== afterOrdinaryFlags);
 actorA.send("PREVIOUS");
 var historyBeforeStop = actorHistory(actorA);
 actorA.stop();
@@ -294,6 +301,7 @@ checks.push(actorHistory(actorA) === historyBeforeStop &&
 actorB.stop();
 actorA = undefined;
 actorB = undefined;
+actorAData = undefined;
 isolationMachine = undefined;
 historyBeforeStop = undefined;
 collect();

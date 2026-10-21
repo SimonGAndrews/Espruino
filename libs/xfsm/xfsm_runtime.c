@@ -66,6 +66,7 @@ typedef struct {
   JsVar *data_storage; /* Locked actor header and two history banks. */
   XfcRuntimeView view; /* Locked machine storage and borrowed bytes. */
   XfcActorData data;   /* Working copy committed through data storage. */
+  bool history_prepared; /* True after copying the committed history bank. */
 } XfcRuntime;
 
 static JsVar *xfcActorStart(JsVar *actor);
@@ -442,10 +443,10 @@ static uint16_t xfcHistoryCount(const XfcRuntimeView *view) {
 }
 
 /*
- * History changes use two banks so they commit with state and context. At the
- * start of an operation the committed bank is copied to the working bank.
- * Transitions change only the working bank, and successful publication swaps
- * the bank flag. A fault leaves the committed bank selected.
+ * History changes use two banks so they commit with state and context. The
+ * committed bank is copied lazily when an operation first changes history.
+ * Transitions then change only the working bank, and successful publication
+ * swaps the bank flag. A fault leaves the committed bank selected.
  */
 static size_t xfcHistoryBankOffset(const XfcRuntime *runtime,
                                    uint16_t bank) {
@@ -460,13 +461,14 @@ static bool xfcPrepareHistory(XfcRuntime *runtime) {
   uint16_t working;
   size_t bank_size = (size_t)xfcHistoryCount(&runtime->view) *
                      sizeof(uint16_t);
-  if (bank_size == 0) return true;
+  if (runtime->history_prepared || bank_size == 0) return true;
   bytes = jsvGetFlatStringPointer(runtime->data_storage);
   if (!bytes) return false;
   active = (runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0 ? 1U : 0U;
   working = (uint16_t)(1U - active);
   memcpy(bytes + xfcHistoryBankOffset(runtime, working),
          bytes + xfcHistoryBankOffset(runtime, active), bank_size);
+  runtime->history_prepared = true;
   return true;
 }
 
@@ -479,7 +481,7 @@ static bool xfcReadHistory(const XfcRuntime *runtime, uint16_t slot,
   bytes = jsvGetFlatStringPointer(runtime->data_storage);
   if (!bytes) return false;
   bank = (runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0 ? 1U : 0U;
-  if (working) bank = (uint16_t)(1U - bank);
+  if (working && runtime->history_prepared) bank = (uint16_t)(1U - bank);
   offset = xfcHistoryBankOffset(runtime, bank) +
            (size_t)slot * sizeof(*state_index);
   memcpy(state_index, bytes + offset, sizeof(*state_index));
@@ -491,7 +493,9 @@ static bool xfcWriteWorkingHistory(XfcRuntime *runtime, uint16_t slot,
   char *bytes;
   uint16_t bank;
   size_t offset;
-  if (slot >= xfcHistoryCount(&runtime->view)) return false;
+  if (slot >= xfcHistoryCount(&runtime->view) ||
+      !xfcPrepareHistory(runtime))
+    return false;
   bytes = jsvGetFlatStringPointer(runtime->data_storage);
   if (!bytes) return false;
   bank = (uint16_t)((runtime->data.flags & XFC_ACTOR_HISTORY_BANK_1) != 0
@@ -504,7 +508,7 @@ static bool xfcWriteWorkingHistory(XfcRuntime *runtime, uint16_t slot,
 }
 
 static void xfcCommitHistory(XfcRuntime *runtime) {
-  if (xfcHistoryCount(&runtime->view) != 0)
+  if (runtime->history_prepared)
     runtime->data.flags ^= XFC_ACTOR_HISTORY_BANK_1;
 }
 
@@ -583,11 +587,6 @@ static bool xfcBeginOperation(XfcRuntime *runtime, JsVar *storage,
   /* Persist busy before invoking JS so reentrant actor calls are rejected. */
   runtime->data.operation = operation;
   runtime->data.microsteps = 0;
-  if (!xfcPrepareHistory(runtime)) {
-    runtime->data.operation = XFC_OPERATION_IDLE;
-    jsExceptionHere(JSET_ERROR, "XFC E_INTERNAL @ actor.%s.history", method);
-    return false;
-  }
   xfcWriteActorData(storage, &runtime->data);
   xfcMeasureOperationBegin(operation);
   return true;
