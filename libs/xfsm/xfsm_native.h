@@ -253,7 +253,8 @@ enum {
 /*
  * Actor storage is the header followed by two uint16_t arrays with one entry
  * per history record. The flag selects the committed array; the other array is
- * changed during an operation and selected only when publication succeeds.
+ * copied and changed only when an operation captures history, then selected
+ * only when publication succeeds.
  */
 enum {
   XFC_ACTOR_HISTORY_BANK_1 = UINT16_C(0x0001),

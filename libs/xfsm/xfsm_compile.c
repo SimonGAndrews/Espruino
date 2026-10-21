@@ -2477,7 +2477,10 @@ static bool xfcCompileState(XfcCompiler *compiler, uint16_t state_index) {
                         "histories"))
         goto done;
     } else {
-      /* State-index traversal gives count and emit the same slot order. */
+      /*
+       * The history slot is its dense ordinal in state-index order. Count and
+       * emit use the same traversal, so no per-state slot metadata is needed.
+       */
       uint16_t history_index = compiler->writer->history++;
       if (history_index >=
               compiler->writer->header.tables[XFC_TABLE_HISTORY].count ||

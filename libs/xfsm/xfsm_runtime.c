@@ -25,20 +25,20 @@
  * Implements createActor() and the Profile 1 actor methods.
  *
  * A compiled machine is fixed and can be shared by several actors. Each actor
- * has its own current state, context reference, cached snapshot, subscriptions,
- * and saved error. A pointer into compiled machine data is used only while its
- * Espruino string remains locked, and is refreshed after calling JavaScript.
- * Actor data remains owned by Espruino rather than a separate native memory
- * allocation.
+ * has its own current state, recorded history, context reference, cached
+ * snapshot, subscriptions, and saved error. A pointer into compiled machine
+ * data is used only while its Espruino string remains locked, and is refreshed
+ * after calling JavaScript. Actor data remains owned by Espruino rather than a
+ * separate native memory allocation.
  *
  * Each actor operation runs synchronously in these steps:
  *
  *   open/validate -> prepare -> execute microsteps -> publish -> notify
  *
- * Engine-owned context and state are published only after execution succeeds.
- * An action, guard, or context-factory failure faults the actor. Subscriber
- * failures are reported only after the already-committed snapshot has been
- * delivered to all eligible listeners.
+ * Engine-owned context, state, and recorded history are published only after
+ * execution succeeds. An action, guard, or context-factory failure faults the
+ * actor. Subscriber failures are reported only after the already-committed
+ * snapshot has been delivered to all eligible listeners.
  */
 /* Maximum transitions processed by one start() or send() operation. */
 #define XFC_MAX_MICROSTEPS UINT16_C(256)
@@ -445,8 +445,9 @@ static uint16_t xfcHistoryCount(const XfcRuntimeView *view) {
 /*
  * History changes use two banks so they commit with state and context. The
  * committed bank is copied lazily when an operation first changes history.
- * Transitions then change only the working bank, and successful publication
- * swaps the bank flag. A fault leaves the committed bank selected.
+ * Reads use the committed bank until that copy exists. History writes then
+ * change only the working bank, and successful publication swaps the bank
+ * flag. A fault leaves the committed bank selected.
  */
 static size_t xfcHistoryBankOffset(const XfcRuntime *runtime,
                                    uint16_t bank) {
@@ -1363,7 +1364,7 @@ static bool xfcCommitPublication(XfcRuntime *runtime, JsVar *storage,
                                  JsVar *context, bool publish_context,
                                  bool changed, JsVar *snapshot,
                                  bool cache_snapshot, JsVar **error) {
-  /* This is the operation's commit point for context, state, and snapshot. */
+  /* Commit context, state, snapshot, and any prepared history bank together. */
   if (cache_snapshot &&
       jsvObjectSetChild(runtime->actor, XFC_ACTOR_SNAPSHOT_NAME, snapshot) !=
           snapshot) {
