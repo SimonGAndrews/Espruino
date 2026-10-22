@@ -245,6 +245,7 @@ does not need to be changed.
 The options properties may contain:
 
 * `password` - Password string to be used to access the network.
+* `allChannels` - [2v30+ ESP32] if true, scans all Wifi channels for the AP (the default is a 'fast scan')
 * `dnsServers` (array of String) - An array of up to two DNS servers in dotted
   decimal format string.
 * `channel` - Wifi channel of the access point (integer, typ 0..14, 0 means any
@@ -271,7 +272,8 @@ Notes:
   "name"     : "scan",
   "generate" : "jswrap_wifi_scan",
   "params"   : [
-    ["callback", "JsVar", "A `callback(err, ap_list)` function to be called back on completion. `err==null` and `ap_list` is an array on success, or `err` is an error string and `ap_list` is undefined on failure."]
+    ["callback", "JsVar", "A `callback(err, ap_list)` function to be called back on completion. `err==null` and `ap_list` is an array on success, or `err` is an error string and `ap_list` is undefined on failure."],
+    ["options", "JsVar", "[2v30+ ESP32] Optional options for scanning `{ passive: bool }`"]
   ]
 }
 Perform a scan for access points. This will enable the station mode if it is not

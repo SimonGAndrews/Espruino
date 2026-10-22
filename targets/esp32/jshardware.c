@@ -55,6 +55,7 @@
 #if ESP_IDF_VERSION_MAJOR>=4
 #include "soc/uart_reg.h"
 #include "esp_mac.h"
+#include "hal/gpio_ll.h"
 #endif
 #include "esp_attr.h"
 #include "esp_wifi.h"
@@ -73,12 +74,19 @@
 #if ESP_IDF_VERSION_MAJOR>=5
 #include "esp_flash.h"
 #include "soc/gpio_reg.h"
+#include "driver/temperature_sensor.h"
 #else
 #include "esp_spi_flash.h"
 #endif
 
 #include "jshardwareI2c.h"
 #include "jshardwareSpi.h"
+
+#if ESP_IDF_VERSION_MAJOR >= 5
+#include "esp_private/esp_clk.h"
+#else
+#include "esp_clk.h"
+#endif
 
 #define FLASH_MAX (4*1024*1024) //4MB
 #define FLASH_PAGE_SHIFT 12 // Shift is much faster than division by 4096 (size of page)
@@ -555,6 +563,40 @@ void jshKickWatchDog() {
 #endif
 }
 
+bool jshGetPinAddress(Pin pin, JshGetPinAddressResult *result) {
+  if (!jshIsPinValid(pin)) return false;
+  if ((pinInfo[pin].port & JSH_PORT_MASK)==JSH_PORTV)
+    return false;
+  gpio_num_t gpioNum = pinToESP32Pin(pin);
+#ifndef CONFIG_IDF_TARGET_ESP32C3
+  bool port0 = true;
+  if (gpioNum >= 32) {
+    gpioNum -= 32;
+    port0 = false;
+  }
+#endif
+  bool negated = pinInfo[pin].port & JSH_PIN_NEGATED;
+  result->mask = 1 << gpioNum;
+
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+  result->in_addr = &GPIO.in.val;
+  result->set_addr = negated ? &GPIO.out_w1tc.val : &GPIO.out_w1ts.val;
+  result->clr_addr = negated ? &GPIO.out_w1ts.val : &GPIO.out_w1tc.val;
+#else
+  if (port0) {
+    result->in_addr = &GPIO.in;
+    result->set_addr = negated ? &GPIO.out_w1tc : &GPIO.out_w1ts;
+    result->clr_addr = negated ? &GPIO.out_w1ts : &GPIO.out_w1tc;
+  }
+  else {
+    result->in_addr = &GPIO.in1.val;
+    result->set_addr = negated ? &GPIO.out1_w1tc.val : &GPIO.out1_w1ts.val;
+    result->clr_addr = negated ? &GPIO.out1_w1ts.val : &GPIO.out1_w1tc.val;
+  }
+#endif
+  return true;
+}
+
 
 /**
  * Get the state of the pin associated with the event flag.
@@ -740,18 +782,32 @@ bool jshIsDeviceInitialised(IOEventFlags device) {
 // the esp32 temperature sensor - undocumented library function call. Unsure of values returned.
 JsVarFloat jshReadTemperature() {
 #if CONFIG_IDF_TARGET_ESP32
-  extern uint8_t temprature_sens_read();
+  extern uint8_t temprature_sens_read(); // ESP32 uses legacy temp sensor
   return temprature_sens_read();
+#else
+#if ESP_IDF_VERSION_MAJOR>=5
+  static temperature_sensor_handle_t temp_sensor = NULL;
+  if (!temp_sensor) {
+    temperature_sensor_config_t temp_config = {
+      .range_min = -10,
+      .range_max = 80,
+    };
+    temperature_sensor_install(&temp_config, &temp_sensor);
+    temperature_sensor_enable(temp_sensor);
+  }
+  float temp;
+  temperature_sensor_get_celsius(temp_sensor, &temp);
+  return temp;
 #else
   jsError(">> jshReadTemperature Not implemented");
   return NAN;
 #endif
+#endif
 }
 
-// the esp8266 can read the VRef but then there's no analog input, so we don't support this
+// the ESP32 cannot read VCC without an external potential divider - but it always runs off 3.3v so just hard-code it
 JsVarFloat jshReadVRef() {
-  jsError(">> jshReadVRef Not implemented");
-  return NAN;
+  return 3.3;
 }
 
 unsigned int jshGetRandomNumber() {
@@ -879,6 +935,12 @@ unsigned int jshSetSystemClock(JsVar *options) {
   NOT_USED(options);
   jsError(">> jshSetSystemClock Not implemented");
   return 0;
+}
+
+JsVar *jshGetSystemClock() {
+  JsVar *o = jsvNewObject();
+  jsvObjectSetIntChild(o,"sysclk", (JsVarInt)esp_clk_cpu_freq());
+  return o;
 }
 
 /**

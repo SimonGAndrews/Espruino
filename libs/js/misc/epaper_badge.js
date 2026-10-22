@@ -12,16 +12,30 @@ Badge.showRendering(function(g) { // Colors are: 0=black, 1=white, 2=yellow, 3=r
 });
 */
 (function(){
-global.LED_EN = D4;
-var i2c = new I2C();
-i2c.setup({sda:D5, scl:D6});
-
+const i2c = new I2C();
+const spi = SPI1;
 global.Badge = {
   i2c : i2c,
+  spi : spi,
   led_rgb : new Uint8Array(3*10), // RGB buffer for LEDs
-  epaperBusy : false
+  epaperBusy : false,
+  REV : 1.2 // PCB rev
 };
-require("neopixel").write(D20, Badge.led_rgb); // set all neopixels to off
+
+const LED_ON = (Badge.REV>1.0)?1:0;
+global.LED_EN = (Badge.REV>1.1)?D4:D20;
+global.LED_DATA = (Badge.REV>1.1)?D20:D21;
+
+i2c.setup({sda:D5, scl:D6});
+// ePaper
+spi.setup({ baud : 4000000, sck : D7, mosi: D8 });
+const CS = (Badge.REV>1.1)?D10:D4, DC = (Badge.REV>1.1)?D21:D10, RST = D1, BUSY = D0;
+const Source_BITS  = 800;
+const Gate_BITS   = 680;
+const ALLSCREEN_BYTES =  96000;
+
+
+require("neopixel").write(LED_DATA, Badge.led_rgb); // set all neopixels to off
 
 //i2c.readReg(0x38, 0,1); // AHT20
 //i2c.readReg(0x1E, 0,1); // KX022-1020
@@ -81,32 +95,25 @@ Badge.getAccel = function() {
 Badge.setLEDs = function(r,g,b) {
   var g = Graphics.createArrayBuffer(1,1,24,{color_order:"brg"}); // use 24 bit GFX to convert color types/strings
   var col = g.toColor(r,g,b);
-  if (col==0) return LED_EN.reset(); // LEDs off
-  LED_EN.set(); // LEDs on
+  if (col==0) return LED_EN.write(!LED_ON); // LEDs off
+  LED_EN.write(LED_ON); // LEDs on
   let arr = new Uint24Array(Badge.led_rgb.buffer);
   arr.fill(col);
-  require("neopixel").write(D20, Badge.led_rgb);
+  require("neopixel").write(LED_DATA, Badge.led_rgb);
 };
 
 /// Set LEDs individually. Supply 30-element RGB array, or 'undefined' uses Badge.led_rgb
 Badge.setLEDArray = function(arr) {
   if (arr!==undefined) Badge.led_rgb.set(arr);
-  LED_EN.set(); // LEDs on
-  require("neopixel").write(D20, Badge.led_rgb);
+  LED_EN.write(LED_ON); // LEDs on
+  require("neopixel").write(LED_DATA, Badge.led_rgb);
 };
 
 // ePaper
-const CS = D10, DC = D21, RST = D1, BUSY = D0; // BUSY keeps changing?
-const Source_BITS  = 800;
-const Gate_BITS   = 680;
-const ALLSCREEN_BYTES =  96000;
-
 CS.set();
 DC.set();
 RST.set();
 BUSY.read();
-var spi = SPI1;
-spi.setup({ baud : 4000000, sck : D7, mosi: D8 });
 
 // epaper: write command
 function eC(command) {
@@ -283,16 +290,21 @@ Badge.showError = function(error) {
   require("Storage").write("showing", "error");
   let stack = ((error instanceof Object) && error.stack) ? error.stack : undefined;
   let msg = (error instanceof Object) ? error.message : error.toString();
+  let qrcode = atob("QEABAAAAAAAAAAAAAAAAAAAAAD//hgf/+f/8P/+GB//5//wwAZnmAfmADDABmeYB+YAMM/mGeH+Bn8wz+YZ4f4GfzDP5nmBmGZ/MM/meYGYZn8wz+Zhnh4GfzDP5mGeHgZ/MM/mYZ4eBn8wwAZ4AAZmADDABngABmYAMP/+ZmZmZ//w//5mZmZn//AAAAZnhgAAAAAABmeGAAAAM+fnmf/5/MAz5+eZ//n8wDAYeBmeHgDAMBh4GZ4eAMAD//4YAB5/wAP//hgAHn/AzBgYeYBgAzDMGBh5gGADMM8GAGBgGHPwzwYAYGAYc/DA4eeHnn4A8MDh54eefgDwwwZgBgB5/wDDBmAGAHn/AMwZ+BmGf4DAzBn4GYZ/gMDDBgB/+GB/AMMGAH/4YH8Aw/gBn/5n/ADD+AGf/mf8APweZ4GYHnMA/B5ngZgecwDD4GBmHmfwMMPgYGYeZ/AwPB+Zhnh/8zA8H5mGeH/zMAAAZmeB4HPwAABmZ4Hgc/D//mZ/geZwwP/+Zn+B5nDAwAYfhmHgfzDABh+GYeB/MM/meZn4f/Pwz+Z5mfh/8/DP5nmZ+H/z8M/mZ+f4eYAAz+Zn5/h5gADP5hgZmf4AwM/mGBmZ/gDAwAZ4YABnjwDABnhgAGePAP/+AZ5ngAPA//4BnmeAA8AAAAAAAAAAAAAAAAAAAAAA=");
   return Badge.showRendering(function(g) {
     g.setBgColor(3).clearRect(0,0,799,479);
     g.setBgColor(1).clearRect(20,20,779,459);
-    g.setColor(3).setFontVector(80).setFontAlign(0,0).drawString("ERROR",400,120);
+    let x=250,y=120;
+    g.setColor(3).fillCircle(x,y,50).setColor(2).fillPoly([x,y-40, x-42,y+24, x+42,y+24]).setColor(0).setFontVector(60).setFontAlign(0,0).drawString("!",x+4,y);
+    g.setColor(3).setFontVector(80).setFontAlign(0,0).drawString("ERROR",470,120);
     g.setColor(0).setFont("6x8:3").setFontAlign(0,-1).drawString(msg,400,196);
     if (stack) g.setFont("6x8:2").setFontAlign(-1,-1).drawString(stack, 30, 240);
     var env = process.env, mem=process.memory();
-    g.setFont("6x8:2").setFontAlign(-1,-1).drawString(`Espruino ${env.VERSION} (${env.GIT_COMMIT})  ${env.BOARD}
+    g.setFont("6x8:2").setFontAlign(-1,-1).drawString(`Espruino ${env.VERSION} (${env.GIT_COMMIT}) ${env.BOARD}  ${(new Date()).toString().substr(4,17)}
 https://espruino.com/Badge  ${mem.free} / ${mem.total} vars free
 `,30,30);
+    g.setFontAlign(-1,1).drawString("See https://espruino.com/Badge for more info",30,450);
+    g.drawImage(qrcode, 770-128,450-128,{scale:2});
   });
 };
 
@@ -382,13 +394,28 @@ Badge.showImageFileRendering = function(filename, height, gfxCallback) {
   });
 };
 
+/* Show raw image data on the ePaper. rawCallback(data,done) is called.
+`data` should be called with 800*480*2bpp = 96000bytes (over multiple calls)
+and finally `done` is called at the end. */
+Badge.showRaw = function(rawCallback) {
+  if (Badge.epaperBusy) throw new Error("ePaper is busy");
+  Badge.epaperBusy = true;
+  return epdInit().then(() => new Promise(resolve => {
+    eC(0x10);
+    rawCallback(eD, resolve);
+  })).then(() => epdUpdate()
+  ).then(epdSleep).then(() => {
+    Badge.epaperBusy = false;
+  });
+};
+
 // Puts the badge to sleep, waiting to restart on a button press. The button can be read with ESP32.getWakeupPin()
 Badge.sleep = function() {
-  LED_EN.reset(); // LEDs off
+  LED_EN.write(!LED_ON); // LEDs off
   ESP32.deepSleepExt1([BTN1,BTN2],0); // wait for buttons
 };
 
-/// Connect to wifi using details in wifi.json ({"ssid":"--","options":{"password":"---"}},"backup_ssid":..,"backup_options":{}). Returns a promise which only completes on success (on failure an error screen is displayed)
+/// Connect to wifi using details in wifi.json ({"ssid":"--","options":{"password":"---"}},"backup_ssid":..,"backup_options":{}). Returns a promise which completes on success or rejects on failure
 Badge.connectWiFi = function() {
   global.WIFI_INFO=require("Storage").readJSON("wifi.json",1)||{};
   if (!WIFI_INFO.ssid) {
@@ -396,7 +423,7 @@ Badge.connectWiFi = function() {
     Badge.showError("No WiFi Details\n\nConnect via Bluetooth/USB\nand write wifi.json");
     return new Promise(resolve => {}); // return a promise that never resolves
   }
-  return new Promise(resolve => {
+  return new Promise((resolve,reject) => {
     require("Wifi").connect(WIFI_INFO.ssid, WIFI_INFO.options, function(err) {
       if (err) {
         console.log("WiFi error: "+err);
@@ -405,10 +432,8 @@ Badge.connectWiFi = function() {
           return require("Wifi").connect(WIFI_INFO.backup_ssid, WIFI_INFO.backup_options, function(berr) {
             if (berr) {
               console.log("Backup WiFi error: "+berr);
-              return Badge.showError(`WiFi error: ${err}\nBackup WiFi error: ${berr}`).then(() => {
-                Badge.sleep(); // no need to resolve/reject - we're turning off
-              });
-            } // Othewise WiFi is ok
+              return reject(`WiFi error: ${err}\nBackup WiFi error: ${berr}`);
+            } // Otherwise WiFi is ok
             console.log("WiFi Connected - Swap default to backup");
             let t = WIFI_INFO.ssid;
             WIFI_INFO.ssid = WIFI_INFO.backup_ssid;
@@ -420,9 +445,7 @@ Badge.connectWiFi = function() {
             resolve();
           });
         }
-        return Badge.showError(`WiFi error: ${err}\n`).then(() => {
-          Badge.sleep(); // no need to resolve/reject - we're turning off
-        });
+        return reject(`WiFi error: ${err}\n`);
       }
       console.log("WiFi Connected");
       resolve();

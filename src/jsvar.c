@@ -465,6 +465,16 @@ void jsvSetMemoryTotal(unsigned int jsNewVarCount) {
 
 /// Scan memory to find any JsVar that references a specific memory range, and if so update what it points to to point to the new address. If newAddr==0 we just convert in to 'null'
 void jsvUpdateMemoryAddress(size_t oldAddr, size_t length, size_t newAddr) {
+  size_t a;
+  /* On ESP32, the address is shifted to a memory-mapped address area, so we
+  need to be sure we're checking JsVars against the correct memory area */
+  a = jshFlashGetMemMapAddress((size_t)oldAddr);
+  if (a) oldAddr = a;
+  if (newAddr) {
+    a = jshFlashGetMemMapAddress((size_t)newAddr);
+    if (a) newAddr = a;
+  }
+  //jsiConsolePrintf("jsvUpdateMemoryAddress 0x%08x -> 0x%08x (%d)\n", oldAddr, newAddr, length);
   for (unsigned int i=1;i<=jsVarsSize;i++) {
     JsVar *v = jsvGetAddressOf((JsVarRef)i);
     if (jsvIsNativeString(v) || jsvIsFlashString(v)) {
@@ -1679,7 +1689,7 @@ JsVar *jsvAsArrayIndex(JsVar *index) {
     if (jsvIsStringNumericStrict(index)) {
       JsVar *i = jsvNewFromInteger(jsvGetInteger(index));
       JsVar *is = jsvAsString(i);
-      if (jsvCompareString(index,is,0,0,false)==0) {
+      if (jsvCompareString(index,is,0,0,false,false)==0) {
         // two items are identical - use the integer
         jsvUnLock(is);
         return i;
@@ -2718,12 +2728,12 @@ bool jsvIsStringIEqual(JsVar *var, const char *str) {
 
 /** Compare 2 strings, starting from the given character positions. equalAtEndOfString means that
  * if one of the strings ends (even if the other hasn't), we treat them as equal.
- * For a basic strcmp, do: jsvCompareString(a,b,0,0,false)
+ * For a basic strcmp, do: jsvCompareString(a,b,0,0,false,false)
  *  */
-int jsvCompareString(JsVar *va, JsVar *vb, size_t starta, size_t startb, bool equalAtEndOfString) {
+int jsvCompareString(JsVar *va, JsVar *vb, size_t starta, size_t startb, bool equalAtEndOfA, bool equalAtEndOfB) {
   JsvStringIterator ita;
   jsvStringIteratorNewUTF8(&ita, va, starta);
-  int r = jsvCompareStringIt(&ita, vb, startb, equalAtEndOfString);
+  int r = jsvCompareStringIt(&ita, vb, startb, equalAtEndOfA, equalAtEndOfB);
   jsvStringIteratorFree(&ita);
   return r;
 }
@@ -4025,7 +4035,7 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
       return v;
     }
 
-    int cmp = jsvCompareString(da,db,0,0,false);
+    int cmp = jsvCompareString(da,db,0,0,false,false);
     jsvUnLock2(da, db);
     // use strings
     switch (op) {

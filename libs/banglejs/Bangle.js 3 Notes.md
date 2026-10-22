@@ -74,6 +74,17 @@ P2.09    LiPo Charge detect
 P2.10    Torch RGB (neopixel)
 ```
 
+### nRF54 Peripherals
+
+* uart20  - SERIAL1 - debug port
+* uart21  - SERIAL2 - WiFi
+* spi00   - SPI flash
+* spi30   - LCD
+* timer00 - Util timer
+* timer22 - Speaker DMA timer(?)
+* pwm20   - PWM outputs
+* adc     - Mic/voltage
+
 ### Power usage debugging
 
 ```JS
@@ -276,9 +287,12 @@ V7.set();w.startOutput(B8,4000);
 * Speaker via analogWrite
 * Recovery menu in py32
 * nRF54 can reflash py32 over SWD
+* Microphone
+* IR transmission (and raw IR receive)
 
 ## TODO
 
+* Fully Implement IR receive so it can detect IR from remote controls
 * Check Vibration motor
 * Check PY32 version number at boot and update firmware if it doesn't match (current code doesn't work)
 * Customise ESP-AT partitions to add `ota_1`, and also a Bangle.js factory firmware partition (`esp-at.bin`=1.3MB, but ota_0 is 3.8MB)
@@ -288,10 +302,10 @@ V7.set();w.startOutput(B8,4000);
 * Gyro event
 * Pressure sensor
 * BME690 gas sensing
-* Microphone (analogRead in ISR, plus ranging)
 * Wrap Waveform handling to allow sounds to be played more easily
 * LCD update speed (12fps currently)
 * WiFi (Use `AT+CIPRECVMODE=1` for flow control)
+* Need to enable crypto/AES/etc in `BANGLEJS3.py` (possible mbedtls version mismatches)
 * ... much more
 
 ## Nice to have

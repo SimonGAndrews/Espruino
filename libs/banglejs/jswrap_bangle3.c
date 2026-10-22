@@ -18,10 +18,13 @@
 #include "jsinteractive.h"
 #include "jswrap_bangle3.h"
 #include "lcd_memlcd.h"
+#include "jswrap_arraybuffer.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/drivers/gpio.h>
+
+#include <nrfx_saadc.h>
 
 #include "neopixel_bitbang.h"
 
@@ -39,7 +42,10 @@ extern const struct device *jshToZephyrPort(JsvPinInfoPort port);
 #define PY32_OUT_SHIFT 4
 /// bottom 4 bits are buttons, higher bits are outputs
 unsigned short sxValues = (PY32_OUT_DEFAULTS << PY32_OUT_SHIFT);
+/// Used to stop jshPY32Update being called while its in progress
 volatile bool inPY32Update = false;
+
+// ---------------------------------------------------------------------------- PY32 + Virtual Pins
 
 // Simple write to PY32 - we bit-bang this as setting up SPI for 1 byte takes too long and doesn't work in an IRQ
 void jshPY32Transfer(uint8_t *buf, int count) {
@@ -67,6 +73,18 @@ void jshPY32Transfer(uint8_t *buf, int count) {
     buf[i] = rxdata;
   }
   jshPinSetValue(LCD_SPI_CS, 1);
+}
+
+void jshPY32WaitIdle() {
+  // Check we're not being called while LCD is updating - if we are, wait
+  if (lcdMemLCD_isBusy()) {
+    //jsiConsolePrintf("jshPY32WaitIdle busy\n");
+    int timeout = 10000000;
+    while (lcdMemLCD_isBusy() && --timeout);
+    if (timeout==0)
+      return jsiConsolePrintf("jshPY32WaitIdle timeout\n");
+    jshDelayMicroseconds(100); // give PY32 time to finish
+  }
 }
 
 // Send state to PY32. Return 4th buffer byte (version if cmd=PY32_INITIALISE, 0 otherwise)
@@ -126,15 +144,7 @@ void jshVirtualPinInitialise() {
 }
 
 void jshVirtualPinSetValue(Pin pin, bool state) {
-  // Check we're not being called while LCD is updating - if we are, wait
-  if (lcdMemLCD_isBusy()) {
-    //jsiConsolePrintf("jshVirtualPinSetValue busy\n");
-    int timeout = 10000000;
-    while (lcdMemLCD_isBusy() && --timeout);
-    if (timeout==0)
-      return jsiConsolePrintf("jshVirtualPinSetValue(%d,%d) timeout\n",pin,state);
-    jshDelayMicroseconds(100); // give PY32 time to finish
-  }
+  jshPY32WaitIdle();
   int p = pinInfo[pin].pin;
   unsigned short oldsxValues = sxValues;
   if (!IS_PIN_A_BUTTON(pin)) { // buttons read only
@@ -146,6 +156,7 @@ void jshVirtualPinSetValue(Pin pin, bool state) {
     }
   }
 }
+
 
 bool jshVirtualPinGetValue(Pin pin) {
   int p = pinInfo[pin].pin;
@@ -172,7 +183,217 @@ void jshVirtualPinIRQHandler(bool state, IOEventFlags flags) {
   }
 }
 
-// ----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------- Audio
+static int16_t mic_sample_buffer_a[MIC_BUFFER_SIZE];
+static int16_t mic_sample_buffer_b[MIC_BUFFER_SIZE];
+int16_t *mic_completed_buffer = mic_sample_buffer_a;
+
+int16_t *jswrap_banglejs3_getMicBuffer(int n) {
+  return n ? mic_sample_buffer_b : mic_sample_buffer_a;
+}
+
+/* Callback executes in ISR context upon completing a sequence transfer */
+static void mic_saadc_event_handler(nrfx_saadc_evt_t const *p_event) {
+  if (p_event->type == NRFX_SAADC_EVT_DONE) {
+    bool isOn = bangleFlags & JSBF_MIC_ON;
+    mic_completed_buffer = p_event->data.done.p_buffer;
+    if (isOn) // Queue for JS land
+      jsbangle_push_event(JSBE_MIC_BUFFER, (mic_completed_buffer==mic_sample_buffer_b)?1:0);
+  } else if (p_event->type == NRFX_SAADC_EVT_BUF_REQ) {
+    // Re-queue the finished buffer immediately into the hardware queue.
+    int16_t *new_buffer = mic_completed_buffer == mic_sample_buffer_b ?
+                                    mic_sample_buffer_b : mic_sample_buffer_a;
+    int err = nrfx_saadc_buffer_set(new_buffer, MIC_BUFFER_SIZE);
+    if (err) {
+        jsWarn("Failed to re-queue SAADC buffer: 0x%08x\n", err);
+    }
+  }
+}
+
+/*JSON{
+  "type" : "event",
+  "class" : "Bangle",
+  "name" : "mic",
+  "params" : [["buffer","JsVar","A Int16Array of Microphone samples"]],
+  "ifdef" : "BANGLEJS3",
+  "typescript": "on(event: \"accel\", callback: (xyz: AccelData) => void): void;"
+}
+Use `Bangle.setMicPower(true, "myapp")` to enable the microphone.
+*/
+/*JSON{
+    "type" : "staticmethod",
+    "class" : "Bangle",
+    "name" : "setMicPower",
+    "generate" : "jswrap_banglejs3_setMicPower",
+    "params" : [
+      ["isOn","bool","True if the microphone should be on, false if not"],
+      ["appID","JsVar","A string with the app's name in, used to ensure one app can't turn off something another app is using"]
+    ],
+    "return" : ["bool","Is the microphone on?"],
+    "ifdef" : "BANGLEJS3",
+    "typescript" : "setMicPower(isOn: ShortBoolean, appID: string): boolean;"
+}
+Set the power to the microphone
+
+When on, data is output via the `mic` event on `Bangle`:
+
+```
+Bangle.setMicPower(true, "myapp");
+Bangle.on('mic', buf => {
+  // ...
+});
+```
+
+*When on, the microphone draws roughly FIXME mA*
+*/
+bool jswrap_banglejs3_setMicPower(bool isOn, JsVar *appId) {
+  int err = 0;
+
+  bool wasOn = bangleFlags & JSBF_MIC_ON;
+  isOn = setDeviceRequested("Mic", appId, isOn);
+
+  if (isOn != wasOn) {
+    if (isOn) {
+      jshPinOutput(MIC_PIN_EN, 1);
+
+      /* 1. Configure channel - Zephyr 3.3.0+ nrfx_saadc struct format */
+      nrfx_saadc_channel_t channel = NRFX_SAADC_DEFAULT_CHANNEL_SE(
+        pinInfo[MIC_PIN].analog & JSH_MASK_ANALOG_CH,
+        0/*ch 0*/
+      );
+
+      /* Hardware gain / reference settings */
+      channel.channel_config.gain = NRF_SAADC_GAIN1;
+      channel.channel_config.reference = NRF_SAADC_REFERENCE_INTERNAL;
+      channel.channel_config.acq_time = 3; // NRF_SAADC_ACQTIME_3US?
+
+      /* Configure Advanced Mode for Continuous Double-Buffering */
+      nrfx_saadc_adv_config_t adv_config = {
+          .oversampling = NRF_SAADC_OVERSAMPLE_DISABLED,
+          .burst        = NRF_SAADC_BURST_DISABLED,
+          .internal_timer_cc = 2000, // 8khz
+          .start_on_end = true  // Auto-start next conversion when END event fires
+      };
+
+      uint32_t channel_mask = 1; // NRFX_SAADC_CHANNEL_MASK(0);?
+
+      err = nrfx_saadc_advanced_mode_set(channel_mask,
+                                        NRF_SAADC_RESOLUTION_12BIT,
+                                        &adv_config,
+                                        mic_saadc_event_handler);
+      if (err) {
+        jsWarn("nrfx_saadc_advanced_mode_set failed: 0x%08x\n", err);
+        return false;
+      }
+
+      /* Configure the SAADC Channel */
+      err = nrfx_saadc_channels_config(&channel, 1);
+      if (err) {
+        jsWarn("nrfx_saadc_channels_config failed: 0x%08x\n", err);
+        return false;
+      }
+
+      /* Pre-load BOTH buffers into EasyDMA Hardware Queue */
+      err = nrfx_saadc_buffer_set(mic_sample_buffer_a, MIC_BUFFER_SIZE);
+      err |= nrfx_saadc_buffer_set(mic_sample_buffer_b, MIC_BUFFER_SIZE);
+      if (err) {
+        jsWarn("nrfx_saadc_buffer_set failed: 0x%08x", err);
+        return false;
+      }
+
+      /* Trigger initial mode start */
+      err = nrfx_saadc_mode_trigger();
+      if (err) {
+        jsWarn("nrfx_saadc_mode_trigger failed: 0x%08x\n", err);
+        return false;
+      }
+
+      bangleFlags |= JSBF_MIC_ON;
+
+    } else { // Turn off
+      bangleFlags &= ~JSBF_MIC_ON;
+      jshPinOutput(MIC_PIN_EN, 0);
+      // stop ADC
+      nrfx_saadc_abort();
+      if (err) {
+        jsWarn("Failed to abort SAADC: 0x%08x\n", err);
+        return false;
+      }
+      // Unconfigure channels if you want to power down the SAADC
+      nrfx_saadc_channels_deconfig(1/*NRFX_SAADC_CHANNEL_MASK(0)*/);
+    }
+  }
+  return isOn;
+}
+
+/*JSON{
+    "type" : "staticmethod",
+    "class" : "Bangle",
+    "name" : "IR",
+    "generate" : "jswrap_banglejs3_IR",
+    "params" : [
+      ["data","JsVar","An array of pulse lengths, in milliseconds `[on,off,on,off,...]`"]
+    ],
+    "ifdef" : "BANGLEJS3"
+}
+Transmit infrared signals from the watch. The maximum length a pulse can be is 25.5ms.
+*/
+void jswrap_banglejs3_IR(JsVar *data) {
+  uint8_t buf[128];
+  buf[0] = PY32_CMD_IR_TX;
+  int idx = 2;
+  JsvIterator it;
+  jsvIteratorNew(&it, data, JSIF_EVERY_ARRAY_ELEMENT);
+  while (jsvIteratorHasElement(&it)) {
+    JsVarFloat pulse = jsvIteratorGetFloatValue(&it)*10;
+    if (pulse<0) pulse=0;
+    if (pulse>255) pulse=255;
+    if (idx < sizeof(buf)) buf[idx] = (int)pulse;
+    idx++;
+    jsvIteratorNext(&it);
+  }
+  jsvIteratorFree(&it);
+  buf[1] = idx-2;
+  jshPY32WaitIdle();
+  jshPY32Transfer(buf, idx);
+}
+
+/*JSON{
+    "type" : "staticmethod",
+    "class" : "Bangle",
+    "name" : "receiveIR",
+    "generate" : "jswrap_banglejs3_receiveIR",
+    "return" : ["JsVar","An array of IR signal lengths"],
+    "ifdef" : "BANGLEJS3"
+}
+Receive infrared signals that the watch has received.
+
+Waits at most 1s for signals
+*/
+JsVar *jswrap_banglejs3_receiveIR() {
+  /* FIXME: This is just for debugging at the moment. Evantually
+  we will want to analyse the raw signal and return just the pulse periods
+  such that they can be passed into Bangle.IR(...). It might even make sense to
+  do that analysis on the PY32. */
+  uint8_t buf[1024] = {0};
+  // Issue RX command
+  buf[0] = PY32_CMD_IR_RX;
+  jshPY32WaitIdle();
+  jshPY32Transfer(buf, 4);
+  // wait for completion
+  jshDelayMicroseconds(1000000);
+  // FIXME: wait is not a good solution - maybe wait for IRQ line to signal it's done?
+  // Get result
+  buf[0] = PY32_CMD_NONE;
+  jshPY32Transfer(buf, sizeof(buf));
+  // Construct array
+  JsVar *ab = jsvNewArrayBufferWithData(sizeof(buf), buf);
+  JsVar *d = jswrap_typedarray_constructor(ARRAYBUFFERVIEW_UINT8, ab,0,0);
+  jsvUnLock(ab);
+  return d;
+}
+
+// ---------------------------------------------------------------------------- Error handler
 
 /* Override Zephyr's weak fatal error handler with something to write to the LCD */
 void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf) {

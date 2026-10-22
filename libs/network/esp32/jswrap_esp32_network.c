@@ -34,7 +34,6 @@
 #include "esp_mac.h"
 #include "nvs_flash.h"
 #elif ESP_IDF_VERSION_MAJOR>=4
-
 #include "tcpip_adapter.h"
 #include "mdns.h"
 #include "ping/ping.h"
@@ -61,7 +60,6 @@
 #define UNUSED(x) (void)(x)
 
 #if ESP_IDF_VERSION_MAJOR>=5
-esp_netif_t *sta_netif;
 static esp_event_handler_instance_t instance_wifi = NULL;
 static esp_event_handler_instance_t instance_ip = NULL;
 #endif
@@ -71,9 +69,10 @@ static esp_event_handler_instance_t instance_ip = NULL;
 #define TCPIP_ADAPTER_IF_AP  1
 #endif
 
-static void sendWifiCompletionCB(
-  JsVar **g_jsCallback,  //!< Pointer to the global callback variable
-  const char  *reason          //!< NULL if successful, error string otherwise
+static void queueWifiCallbackAndUnLock(
+  JsVar **g_jsCallback,  //!< Pointer to the global callback variable (will be set to NULL after call)
+  JsVar *argument1,      //!< JsVar to pass as argument (will be freed)
+  JsVar *argument2       //!< JsVar to pass as argument (will be freed)
 );
 
 // A callback function to be invoked on a disconnect response.
@@ -162,6 +161,10 @@ static char *authModeToString(wifi_auth_mode_t authMode) {
     case WIFI_AUTH_WPA_PSK: return "wpa";
     case WIFI_AUTH_WPA2_PSK: return "wpa2";
     case WIFI_AUTH_WPA_WPA2_PSK: return "wpa_wpa2";
+#if ESP_IDF_VERSION_MAJOR>=4
+    case WIFI_AUTH_WPA3_PSK: return "wpa3";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "wpa2_wpa3";
+#endif
     default:  return "unknown";
   }
 }
@@ -257,7 +260,7 @@ const char *wifiEventToString(int e) {
     case WIFI_EVENT_AP_START: return "AP_START";
     case WIFI_EVENT_AP_STOP: return "AP_STOP";
     case WIFI_EVENT_MAX: return "MAX";
-    case WIFI_REASON_IE_IN_4WAY_DIFFERS: return "IEs in 4-way handshake differ";
+    case WIFI_EVENT_HOME_CHANNEL_CHANGE: return "HOME_CHANNEL_CHANGE";
     default: return "unknown";
   }
 }
@@ -297,6 +300,53 @@ static char *wifiEventToString(uint32_t event){
   }
 }
 #endif
+
+// Convert an IP address to a string. Returns 0 on failure
+JsVar *ipToString(const ip_addr_t *ipAddr) {
+  if (!ipAddr) return jsvNewNull();
+  if (IP_IS_V4(ipAddr)) {
+    const ip4_addr_t *ip4 = ip_2_ip4(ipAddr);
+    return networkGetAddressAsString((uint8_t *)&ip4->addr, 4, 10, '.');
+#if CONFIG_LWIP_IPV6
+  } else if (IP_IS_V6(ipAddr)) {
+    return jsvVarPrintf(IPV6STR,IPV62STR(ipAddr->u_addr.ip6));
+  }
+  return jsvVarPrintf("[UNKNOWN %d]", ipAddr->type);
+#else
+  }
+  return jsvVarPrintf("[UNKNOWN]");
+#endif
+
+}
+#if ESP_IDF_VERSION_MAJOR >= 4
+JsVar *espipToString(const esp_ip_addr_t *ipAddr) {
+  assert(sizeof(ip_addr_t) == sizeof(esp_ip_addr_t)); // these are actually the same
+  return ipToString((const ip_addr_t*)ipAddr);
+}
+#endif
+
+// Convert a string to an IP address. Returns false on failure
+bool stringToIP(ip_addr_t *ipAddr, const char *str) {
+  if (!str) return false;
+#if CONFIG_LWIP_IPV6
+  const char *s = str;
+  while (*s && *s!=':' && *s!='.') s++;
+  char separator = *s;
+  if (separator=='.') {
+    ipAddr->type = IPADDR_TYPE_V4;
+    ipAddr->u_addr.ip4.addr = networkParseIPv4Address(str);
+    return true;
+  } else if (separator==':') {
+    ipAddr->type = IPADDR_TYPE_V6;
+    // FIXME
+    assert(0);
+    return false;
+  }
+#else
+  ((ip4_addr_t*)ipAddr)->addr = networkParseIPv4Address(str);
+#endif
+  return false;
+}
 
 /// convert WiFi error to a string value.
 static char *wifiErrorToString(esp_err_t err){
@@ -455,7 +505,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
       if (g_jsGotIpCallback) {
         /* If we were connecting, g_jsGotIpCallback is set. If we fail (eg this event is fired) then we
         should call the callback with the first argument as the error */
-        sendWifiCompletionCB(&g_jsGotIpCallback, wifiReasonToString(disconnected->reason));
+        queueWifiCallbackAndUnLock(&g_jsGotIpCallback, jsvNewFromString(wifiReasonToString(disconnected->reason)), NULL);
       }
       stopWifiIfIdle();
     }
@@ -480,6 +530,11 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
     sprintf(temp, "%d", connected->channel);
     jsvObjectSetStringChild(jsDetails, "channel", temp);
     sendWifiEvent("#onassociated", jsDetails);
+
+#if ESP_IDF_VERSION_MAJOR>=5 && CONFIG_LWIP_IPV6
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_create_ip6_linklocal(netif); // IPv6 startup
+#endif
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -503,30 +558,48 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
     g_isStaStarted = false;
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
-  if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+  if (event_base == IP_EVENT && (event_id == IP_EVENT_STA_GOT_IP || event_id==IP_EVENT_GOT_IP6)) {
     ip_event_got_ip_t* ipevent = (ip_event_got_ip_t*)event_data;
 #else
   if (event->event_id == SYSTEM_EVENT_STA_GOT_IP) {
     system_event_sta_got_ip_t *ipevent = &event->event_info.got_ip;
 #endif
-    sendWifiCompletionCB(&g_jsGotIpCallback, NULL);
     JsVar *jsDetails = jsvNewObject();
-    char temp[16]; // max: "xxx.xxx.xxx.xxx\0"
-    sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.ip));
-    jsvObjectSetStringChild(jsDetails, "ip", temp);
-    sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.netmask));
-    jsvObjectSetStringChild(jsDetails, "netmask", temp);
-    sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.gw));
-    jsvObjectSetStringChild(jsDetails, "gw", temp);
+    char temp[40]; // max: "xxx.xxx.xxx.xxx\0"
+#if ESP_IDF_VERSION_MAJOR>=5 && CONFIG_LWIP_IPV6
+    if (event_id == IP_EVENT_GOT_IP6) {
+      ip_event_got_ip6_t* ip6event = (ip_event_got_ip6_t*)event_data;
+      esp_ip6_addr_t ip = ip6event->ip6_info.ip;
+      jsvObjectSetChildAndUnLock(jsDetails, "ip", jsvVarPrintf(IPV6STR,IPV62STR(ip)));
+      jsvObjectSetBoolChild(jsDetails, "ipv6", true);
+      // DNS may not be set on some routers - default to Google IPv6
+      ip_addr_t dns_v6;
+      dns_v6.type = IPADDR_TYPE_V6;
+      // 2001:4860:4860::8888 (Google IPv6 DNS)
+      IP6_ADDR(&dns_v6.u_addr.ip6, 0x20014860, 0x48600000, 0x00000000, 0x00008888); //FIXME: is this the correct encoding, or is byte order wrong?
+      dns_setserver(0, &dns_v6);
+    } else
+#endif
+    {
+      sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.ip));
+      jsvObjectSetStringChild(jsDetails, "ip", temp);
+      sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.netmask));
+      jsvObjectSetStringChild(jsDetails, "netmask", temp);
+      sprintf(temp, IPSTR, IP2STR(&ipevent->ip_info.gw));
+      jsvObjectSetStringChild(jsDetails, "gw", temp);
+    }
     jsDebug(DBG_INFO, "Wifi: About to emit connect!\n");
     sendWifiEvent("#onconnected", jsDetails);
+    queueWifiCallbackAndUnLock(&g_jsGotIpCallback, jsvNewNull(), jsDetails);
     // start mDNS
-    const char * hostname;
+    const char * hostname = NULL;
 #if ESP_IDF_VERSION_MAJOR>=5
-    esp_err_t err = esp_netif_get_hostname(sta_netif, &hostname);
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_err_t err = esp_netif_get_hostname(netif, &hostname);
 #else
     esp_err_t err = tcpip_adapter_get_hostname(TCPIP_ADAPTER_IF_STA, &hostname);
 #endif
+    if (err) hostname = NULL;
     if (hostname && hostname[0] != 0) {
       startMDNS(hostname);
     }
@@ -543,6 +616,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
     sprintf(temp, MACSTR, MAC2STR(sta_connected->mac));
     jsvObjectSetStringChild(jsDetails, "mac", temp);
     sendWifiEvent("#onsta_joined", jsDetails);
+    jsvUnLock(jsDetails);
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
@@ -556,6 +630,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
     sprintf(temp, MACSTR, MAC2STR(sta_disconnected->mac));
     jsvObjectSetStringChild(jsDetails, "mac", temp);
     sendWifiEvent("#onsta_left", jsDetails);
+    jsvUnLock(jsDetails);
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
@@ -575,7 +650,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
 #endif
     // Called when we have started being an access point.
     g_isAPStarted = true;
-    sendWifiCompletionCB(&g_jsAPStartedCallback, NULL);
+    queueWifiCallbackAndUnLock(&g_jsAPStartedCallback, jsvNewNull(), NULL);
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STOP) {
@@ -587,7 +662,7 @@ static esp_err_t event_handler(void *ctx, system_event_t *event) {
     stopWifiIfIdle();
   } else
 #if ESP_IDF_VERSION_MAJOR>=5
-    jsDebug(DBG_INFO, "Wifi: event_handler -> NOT HANDLED EVENT: %d\n", event_id );
+    jsDebug(DBG_INFO, "Wifi: event_handler -> NOT HANDLED EVENT: %d:%d\n", event_base, event_id );
 #else
     jsDebug(DBG_INFO, "Wifi: event_handler -> NOT HANDLED EVENT: %d\n", event->event_id );
 #endif
@@ -617,6 +692,7 @@ void esp32_wifi_init() {
 #if ESP_IDF_VERSION_MAJOR>=5
   ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, &instance_wifi));
   ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, &instance_ip));
+  ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_GOT_IP6, &wifi_event_handler, NULL, &instance_ip));
   //ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_LOST_IP, &wifi_event_handler, NULL, &instance_lost_ip));
   //ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &wifi_event_handler, NULL, &instance_ap_ip));
 #else
@@ -633,22 +709,20 @@ void esp32_wifi_init() {
  * no error.  Since this occurrence happens a number of times, this helper function takes as input
  * a pointer to a callback function and a parameter.
  */
-static void sendWifiCompletionCB(
-    JsVar **g_jsCallback, //!< Pointer to the global callback variable
-    const char *reason          //!< NULL if successful, error string otherwise
+static void queueWifiCallbackAndUnLock(
+  JsVar **g_jsCallback,  //!< Pointer to the global callback variable (will be set to NULL after call)
+  JsVar *argument1,      //!< JsVar to pass as argument (will be freed)
+  JsVar *argument2       //!< JsVar to pass as argument (will be freed)
 ) {
-  jsDebug(DBG_INFO, "sendWifiCompletionCB\n");
+  jsDebug(DBG_INFO, "queueWifiCallbackAndUnLock\n");
   // Check that we have a callback function.
   if (!jsvIsFunction(*g_jsCallback)) {
+    jsvUnLock2(argument1, argument2);
     return; // we have not got a function pointer: nothing to do
   }
-
-  JsVar *params[1];
-  params[0] = reason ? jsvNewFromString(reason) : jsvNewNull();
-  jsiQueueEvents(NULL, *g_jsCallback, params, 1);
-  jsvUnLock(params[0]);
-  // unlock and delete the global callback
-  jsvUnLock(*g_jsCallback);
+  JsVar *params[2] = {argument1,argument2};
+  jsiQueueEvents(NULL, *g_jsCallback, params, argument2?2:1);
+  jsvUnLock3(argument1, argument2, *g_jsCallback); // unlock and delete the global callback
   *g_jsCallback = NULL;
 }
 
@@ -758,6 +832,7 @@ void jswrap_wifi_connect(
 
   // Create SSID string
   char ssid[33];
+  memset(ssid, 0, sizeof(ssid));
   jsvGetString(jsSsid, ssid, sizeof(ssid)-1);
 
   // Make sure jsOptions is NULL or an object
@@ -784,6 +859,7 @@ void jswrap_wifi_connect(
 
   // Get the optional password
   char password[65];
+  bool allChannels = false;
   memset(password, 0, sizeof(password));
   if (jsOptions != NULL) {
     JsVar *jsPassword = jsvObjectGetChildIfExists(jsOptions, "password");
@@ -798,6 +874,7 @@ void jswrap_wifi_connect(
       password[0] = '\0';
     }
     jsvUnLock(jsPassword);
+    allChannels = jsvObjectGetBoolChild(jsOptions, "allChannels");
   }
   jsDebug(DBG_INFO, "jswrap_wifi_connect: SSID '%s', password '%s', Callback done\n", ssid, password);
 
@@ -844,6 +921,9 @@ void jswrap_wifi_connect(
   memcpy(staConfig.sta.ssid, ssid, sizeof(staConfig.sta.ssid));
   memcpy(staConfig.sta.password, password, sizeof(staConfig.sta.password));
   staConfig.sta.bssid_set = false;
+  staConfig.sta.scan_method = allChannels ? WIFI_ALL_CHANNEL_SCAN : WIFI_FAST_SCAN; // force a full scan
+  staConfig.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL; // default
+  // .threshold.rssi/.threshold.authmode set as 0 - these are then ignored
 #if !(ESP_IDF_VERSION_MAJOR>=4)
   esp_wifi_set_auto_connect(true);
   jsDebug(DBG_INFO, "jswrap_wifi_connect: esp_wifi_set_autoconnect done\n");
@@ -889,7 +969,7 @@ void jswrap_wifi_connect(
   // A stopped station connects from STA_START; an already started station connects above.
 }
 
-void jswrap_wifi_scan(JsVar *jsCallback) {
+void jswrap_wifi_scan(JsVar *jsCallback, JsVar *jsOptions) {
   // If we have a saved scan callback function we must be scanning already
   if (g_jsScanCallback != NULL) {
     jsExceptionHere(JSET_ERROR, "A scan is already in progress");
@@ -900,6 +980,12 @@ void jswrap_wifi_scan(JsVar *jsCallback) {
   if (!jsvIsFunction(jsCallback)) {
     EXPECT_CB_EXCEPTION(jsCallback);
     return;
+  }
+
+  bool isActive = true; // default
+  if (jsvIsObject(jsOptions)) {
+    if (jsvObjectGetBoolChild(jsOptions, "passive"))
+      isActive = false;
   }
 
   // We need to be in some kind of a station mode in order to perform a scan
@@ -951,7 +1037,8 @@ void jswrap_wifi_scan(JsVar *jsCallback) {
   wifi_scan_config_t scanConf = {
      .ssid = NULL,
      .bssid = NULL,
-     .channel = 0,
+     .channel = 0, // all channels
+     .scan_type = isActive ? WIFI_SCAN_TYPE_ACTIVE : WIFI_SCAN_TYPE_PASSIVE, // WIFI_SCAN_TYPE_ACTIVE is the default
      .show_hidden = true
   };
   err = esp_wifi_scan_start(&scanConf, false); // Don't block for scan.
@@ -1008,7 +1095,6 @@ void jswrap_wifi_startAP(
   apConfig.authmode        = WIFI_AUTH_OPEN;
   apConfig.max_connection  = 4;
   apConfig.ssid_len        = (uint8_t)jsvGetString(jsSsid, (char *)apConfig.ssid, sizeof(apConfig.ssid));
-  apConfig.authmode        = WIFI_AUTH_OPEN;
   strcpy(apConfig.password, "");
 
   if (jsvIsObject(jsOptions)) {
@@ -1396,7 +1482,10 @@ void jswrap_wifi_restore(void) {
   jsDebug(DBG_INFO, "jswrap_wifi_restore\n");
 
 #if CONFIG_IDF_TARGET_ESP32C3
-  esp_wifi_set_max_tx_power(34); // 8.5dBm
+  /* This was done to stop cheap supermini devices blowing themselves up,
+  but I believe all the superminis being produced now are fine, and the broken
+  ones seem to fail eventually regardless.  */
+  esp_wifi_set_max_tx_power(66); // 16.5dBm (default is 20 - the max)
 #endif
 
   JsVar *name = jsvNewFromString(WIFI_CONFIG_STORAGE_NAME);
@@ -1505,11 +1594,11 @@ static JsVar *getIPInfo(JsVar *jsCallback, int interface) {
   );
   esp_netif_ip_info_t ipInfo;
   esp_err_t err = (netif) ? esp_netif_get_ip_info(netif, &ipInfo) : ESP_FAIL;
+  // FIXME use esp_netif_get_all_ip6 here and return ipv6 address if we have it?
 #else
   tcpip_adapter_ip_info_t ipInfo;
   esp_err_t err = tcpip_adapter_get_ip_info(interface, &ipInfo);
 #endif
-
   if (err == ESP_OK) {
     jsvObjectSetChildAndUnLock(jsIpInfo, "ip",
       networkGetAddressAsString((uint8_t*)&ipInfo.ip, 4, 10, '.'));
@@ -1602,51 +1691,51 @@ static uint8_t g_seq_no;
 #if ESP_IDF_VERSION_MAJOR >= 5
 // Helper function to build the Espruino JS object from IDF5 profiles
 static void emit_espruino_ping_event(esp_ping_handle_t hdl, uint32_t elapsed_time) {
-    if (g_jsPingCallback == NULL) return;
+  jsDebug(DBG_INFO, "espruino_ping_event\n");
+  if (g_jsPingCallback == NULL) return;
 
-    uint32_t transmitted = 0;
-    uint32_t received = 0;
-    uint32_t total_time_ms = 0;
-    uint32_t bytes_received = 0;
+  uint32_t transmitted = 0;
+  uint32_t received = 0;
+  uint32_t total_time_ms = 0;
+  uint32_t bytes_received = 0;
 
-    esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &transmitted, sizeof(transmitted));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &bytes_received, sizeof(bytes_received));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &transmitted, sizeof(transmitted));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
+  esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &bytes_received, sizeof(bytes_received));
 
-    JsVar *jsPingResponse = jsvNewObject();
-    
-    jsvObjectSetIntChild(jsPingResponse, "totalCount", transmitted);
-    jsvObjectSetIntChild(jsPingResponse, "totalBytes", received * bytes_received); 
-    jsvObjectSetIntChild(jsPingResponse, "totalTime", total_time_ms);
-    jsvObjectSetIntChild(jsPingResponse, "respTime", elapsed_time);
-    jsvObjectSetIntChild(jsPingResponse, "seqNo", ++g_seq_no);
-    jsvObjectSetIntChild(jsPingResponse, "timeoutCount", (transmitted > received) ? (transmitted - received) : 0);
-    jsvObjectSetIntChild(jsPingResponse, "bytes", bytes_received);
-    jsvObjectSetIntChild(jsPingResponse, "error", (transmitted > received) ? (transmitted - received) : 0);
+  JsVar *jsPingResponse = jsvNewObject();
 
-    JsVar *params[1];
-    params[0] = jsPingResponse;
-    jsiQueueEvents(NULL, g_jsPingCallback, params, 1);
+  jsvObjectSetIntChild(jsPingResponse, "totalCount", transmitted);
+  jsvObjectSetIntChild(jsPingResponse, "totalBytes", received * bytes_received);
+  jsvObjectSetIntChild(jsPingResponse, "totalTime", total_time_ms);
+  jsvObjectSetIntChild(jsPingResponse, "respTime", elapsed_time);
+  jsvObjectSetIntChild(jsPingResponse, "seqNo", ++g_seq_no);
+  jsvObjectSetIntChild(jsPingResponse, "timeoutCount", (transmitted > received) ? (transmitted - received) : 0);
+  jsvObjectSetIntChild(jsPingResponse, "bytes", bytes_received);
+  jsvObjectSetIntChild(jsPingResponse, "error", (transmitted > received) ? (transmitted - received) : 0);
 
-    jsvUnLock(jsPingResponse);
+  JsVar *params[1];
+  params[0] = jsPingResponse;
+  jsiQueueEvents(NULL, g_jsPingCallback, params, 1);
+  jsvUnLock(jsPingResponse);
 }
 
 // IDF v5 Callback: Executed on successful ICMP Echo Reply
 static void esp5_ping_on_success(esp_ping_handle_t hdl, void *args) {
-    uint32_t elapsed_time = 0;
-    esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed_time, sizeof(elapsed_time));
-    emit_espruino_ping_event(hdl, elapsed_time);
+  uint32_t elapsed_time = 0;
+  esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed_time, sizeof(elapsed_time));
+  emit_espruino_ping_event(hdl, elapsed_time);
 }
 
 // IDF v5 Callback: Executed if a packet drops or times out
 static void esp5_ping_on_timeout(esp_ping_handle_t hdl, void *args) {
-    emit_espruino_ping_event(hdl, 0); 
+  emit_espruino_ping_event(hdl, 0);
 }
 
 // IDF v5 Callback: Executed when 'ping_count' runs out or session stops
 static void esp5_ping_on_end(esp_ping_handle_t hdl, void *args) {
-    esp_ping_delete_session(hdl);
+  esp_ping_delete_session(hdl);
 }
 #else
 esp_err_t pingResults(ping_target_id_t msgType, esp_ping_found * pingResp){
@@ -1674,25 +1763,23 @@ esp_err_t pingResults(ping_target_id_t msgType, esp_ping_found * pingResp){
 #endif
 
 void jswrap_wifi_ping(
-    JsVar *ipAddr,      //!< A string or integer representation of an IP address.
+    JsVar *ipAddr,      //!< A string representation of an IP address.
     JsVar *pingCallback //!< Optional callback function.
 ) {
   // If the parameter is a string, get the IP address from the string representation.
-  ip4_addr_t ip;
+  ip_addr_t ip;
   if (jsvIsString(ipAddr)) {
-    char ipString[20];
+    char ipString[40];
     jsvGetString(ipAddr, ipString, sizeof(ipString)-1);
-    ip.addr = networkParseIPAddress(ipString);
-    if (ip.addr == 0) {
-      jsExceptionHere(JSET_ERROR, "Not a valid IP address");
+    if (!stringToIP(&ip, ipString)) {
+      jsExceptionHere(JSET_ERROR, "%q not a valid IP address", ipAddr);
       return;
     }
-  } else if (jsvIsInt(ipAddr)) { // If the parameter is an integer, treat it as an IP address.
-    ip.addr = jsvGetInteger(ipAddr);
   } else { // Invalid parameter type
-    jsExceptionHere(JSET_ERROR, "IP address must be string or integer");
+    jsExceptionHere(JSET_ERROR, "IP address must be string");
     return;
   }
+  jsDebug(DBG_INFO, "jswrap_wifi_ping(%q)\n", ipToString(&ip));
 
   // Validate and handle the callback binding
   if (jsvIsUndefined(pingCallback) || jsvIsNull(pingCallback)) {
@@ -1721,25 +1808,14 @@ void jswrap_wifi_ping(
   esp_ping_set_target(PING_TARGET_IP_ADDRESS_COUNT, &ping_count, sizeof(uint32_t));
   esp_ping_set_target(PING_TARGET_RCV_TIMEO, &ping_timeout, sizeof(uint32_t));
   esp_ping_set_target(PING_TARGET_DELAY_TIME, &ping_delay, sizeof(uint32_t));
-  esp_ping_set_target(PING_TARGET_IP_ADDRESS, &ip.addr, sizeof(uint32_t));
+  esp_ping_set_target(PING_TARGET_IP_ADDRESS, &ip.u_addr.ip4, sizeof(uint32_t));
   esp_ping_set_target(PING_TARGET_RES_FN, &pingResults, sizeof(pingResults));
   g_seq_no = 0;
   ping_init();
 #else
   esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
-  
-  // Create a clean LwIP container and map the parsed IPv4 address to it safely
-  ip_addr_t ping_target;
-  memset(&ping_target, 0, sizeof(ip_addr_t));
-#if defined(ip_addr_set_ip4val)
-  ip4_addr_t lwip_ip = { .addr = ip.addr };
-  ip_addr_set_ip4val(&ping_target, &lwip_ip);
-#else
-  // Native macro/struct copy assignment abstraction fallback
-  ping_target.addr = ip.addr; 
-#endif
   // Assign the target container cleanly to the session configuration
-  ping_config.target_addr = ping_target;
+  ping_config.target_addr = ip;
   ping_config.count = ping_count;
   ping_config.timeout_ms = ping_timeout;
   ping_config.interval_ms = ping_delay;
@@ -1796,27 +1872,14 @@ void jswrap_wifi_setSNTP(JsVar *jsServer, JsVar *jsZone) {
  * Invoke the callback function to inform the caller that a hostname has been converted to
  * an IP address.  The callback function should take a parameter that is the IP address.
  */
-
 static void dnsFoundCallback(
     const char *hostname,    //!< The hostname that was converted to an IP address.
     const ip_addr_t *ipAddr, //!< The ip address retrieved.  This may be 0.
     void *arg                //!< Parameter passed in from espconn_gethostbyname.
   ) {
 
-  jsDebug(DBG_INFO, "Wifi.getHostByName CB - %s %x\n", hostname, ipAddr );
-  if (g_jsHostByNameCallback != NULL) {
-    JsVar *params[1];
-    if (ipAddr && IP_IS_V4(ipAddr)) {
-      ip4_addr_t *ip4 = ip_2_ip4(ipAddr);
-      params[0] = networkGetAddressAsString((uint8_t *)&ip4->addr, 4, 10, '.');
-    } else {
-      params[0] = jsvNewNull();
-    }
-    jsiQueueEvents(NULL, g_jsHostByNameCallback, params, 1);
-    jsvUnLock(params[0]);
-    jsvUnLock(g_jsHostByNameCallback);
-    g_jsHostByNameCallback = NULL;
-  }
+  jsDebug(DBG_INFO, "Wifi.getHostByName CB - %s 0x%08x\n", hostname, ipAddr );
+  queueWifiCallbackAndUnLock(&g_jsHostByNameCallback, ipToString(ipAddr), NULL);
 }
 
 void jswrap_wifi_getHostByName(
@@ -1845,20 +1908,15 @@ void jswrap_wifi_getHostByName(
   jsvGetString(jsHostname, hostname, sizeof(hostname));
 
 #if ESP_IDF_VERSION_MAJOR >= 4
-  // IDF 4/5: show current DNS server via ESP‑NETIF
+  // IDF 4/5: show current DNS server via ESP‑NETIF (FIXME: Only do if debug enabled?)
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_dns_info_t dns_info;
     esp_err_t ret = esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &dns_info);
     if (ret == ESP_OK) {
-      if (dns_info.ip.type == IPADDR_TYPE_V4) {
-        uint32_t addr = dns_info.ip.u_addr.ip4.addr;
-        jsDebug(DBG_INFO,"DNS server: %d.%d.%d.%d\n",
-          (addr>>0)&0xff, (addr>>8)&0xff,
-          (addr>>16)&0xff, (addr>>24)&0xff);
-      }
+      jsDebug(DBG_INFO,"DNS server: %v\n", espipToString(&dns_info.ip));
     } else {
-    jsDebug(DBG_INFO, "esp_netif_get_dns_info: %d\n", ret);
-  }
+      jsDebug(DBG_INFO, "esp_netif_get_dns_info: %d\n", ret);
+    }
 #endif
 
   jsDebug(DBG_INFO, "Wifi.getHostByName: %s\n", hostname);
@@ -1909,7 +1967,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
       return;
   }
   jsvGetString(jsIP, ipTmp, sizeof(ipTmp)-1);
-  info.ip.addr = networkParseIPAddress(ipTmp);
+  info.ip.addr = networkParseIPv4Address(ipTmp);
   if ( info.ip.addr  == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid IP address");
     jsvUnLock(jsIP);
@@ -1925,7 +1983,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
       return ;
   }
   jsvGetString(jsGW, ipTmp, sizeof(ipTmp)-1);
-  info.gw.addr = networkParseIPAddress(ipTmp);
+  info.gw.addr = networkParseIPv4Address(ipTmp);
   if (info.gw.addr == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid Gateway address");
     jsvUnLock(jsGW);
@@ -1941,7 +1999,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
       return;
   }
   jsvGetString(jsNM, ipTmp, sizeof(ipTmp)-1);
-  info.netmask.addr = networkParseIPAddress(ipTmp);
+  info.netmask.addr = networkParseIPv4Address(ipTmp);
   if (info.netmask.addr == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid Netmask");
     jsvUnLock(jsNM);

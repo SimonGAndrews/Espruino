@@ -24,6 +24,18 @@
 #include "esp_sleep.h"
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
+#if ESP_IDF_VERSION_MAJOR >= 4
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#else
+#include "esp_spi_flash.h"
+#endif
+#if ESP_IDF_VERSION_MAJOR >= 5
+#include "esp_private/esp_clk.h"
+#else
+#include "esp_clk.h"
+#endif
+
 
 #ifdef ESPR_USE_USB_SERIAL_JTAG
 #include "hal/usb_serial_jtag_ll.h"
@@ -109,40 +121,9 @@ static uint64_t esp32DeepSleepGpioMask(Pin pin) {
   return 1ULL << pinToESP32Pin(pin);
 }
 
-
-/*JSON{
-  "type"     : "staticmethod",
-  "class"    : "ESP32",
-  "ifdef" : "ESP32",
-  "name"     : "deepSleep",
-  "generate" : "jswrap_ESP32_deepSleep",
-  "params"   : [ ["us", "int", "Sleeptime in us"] ]
-}
-Put device in deepsleep state for "us" microseconds.
-*/
-void jswrap_ESP32_deepSleep(int us) {
-  esp_sleep_enable_timer_wakeup((uint64_t)(us));
-  esp_deep_sleep_start(); // This function does not return.
-} // End of jswrap_ESP32_deepSleep
-
-/*JSON{
-  "type"     : "staticmethod",
-  "class"    : "ESP32",
-  "ifdef" : "ESP32",
-  "name"     : "deepSleepExt0",
-  "generate" : "jswrap_ESP32_deepSleep_ext0",
-  "params"   : [
-    ["pin", "pin", "Pin to trigger wakeup"],
-    ["level", "int", "Logic level to trigger"]
-  ]
-}
-Put device in deepsleep state until interrupted by pin "pin".
-On ESP32-C3, valid wakeup pins are GPIO 0–5 (e.g. `D3` for the power button).
-On other ESP32 variants, pins must be [RTC GPIOs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#gpio-summary).
-*/
-void jswrap_ESP32_deepSleep_ext0(Pin pin, int level) {
+void _jswrap_ESP32_deepSleep_ext0(Pin pin, int level) {
   if (!esp32IsValidDeepSleepWakeupPin(pin)) {
-    jsExceptionHere(JSET_ERROR, "Invalid pin");
+    jsExceptionHere(JSET_ERROR, "EXT0: Invalid pin");
     return;
   }
 #ifdef CONFIG_IDF_TARGET_ESP32C3
@@ -150,31 +131,9 @@ void jswrap_ESP32_deepSleep_ext0(Pin pin, int level) {
 #else
   esp_sleep_enable_ext0_wakeup(pinToESP32Pin(pin), level);
 #endif
-  esp_deep_sleep_start(); // This function does not return.
-} // End of jswrap_ESP32_deepSleep_ext0
-
-/*JSON{
-  "type"     : "staticmethod",
-  "class"    : "ESP32",
-  "ifdef" : "ESP32",
-  "name"     : "deepSleepExt1",
-  "generate" : "jswrap_ESP32_deepSleep_ext1",
-  "params"   : [
-    ["pinVar", "JsVar", "Array of Pins to trigger wakeup"],
-    ["mode", "int", "Trigger mode"]
-  ]
 }
-Put device in deepsleep state until interrupted by pins in the "pinVar" array.
-The trigger "mode" determines the pin state which will wake up the device.
-Valid modes are:
 
-* `0: ESP_EXT1_WAKEUP_ALL_LOW` - all nominated pins must be set LOW to trigger wakeup
-* `1: ESP_EXT1_WAKEUP_ANY_HIGH` - any of nominated pins set HIGH will trigger wakeup
-
-On ESP32-C3, valid wakeup pins are GPIO 0–5.
-On other ESP32 variants, pins must be [RTC GPIOs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#gpio-summary).
-*/
-void jswrap_ESP32_deepSleep_ext1(JsVar *pinVar, JsVarInt mode) {
+void _jswrap_ESP32_deepSleep_ext1(JsVar *pinVar, JsVarInt mode) {
   uint64_t pinSum = 0;
   if (jsvIsArray(pinVar)) {
     JsvIterator it;
@@ -183,7 +142,7 @@ void jswrap_ESP32_deepSleep_ext1(JsVar *pinVar, JsVarInt mode) {
       Pin pin = jshGetPinFromVarAndUnLock(jsvIteratorGetValue(&it));
       if (!esp32IsValidDeepSleepWakeupPin(pin)) {
         jsvIteratorFree(&it);
-        jsExceptionHere(JSET_ERROR, "Invalid pin");
+        jsExceptionHere(JSET_ERROR, "EXT1: Invalid pin");
         return;
       }
       pinSum |= esp32DeepSleepGpioMask(pin);
@@ -212,6 +171,104 @@ void jswrap_ESP32_deepSleep_ext1(JsVar *pinVar, JsVarInt mode) {
 #else
   esp_sleep_enable_ext1_wakeup(pinSum, mode);
 #endif
+}
+
+/*JSON{
+  "type"     : "staticmethod",
+  "class"    : "ESP32",
+  "ifdef" : "ESP32",
+  "name"     : "deepSleep",
+  "generate" : "jswrap_ESP32_deepSleep",
+  "params"   : [ ["us", "JsVar", "Sleeptime in us, or an object (see below)"] ]
+}
+Put device in deepsleep state for "us" microseconds. This is the lowest
+power sleep state. When it wakes, it reboots as if powered on again -
+the contents of RAM is lost.
+
+In 2v30 and later `us` can also be an object with the following fields:
+
+```
+{
+  timeout : int,    // timeout to wake IN MILLISECONDS
+  ext0 : pin,       // pin to wake on ext0
+  ext0Level : bool, // pin level to wake on - default=true (high)
+  ext1 : pin | [pin,pin,pin,...],  // pin(s) to wake on ext1
+  ext1Level : bool, // pin level to wake on - default=true
+                    // true = at least one pin high to wake
+                    // false = all pins must be low to wake
+}
+```
+
+On ESP32-C3, valid wakeup pins are GPIO 0–5 (e.g. `D3` for the power button).
+On other ESP32 variants, pins must be [RTC GPIOs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#gpio-summary).
+
+On 2v29 and earlier firmwares `us` was 32 bits, so delays of much over 35 minutes would roll over and not wake the device. This is now fixed.
+*/
+void jswrap_ESP32_deepSleep(JsVar *us) {
+  if (jsvIsObject(us)) {
+    JsVar *v;
+    v = jsvObjectGetChildIfExists(us, "timeout");
+    if (v) esp_sleep_enable_timer_wakeup((uint64_t)(jsvGetLongInteger(v)*1000));
+    jsvUnLock(v);
+    v = jsvObjectGetChildIfExists(us, "ext0");
+    if (jsvIsPin(v)) {
+      _jswrap_ESP32_deepSleep_ext0(jshGetPinFromVar(v), jsvObjectGetIntegerChildOr(us, "ext0Level", 1)!=0);
+    } else if (v) jsExceptionHere(JSET_ERROR, "Expecting pin, got %j", v);
+    jsvUnLock(v);
+    v = jsvObjectGetChildIfExists(us, "ext1");
+    if (jsvIsPin(v) || jsvIsArray(v)) {
+      _jswrap_ESP32_deepSleep_ext1(v, jsvObjectGetIntegerChildOr(us, "ext1Level", 1));
+    } else if (v) jsExceptionHere(JSET_ERROR, "Expecting pin or array, got %j", v);
+    jsvUnLock(v);
+  } else {
+    esp_sleep_enable_timer_wakeup((uint64_t)jsvGetLongInteger(us));
+  }
+  esp_deep_sleep_start(); // This function does not return.
+} // End of jswrap_ESP32_deepSleep
+
+/*JSON{
+  "type"     : "staticmethod",
+  "class"    : "ESP32",
+  "ifdef" : "ESP32",
+  "name"     : "deepSleepExt0",
+  "generate" : "jswrap_ESP32_deepSleep_ext0",
+  "params"   : [
+    ["pin", "pin", "Pin to trigger wakeup"],
+    ["level", "int", "Logic level to trigger"]
+  ]
+}
+Put device in deepsleep state until interrupted by pin "pin".
+On ESP32-C3, valid wakeup pins are GPIO 0–5 (e.g. `D3` for the power button).
+On other ESP32 variants, pins must be [RTC GPIOs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#gpio-summary).
+*/
+void jswrap_ESP32_deepSleep_ext0(Pin pin, int level) {
+  _jswrap_ESP32_deepSleep_ext0(pin, level);
+  esp_deep_sleep_start(); // This function does not return.
+} // End of jswrap_ESP32_deepSleep_ext0
+
+/*JSON{
+  "type"     : "staticmethod",
+  "class"    : "ESP32",
+  "ifdef" : "ESP32",
+  "name"     : "deepSleepExt1",
+  "generate" : "jswrap_ESP32_deepSleep_ext1",
+  "params"   : [
+    ["pinVar", "JsVar", "Array of Pins to trigger wakeup"],
+    ["mode", "int", "Trigger mode"]
+  ]
+}
+Put device in deepsleep state until interrupted by pins in the "pinVar" array.
+The trigger "mode" determines the pin state which will wake up the device.
+Valid modes are:
+
+* `0: ESP_EXT1_WAKEUP_ALL_LOW` - all nominated pins must be set LOW to trigger wakeup
+* `1: ESP_EXT1_WAKEUP_ANY_HIGH` - any of nominated pins set HIGH will trigger wakeup
+
+On ESP32-C3, valid wakeup pins are GPIO 0–5.
+On other ESP32 variants, pins must be [RTC GPIOs](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#gpio-summary).
+*/
+void jswrap_ESP32_deepSleep_ext1(JsVar *pinVar, JsVarInt mode) {
+  _jswrap_ESP32_deepSleep_ext1(pinVar, mode);
   esp_deep_sleep_start(); // This function does not return.
 } // End of jswrap_ESP32_deepSleep_ext1
 
@@ -358,18 +415,51 @@ following fields:
 * `BLE` - Status of BLE, enabled if true.
 * `Wifi` - Status of Wifi, enabled if true.
 * `minHeap` - Minimum heap, calculated by heap_caps_get_minimum_free_size
+* `psramSize`- Total PSRAM Size (in Bytes)
+* `model` - The SoC model name (e.g. esp32, esp32s3, esp32c3)
+* `cores` - Number of CPU cores available on the silicon chip
+* `revision` - Silicon revision version number
+* `flashSize` - Total physical flash chip capacity in bytes
+* `embeddedFlash` - True if flash memory is embedded within the SoC die
 * `largestBlock` - Maximum block size that can be allocated (due to fragmentation)
 
 */
 JsVar *jswrap_ESP32_getState() {
   // Create a new variable and populate it with the properties of the ESP32 that we
   // wish to return.
+  esp_chip_info_t chip_info;
+  esp_chip_info(&chip_info);
+
+  uint32_t flash_size = 0;
+
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_err_t flash_err = esp_flash_get_size(NULL, &flash_size);
+  if (flash_err != ESP_OK) {
+    flash_size = 0;
+  }
+#else
+  flash_size = spi_flash_get_chip_size();
+#endif
+
+  bool is_emb_flash = (chip_info.features & CHIP_FEATURE_EMB_FLASH) != 0;
+
+  size_t psram_size = 0;
+  multi_heap_info_t psram_info;
+  heap_caps_get_info(&psram_info, MALLOC_CAP_SPIRAM);
+  psram_size = psram_info.total_free_bytes + psram_info.total_allocated_bytes;
+
   JsVar *esp32State = jsvNewObject();
   jsvObjectSetStringChild(esp32State, "sdkVersion", esp_get_idf_version());
   jsvObjectSetIntChild(esp32State, "freeHeap", esp_get_free_heap_size());
   jsvObjectSetBoolChild(esp32State, "BLE", ESP32_Get_NVS_Status(ESP_NETWORK_BLE));
   jsvObjectSetBoolChild(esp32State, "Wifi", ESP32_Get_NVS_Status(ESP_NETWORK_WIFI));
-  jsvObjectSetIntChild(esp32State, "minHeap", heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+  jsvObjectSetIntChild(esp32State, "minHeap", (JsVarInt)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+  jsvObjectSetIntChild(esp32State, "psramSize", (JsVarInt)psram_size);
+  jsvObjectSetStringChild(esp32State, "model", CONFIG_IDF_TARGET);
+  jsvObjectSetIntChild(esp32State, "cores", chip_info.cores);
+  jsvObjectSetIntChild(esp32State, "revision", chip_info.revision);
+  jsvObjectSetIntChild(esp32State, "flashSize", flash_size);
+  jsvObjectSetBoolChild(esp32State, "embeddedFlash", is_emb_flash);
   jsvObjectSetIntChild(esp32State, "largestBlock", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   return esp32State;
 } // End of jswrap_ESP32_getState

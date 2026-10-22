@@ -406,7 +406,7 @@ void jswrap_wifi_connect(
           char buffer[50];
           jsvGetString(jsCurrentDNSServer, buffer, sizeof(buffer)-1);
           jsvUnLock(jsCurrentDNSServer);
-          dnsAddresses[0].addr = networkParseIPAddress(buffer);
+          dnsAddresses[0].addr = networkParseIPv4Address(buffer);
         }
         if (numDNSServers > 1) {
           // Two servers
@@ -415,7 +415,7 @@ void jswrap_wifi_connect(
           char buffer[50];
           jsvGetString(jsCurrentDNSServer, buffer, sizeof(buffer)-1);
           jsvUnLock(jsCurrentDNSServer);
-          dnsAddresses[1].addr = networkParseIPAddress(buffer);
+          dnsAddresses[1].addr = networkParseIPv4Address(buffer);
         }
         if (numDNSServers > 2) {
           DBG("Ignoring DNS servers after first 2.");
@@ -1292,21 +1292,13 @@ void jswrap_wifi_ping(
   if (jsvIsString(ipAddr)) {
     char ipString[20];
     jsvGetString(ipAddr, ipString, sizeof(ipString)-1);
-    pingOpt.ip = networkParseIPAddress(ipString);
+    pingOpt.ip = networkParseIPv4Address(ipString);
     if (pingOpt.ip == 0) {
         jsExceptionHere(JSET_ERROR, "Not a valid IP address");
       return;
     }
-  } else
-  // If the parameter is an integer, treat it as an IP address.
-  if (jsvIsInt(ipAddr)) {
-    pingOpt.ip = jsvGetInteger(ipAddr);
-  } else
-  // The parameter was neither a string nor an IP address and hence we don't
-  // know how to get the IP address of the partner to ping so throw an
-  // exception.
-  {
-      jsExceptionHere(JSET_ERROR, "IP address must be string or integer");
+  } else {
+      jsExceptionHere(JSET_ERROR, "IP address must be string");
     return;
   }
 
@@ -1390,7 +1382,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
   }
   jsvGetString(jsIP, ipTmp, sizeof(ipTmp)-1);
   //DBG(">> ip: %s\n",ipTmp);
-  info.ip.addr = networkParseIPAddress(ipTmp);
+  info.ip.addr = networkParseIPv4Address(ipTmp);
   if ( info.ip.addr  == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid IP address");
     jsvUnLock(jsIP);
@@ -1407,7 +1399,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
   }
   jsvGetString(jsGW, ipTmp, sizeof(ipTmp)-1);
   //DBG(">> gw: %s\n",ipTmp);
-  info.gw.addr = networkParseIPAddress(ipTmp);
+  info.gw.addr = networkParseIPv4Address(ipTmp);
   if (info.gw.addr == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid Gateway address");
     jsvUnLock(jsGW);
@@ -1424,7 +1416,7 @@ static void setIP(JsVar *jsSettings, JsVar *jsCallback, int interface) {
   }
   jsvGetString(jsNM, ipTmp, sizeof(ipTmp)-1);
   //DBG(">> netmask: %s\n",ipTmp);
-  info.netmask.addr = networkParseIPAddress(ipTmp);
+  info.netmask.addr = networkParseIPv4Address(ipTmp);
   if (info.netmask.addr == 0) {
     jsExceptionHere(JSET_ERROR, "Not a valid Netmask");
     jsvUnLock(jsNM);

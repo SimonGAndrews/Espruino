@@ -53,6 +53,8 @@ info = {
      'BLUETOOTH',
      'NET',
      'GRAPHICS',
+#     'CRYPTO','SHA256','SHA512',
+#     'AES','AES_CCM',
      'LCD_MEMLCD',
      'JIT' # JIT compiler enabled
    ],
@@ -160,6 +162,10 @@ devices = { # 'V' pins are virtual
   'SPEAKER' : {
             'pin' : 'B8',
             'pin_en' : 'V7'
+  },
+  'MIC' : {
+            'pin' : 'B12',
+            'pin_en' : 'B11'
   },
   'ACCEL' : {
             'device' : 'LSM6DSOTR', 'addr' : 106,
