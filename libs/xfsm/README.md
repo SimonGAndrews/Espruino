@@ -16,8 +16,8 @@ spawned actors are not included.
 
 Profile 2 retains the completed Profile 1 behavior and limits while adding the
 qualified history-state contract. It uses frozen private Native Format Version
-2. Profile 1 and its frozen Format Version 1 remain available on the
-`feature/xfsm-profile1` branch.
+2. Profile 1 and its frozen Format Version 1 remain documented as the smaller
+baseline without history states.
 
 Applications load the built-in module with `require("XFSM")`. The engine is
 selected by adding `XFSM` to a board's `info.build.libraries` list, which makes
@@ -43,7 +43,7 @@ categorized configuration and runtime errors. Selected aliases are accepted
 to ease migration from older XState machine definitions.
 
 The detailed source of truth for supported syntax and behaviour is the
-[Xstate-fsm-c Profile 2 specification](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/feature/xfsm-profile2/projects/Xstate-fsm-c/docs/specification-profile-2.md).
+[XFSM Profile 2 specification](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/specification-profile-2.md).
 
 ## Implementation Map
 
@@ -61,8 +61,8 @@ The implementation is split by responsibility:
   and deterministic fault injection. They are absent from the normal API.
 
 The project documentation includes separate diagrams of
-[memory ownership](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/memory-ownership.md)
-and [memory lifetime](https://github.com/SimonGAndrews/XState-Espruino-Project/blob/main/projects/Xstate-fsm-c/docs/memory-lifetime.md).
+[memory ownership](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-ownership.md)
+and [memory lifetime](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-lifetime.md).
 
 ### Compiler Flow
 
@@ -236,7 +236,8 @@ device-specific whole-interpreter hibernation lifecycle. They are intentionally
 excluded from the Linux and CI suite because the first test writes a saved
 image, performs a hardware reboot, resumes through `E.on("init")`, and then
 uses `reset(true)` to erase the image. Run them in that order with the paced
-physical-device procedure documented by the Xstate-fsm-c project.
+physical-device procedure in the
+[XFSM device-testing guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/esp32-device-testing.md).
 
 ### Physical Application Integration Test
 
@@ -247,8 +248,8 @@ Espruino `Storage`, a native guard, bound native GPIO actions, timer-driven
 event ingress, subscriptions, and callback-fault rollback. It also removes its
 temporary Storage module and leaves `LED1` low before reporting completion.
 
-Run it with the paced physical-device procedure documented by the
-Xstate-fsm-c project:
+Run it with the paced physical-device procedure in the
+[XFSM device-testing guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/esp32-device-testing.md):
 
 ```text
 libs/xfsm/tests/test_host_application.js
