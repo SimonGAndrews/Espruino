@@ -456,7 +456,7 @@ static void xfcThrowFailure(XfcCompiler *compiler) {
 
 static bool xfcStringEquals(JsVar *left, JsVar *right) {
   return left && right && jsvIsString(left) && jsvIsString(right) &&
-         jsvCompareString(left, right, 0, 0, false) == 0;
+         jsvCompareString(left, right, 0, 0, false, false) == 0;
 }
 
 static bool xfcIncrement(XfcCompiler *compiler, uint32_t *value,
