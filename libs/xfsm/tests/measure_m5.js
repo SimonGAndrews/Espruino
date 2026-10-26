@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* M5 resource and timing harness. Requires XFC_MEASURE=1. */
 echo(false);
 print("TEST=xfsm_m5_resource_timing");

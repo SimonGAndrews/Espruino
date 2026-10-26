@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-CONFIG-004: complete state-node and initial-transition grammar. */
 (function () {
   var XFSM = require("XFSM");

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 // Run the ESP32-C3 radio-service workload against a preloaded XFSM actor.
 
 (function () {

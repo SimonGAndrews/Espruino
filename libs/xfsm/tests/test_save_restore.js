@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 echo(false);
 var XFSM = require("XFSM");
 var Storage = require("Storage");

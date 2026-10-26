@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-TRANS-005: remaining event and guard contract. */
 (function () {
   var XFSM = require("XFSM");

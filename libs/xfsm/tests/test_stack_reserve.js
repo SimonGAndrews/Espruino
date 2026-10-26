@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* Build with XFC_STACK_RESERVE=2000000 to exercise the pre-operation guard. */
 var XFSM = require("XFSM");
 var machine = XFSM.createMachine({

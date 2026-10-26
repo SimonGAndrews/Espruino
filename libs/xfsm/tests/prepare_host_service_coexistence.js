@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 // Preload an XFSM actor before the larger radio-service role is evaluated.
 
 (function () {

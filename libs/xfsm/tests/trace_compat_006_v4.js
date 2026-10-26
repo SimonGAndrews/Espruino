@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-COMPAT-006: pinned XState 4.38.3 migration differential. */
 (function () {
   var XFSM = require("XFSM");

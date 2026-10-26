@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* M5 on-device GC and relocation check. */
 echo(false);
 print("TEST=xfsm_m5_gc_relocation");

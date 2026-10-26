@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-SNAP-002: complete snapshot, matches, cache and lazy contract. */
 (function () {
   var XFSM = require("XFSM");

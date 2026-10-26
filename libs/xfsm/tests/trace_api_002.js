@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-API-002: negative public surface and private-brand rejection. */
 (function () {
   var XFSM = require("XFSM");

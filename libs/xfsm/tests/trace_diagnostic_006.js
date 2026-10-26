@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-DIAG-006: diagnostic categories, paths, types and rollback. */
 (function () {
   var XFSM = require("XFSM");

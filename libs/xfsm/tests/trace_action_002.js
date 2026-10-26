@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* XFC-CF-ACTION-002: action/guard forms and callback contract. */
 (function () {
   var XFSM = require("XFSM");

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* Compact depth-32 resource harness. Requires XFC_MEASURE=1. */
 echo(false);
 print("TEST=xfsm_post_m6_depth");

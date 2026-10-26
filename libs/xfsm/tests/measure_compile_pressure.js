@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 /* Action-heavy depth-32 compiler resource harness. Requires XFC_MEASURE=1. */
 echo(false);
 print("TEST=xfsm_compile_pressure");

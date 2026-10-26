@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 echo(false);
 var Storage = require("Storage");
 var phaseFile = "xfc_save_phase";
