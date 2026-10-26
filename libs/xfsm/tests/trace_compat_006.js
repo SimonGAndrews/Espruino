@@ -23,6 +23,9 @@
     };
   }
 
+  /* XFC_PHYSICAL_BODY */
+
+  (function () {
   var basicNotifications = [];
   var basic = XFSM.createActor(XFSM.createMachine({
     initial: { target: "Idle", actions: action("initial") },
@@ -50,7 +53,10 @@
   basic.stop();
   basic = undefined;
   basicNotifications = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var selection = [];
   var selectionActor = XFSM.createActor(XFSM.createMachine({
     initial: "Parent",
@@ -105,7 +111,10 @@
   selectionActor.stop();
   selectionActor = undefined;
   selection = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var suppliedEvent = { type: "UPDATE", payload: 7 };
   var seenEvent;
   var ordered = [];
@@ -146,7 +155,10 @@
   suppliedEvent = undefined;
   seenEvent = undefined;
   ordered = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var factorySequence = 0;
   var factoryMachine = XFSM.createMachine({
     context: function () { return { count: ++factorySequence, nested: {} }; },
@@ -165,7 +177,10 @@
   factoryA = undefined;
   factoryB = undefined;
   factoryMachine = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var selfTrace = [];
   function selfMark(name) {
     return function (context, event) {
@@ -196,7 +211,10 @@
     selfTrace.join("|"), "targetless|preserve|exit|reenter|entry");
   selfActor = undefined;
   selfTrace = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var hierarchyTrace = [];
   function hierarchyMark(name) {
     return function (context, event) {
@@ -243,7 +261,10 @@
   hierarchy.stop();
   hierarchy = undefined;
   hierarchyTrace = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var completionTrace = [];
   function completionMark(name) {
     return function (context, event) {
@@ -284,7 +305,10 @@
   completion.stop();
   completion = undefined;
   completionTrace = undefined;
+  })();
+  process.memory();
 
+  (function () {
   var dotted = XFSM.createActor(XFSM.createMachine({
     initial: "Parent",
     states: {
@@ -307,21 +331,26 @@
   dotted.stop();
   dotted = undefined;
   dottedSnapshot = undefined;
+  })();
+  process.memory();
 
+  /* XFC_PHYSICAL_SPLIT */
+  (function () {
   var depthActions = 0;
+  function countDepthAction() { depthActions++; }
   var depthLeaf = {
     id: "deepLeaf",
-    entry: function () { depthActions++; },
-    exit: function () { depthActions++; },
-    on: { RESET: { target: "#deep.L1", actions: function () { depthActions++; } } }
+    entry: countDepthAction,
+    exit: countDepthAction,
+    on: { RESET: { target: "#deep.L1", actions: countDepthAction } }
   };
   var depth;
   for (depth = 31; depth >= 1; depth--) {
     var child = "L" + (depth + 1);
     var parent = {
       initial: child,
-      entry: function () { depthActions++; },
-      exit: function () { depthActions++; },
+      entry: countDepthAction,
+      exit: countDepthAction,
       states: {}
     };
     parent.states[child] = depthLeaf;
@@ -337,6 +366,7 @@
   deep.send({ type: "RESET" });
   XFCTrace.assert("depth 32 least-common-ancestor action count",
     depthActions === 65, depthActions, 65);
+  })();
 
   XFCTrace.finish();
 })();
