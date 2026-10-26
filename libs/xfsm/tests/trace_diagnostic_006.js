@@ -35,6 +35,8 @@
   XFCTrace.begin("XFC-CF-DIAG-006",
     "diagnostic categories, paths, types and rollback", "profile-internal");
 
+  /* XFC_PHYSICAL_BODY */
+
   expect("configuration type", function () {
     XFSM.createMachine(null);
   }, "E_CONFIG_TYPE", "config", false);
@@ -84,9 +86,13 @@
       initial: "A", states: { A: { on: { GO: { guard: "missing" } } } }
     });
   }, "E_GUARD_UNRESOLVED", "config.states.A.on.GO.guard", false);
+
   expect("representation limit", function () {
     XFSM.createMachine(nested(33));
   }, "E_LIMIT_EXCEEDED", "config.states.S1", false);
+
+  /* XFC_PHYSICAL_SPLIT */
+
   expect("array path and first error", function () {
     XFSM.createMachine({
       initial: "A", states: { A: { entry: [1, 2] } }
