@@ -72,13 +72,13 @@
   }, "E_MACHINE_INVALID", "createActor.machine", TypeError);
   expectError("actor receiver rejected", function () {
     actor.start.call({});
-  }, "E_ACTOR_INVALID", "actor.start", TypeError);
+  }, "E_ACTOR_INVALID", "actor.start.this", TypeError);
   expectError("snapshot receiver rejected", function () {
     snapshot.matches.call({}, "Idle");
-  }, "E_RECEIVER_INVALID", "snapshot.matches", TypeError);
+  }, "E_RECEIVER_INVALID", "snapshot.matches.this", TypeError);
   expectError("subscription receiver rejected", function () {
     subscription.unsubscribe.call({});
-  }, "E_RECEIVER_INVALID", "subscription.unsubscribe", TypeError);
+  }, "E_RECEIVER_INVALID", "subscription.unsubscribe.this", TypeError);
 
   var forgedAssignment = {};
   forgedAssignment["\xFFxfcB"] = "XFAD1";

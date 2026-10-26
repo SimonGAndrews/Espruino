@@ -205,7 +205,7 @@ static bool xfcSetProperty(JsVar *object, const char *name, JsVar *value) {
 }
 
 static void xfcActorInvalid(const char *method) {
-  jsExceptionHere(JSET_TYPEERROR, "XFC E_ACTOR_INVALID @ actor.%s", method);
+  jsExceptionHere(JSET_TYPEERROR, "XFC E_ACTOR_INVALID @ actor.%s.this", method);
 }
 
 static void xfcReceiverInvalid(const char *path) {
@@ -1929,7 +1929,7 @@ static void xfcSubscriptionUnsubscribe(JsVar *subscription) {
   JsVar *subscriptions = 0;
   if (!xfcHasBrand(subscription, XFC_SUBSCRIPTION_BRAND_NAME,
                    XFC_ROOT_SUBSCRIPTION_TOKEN)) {
-    xfcReceiverInvalid("subscription.unsubscribe");
+    xfcReceiverInvalid("subscription.unsubscribe.this");
     return;
   }
   actor = jsvObjectGetChildIfExists(subscription,
@@ -2003,7 +2003,7 @@ static bool xfcSnapshotMatches(JsVar *snapshot, JsVar *value) {
   bool matches = false;
   if (!xfcHasBrand(snapshot, XFC_SNAPSHOT_BRAND_NAME,
                    XFC_ROOT_SNAPSHOT_TOKEN)) {
-    xfcReceiverInvalid("snapshot.matches");
+    xfcReceiverInvalid("snapshot.matches.this");
     return false;
   }
   machine = jsvObjectGetChildIfExists(snapshot, XFC_SNAPSHOT_MACHINE_NAME);
