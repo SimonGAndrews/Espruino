@@ -38,7 +38,7 @@ function readOutput(pin) {
 
 function removeCachedModule() {
   if (Modules.getCached().indexOf(moduleName) >= 0)
-    Modules.removeCached(moduleName);
+    Modules.removeAllCached();
 }
 
 function finish() {
