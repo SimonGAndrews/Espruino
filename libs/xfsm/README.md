@@ -1,395 +1,31 @@
 # XFSM
 
-## Purpose
-
 XFSM is an optional native hierarchical state-machine engine for Espruino. It
-provides a compact, deterministic subset of XState-style statecharts for
-embedded control applications while keeping the compiled machine structure
-and execution coordinator in native C.
-
-The current supported feature set is **Profile 2**. It covers machines with one
-active state branch, including nested states, events, guards, actions, context
-data, final states, completion transitions, and one shallow- or deep-history
-node per compound owner. It is deliberately smaller than complete XState:
-parallel states, delayed and eventless transitions, invoked services, and
-spawned actors are not included.
-
-Profile 2 retains the completed Profile 1 behavior and limits while adding the
-qualified history-state contract. It uses frozen private Native Format Version
-2. Profile 1 and its frozen Format Version 1 remain documented as the smaller
-baseline without history states.
-
-Applications load the built-in module with `require("XFSM")`. The engine is
-selected by adding `XFSM` to a board's `info.build.libraries` list, which makes
-Espruino's board processing set `USE_XFSM=1` and include this directory's
-wrapper and engine sources. The XFSM development workflow selects
-`USE_XFSM=1` explicitly for continuous integration; it does not add XFSM to
-any stock board definition.
-
-## Current Implementation
-
-The current implementation exposes `require("XFSM")` with working
-`createMachine`, `assign`, and `createActor` entry points. `createMachine()`
-validates the JavaScript definition and compiles it into a compact native
-representation. `createActor()` creates an independent running instance with
-its own current state, context, lifecycle, snapshots, and subscriptions;
-multiple actors can share the same compiled machine.
-
-The implemented behaviour includes nested state entry, hierarchical event
-handling, guards, ordered actions and context assignments, wildcard events,
-relative and ID-based transition targets, explicit state re-entry, final
-states, completion transitions, stable snapshots, subscriptions, and
-categorized configuration and runtime errors. Selected aliases are accepted
-to ease migration from older XState machine definitions.
-
-The detailed source of truth for supported syntax and behaviour is the
-[XFSM Profile 2 specification](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/specification-profile-2.md).
-
-## Implementation Map
-
-The implementation is split by responsibility:
-
-- `jswrap_xfsm.c` defines the Espruino module surface and forwards calls into
-  the engine.
-- `xfsm_compile.c` validates JavaScript configuration and compiles it into an
-  immutable machine data block plus its JavaScript functions and values.
-- `xfsm_native.h` defines the compiled data format; `xfsm_native.c` checks its
-  offsets, ranges, indexes, byte order, and padding before it is used.
-- `xfsm_runtime.c` owns actor lifecycle, transition selection, ordered action
-  execution, context publication, snapshots, and subscriptions.
-- `xfsm_measure.c` and `xfsm_test.c` provide build-only resource measurement
-  and deterministic fault injection. They are absent from the normal API.
-
-The project documentation includes separate diagrams of
-[memory ownership](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-ownership.md)
-and [memory lifetime](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-lifetime.md).
-
-### Compiler Flow
-
-`createMachine()` checks the XState configuration and implementation options,
-indexes the state hierarchy, resolves state targets, and collects the
-JavaScript values that the machine must retain. A first pass counts the native
-records and string bytes. A second pass writes them into one exact-sized
-compiled data block. The machine object is returned only after that block has
-passed the native-format checks; a failure releases all temporary values and
-returns no partial machine.
-
-### Actor Operation Flow
-
-When `start()`, `send()`, or `stop()` has work to perform, it opens the actor and
-its compiled machine data and marks the actor busy. The runtime then selects
-and executes transitions using state indexes and bounded parent walks. Actions
-and assignments run in their declared order, followed by completion transitions
-where required. Once the operation is stable, the runtime makes the new state,
-context, and snapshot visible and then calls subscribers. Action, guard,
-context-factory, or runtime allocation failures during these operations put the
-actor into its terminal error state.
-
-## How to Exercise XFSM
-
-This section is for developers building or verifying the library. Run these
-commands from the root of the Espruino repository. Readers using firmware that
-already includes XFSM can continue to the [Quick Start](#quick-start).
-
-The existing Espruino Linux build produces the host executable `bin/espruino`,
-which includes a `--test` option. This option loads and runs the named
-JavaScript file inside that Espruino interpreter, then returns a process exit
-status suitable for automated testing. These commands therefore exercise the
-native XFSM implementation through its JavaScript API without requiring a
-physical board.
-
-### Linux JavaScript Test Suite
-
-Build an XFSM-enabled Linux interpreter and run the JavaScript test suite with:
-
-```bash
-make clean
-make USE_XFSM=1
-bin/espruino --test libs/xfsm/tests/test_shell.js
-bin/espruino --test libs/xfsm/tests/test_compile.js
-bin/espruino --test libs/xfsm/tests/test_diagnostics.js
-bin/espruino --test libs/xfsm/tests/test_runtime.js
-bin/espruino --test libs/xfsm/tests/test_completion.js
-bin/espruino --test libs/xfsm/tests/test_completion_cascade.js
-bin/espruino --test libs/xfsm/tests/test_targets.js
-bin/espruino --test libs/xfsm/tests/test_events_migration.js
-bin/espruino --test libs/xfsm/tests/test_profile1_diagnostics.js
-bin/espruino --test libs/xfsm/tests/test_context_ownership.js
-bin/espruino --test libs/xfsm/tests/test_assign_forms.js
-bin/espruino --test libs/xfsm/tests/test_context_diagnostics.js
-bin/espruino --test libs/xfsm/tests/test_transition_domains.js
-bin/espruino --test libs/xfsm/tests/test_transition_depth.js
-bin/espruino --test libs/xfsm/tests/test_lifecycle_complete.js
-bin/espruino --test libs/xfsm/tests/test_subscriber_complete.js
-bin/espruino --test libs/xfsm/tests/test_cross_actor_gc.js
-bin/espruino --test libs/xfsm/tests/test_runtime_errors.js
-bin/espruino --test libs/xfsm/tests/test_subscriptions.js
-bin/espruino --test libs/xfsm/tests/test_strict_validation.js
-bin/espruino --test libs/xfsm/tests/test_strict_validation_embedded.js
-bin/espruino --test libs/xfsm/tests/test_limits.js
-bin/espruino --test libs/xfsm/tests/test_history.js
-bin/espruino --test libs/xfsm/tests/test_history_embedded.js
-bin/espruino --test libs/xfsm/tests/test_history_diagnostics.js
-bin/espruino --test libs/xfsm/tests/test_deep_history.js
-```
-
-`test_limits.js` creates event strings at the 65,535-byte boundary and is a
-Linux-host test. Constrained targets exercise their applicable depth and
-microstep boundaries with target-sized fixtures instead. The compact
-`test_strict_validation_embedded.js` corpus is intended for constrained
-physical targets whose JavaScript test heap cannot hold the full validation
-suite and all of its source fixtures at once.
-
-`test_history_embedded.js` provides target-sized shallow-history semantic
-coverage. It uses independently collectable scopes so several compiled test
-machines are not retained at once.
-
-`test_deep_history.js` uses the same target-sized structure for exact nested
-restoration, fallback, nested owners, final completion, and rollback.
-
-Measurement builds can run `measure_deep_history.js` to compare otherwise
-identical shallow and deep machines without including the general history
-feature delta. Normal production builds can run
-`measure_deep_history_timing.js` for a matched repeated restore benchmark.
-
-### Canonical Conformance Traces
-
-Portable conformance cases use a versioned newline-delimited JSON trace. Each
-record is printed as the operation is observed, so a physical target does not
-need to retain the complete trace in RAM. The host runner composes the common
-JavaScript harness with a case, runs it in the Linux Espruino interpreter, and
-compares the resulting records with a reviewed baseline while ignoring object
-property order:
-
-```bash
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_api_002.js \
-  libs/xfsm/tests/expected/api_002.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_config_004.js \
-  libs/xfsm/tests/expected/config_004.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_config_005.js \
-  libs/xfsm/tests/expected/config_005.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_action_002.js \
-  libs/xfsm/tests/expected/action_002.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_snapshot_002.js \
-  libs/xfsm/tests/expected/snapshot_002.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_transition_005.js \
-  libs/xfsm/tests/expected/transition_005.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_diagnostic_006.js \
-  libs/xfsm/tests/expected/diagnostic_006.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_compat_006.js \
-  libs/xfsm/tests/expected/compat_006.ndjson
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_compat_006_v4.js \
-  libs/xfsm/tests/expected/compat_006_v4.ndjson
-```
-
-The two `COMPAT-006` traces are generated independently by the pinned XState
-5.33.2 and 4.38.3 reference models in the specification repository. They cover
-shared statechart semantics and the retained v4 migration aliases respectively.
-
-The runner never updates an accepted trace. A changed trace must be reviewed
-and edited explicitly. To create the identical JavaScript artifact for the
-paced physical-device runner, use:
-
-```bash
-python3 libs/xfsm/tests/run_trace_test.py \
-  libs/xfsm/tests/trace_api_002.js \
-  --compose-output /tmp/xfsm-api-002.js \
-  --compose-done-marker
-```
-
-After the paced serial runner captures its output, compare the noisy transcript
-with the accepted trace using `--observed-output <transcript>`. The comparator
-extracts, validates and canonicalizes only `xfc.trace` records; transport and
-REPL text are ignored.
-
-### Allocation-Failure Tests
-
-Deterministic allocation failures use a private test-only build. The
-`XFSM._failNext(...)` method is available only when `XFC_TEST=1`; it is absent
-from normal firmware and is not part of the public API.
-
-```bash
-make clean
-make USE_XFSM=1 XFC_TEST=1
-bin/espruino --test libs/xfsm/tests/test_fault_injection.js
-```
-
-Constrained physical targets may instead run
-`test_fault_injection_embedded.js`. It covers representative compiler, actor,
-startup, assignment, publication, snapshot, and subscription allocation seams
-in sequential scopes so the test graph does not itself exhaust the target's
-JsVar pool. The complete fault-seam matrix remains a Linux-host requirement.
-
-### Whole-Interpreter Save And Reset Tests
-
-`test_save_restore.js` and `test_reset_lifecycle.js` exercise Espruino's
-device-specific whole-interpreter hibernation lifecycle. They are intentionally
-excluded from the Linux and CI suite because the first test writes a saved
-image, performs a hardware reboot, resumes through `E.on("init")`, and then
-uses `reset(true)` to erase the image. Run them in that order with the paced
-physical-device procedure in the
-[XFSM device-testing guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/esp32-device-testing.md).
-
-### Physical Application Integration Test
-
-`test_host_application.js` is an original-ESP32 physical test and is not part
-of the Linux suite. It exercises an application-shaped machine using an
-outer-scope action, a retained closure, action and guard functions loaded from
-Espruino `Storage`, a native guard, bound native GPIO actions, timer-driven
-event ingress, subscriptions, and callback-fault rollback. It also removes its
-temporary Storage module and leaves `LED1` low before reporting completion.
-
-Run it with the paced physical-device procedure in the
-[XFSM device-testing guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/esp32-device-testing.md):
-
-```text
-libs/xfsm/tests/test_host_application.js
-```
-
-`test_host_memory_cleanup.js` repeatedly exercises shared machines, concurrent
-actors, subscriptions, snapshots, garbage-collector relocation, ordinary
-cleanup, repeated construction, and faulted-actor cleanup against a warmed
-production-firmware memory baseline. `test_host_event_serialization.js`
-confirms that a normally dispatched Espruino timer callback runs only after a
-long synchronous sequence of actor sends has completed and published.
-
-### ESP32-C3 Wireless-Service Coexistence Test
-
-`prepare_host_service_coexistence.js` and
-`test_host_service_coexistence.js` are physical ESP32-C3 fixtures. The first
-compiles and starts an XFSM service coordinator containing a depth-24 branch;
-the HTTPS-completion event traverses that branch and executes 49 ordered
-entry, transition, and exit actions. The second keeps a BLE GATT connection
-active while the C3 associates with WiFi and performs a TLS 1.2 HTTP request,
-then verifies that XFSM reached its final state and BLE remained usable.
-
-The service role is loaded from Espruino `Storage` by the external two-board
-bench runner. This avoids retaining the large REPL input expression while the
-already-compiled machine is live; it does not save the program or alter the
-XFSM execution path. The runner erases its temporary Storage file during
-cleanup. Bench configuration, credentials, the controlled HTTPS endpoint, and
-the peer GATT role belong to the external ESP32 test bench rather than this
-implementation repository.
-
-### Resource Measurements
-
-Flash, memory, stack, and execution-time measurements use a separate
-instrumented build. The two private measurement methods in that build are
-absent from normal firmware and are not part of the public API:
-
-```bash
-make clean
-make USE_XFSM=1 XFC_MEASURE=1
-bin/espruino --test libs/xfsm/tests/measure_m5.js
-bin/espruino --test libs/xfsm/tests/measure_m5_completion.js
-bin/espruino --test libs/xfsm/tests/measure_post_m6.js
-bin/espruino --test libs/xfsm/tests/measure_post_m6_depth.js
-bin/espruino --test libs/xfsm/tests/measure_compile_pressure.js
-bin/espruino --test libs/xfsm/tests/measure_deep_history.js
-```
-
-The production-safe `measure_deep_history_timing.js` benchmark does not use
-the private measurement API and runs against an ordinary `USE_XFSM=1` build.
-
-`measure_post_m6.js` uses a feature-rich Profile 1 fixture to report the
-compiled arena, retained bindings, persistent machine and actor records,
-snapshot and subscription costs, sampled runtime allocation peaks, coordinator
-stack, and ESP32 heap state when available.
-`measure_post_m6_depth.js` is a compact depth-32 harness used to distinguish
-the engine's construction requirement from the JavaScript memory occupied by
-larger all-in-one embedded test programs.
-`measure_compile_pressure.js` adds actions to the depth-32 model and reports
-compiler peak allocation and construction time for constrained-target checks.
-
-### Stack Reserve Test
-
-When `start()`, `send()`, or `stop()` is called, XFSM enters its native
-**execution coordinator**. The coordinator performs event lookup, evaluates
-guards, runs actions, follows the state hierarchy, and processes any completion
-transitions until the actor reaches a stable state.
-
-The temporary C stack space used while that work is in progress is referred to
-as the **XFSM coordinator frame**. It holds the operation's working data, such
-as the current event, active and pending state indexes, hierarchy traversal,
-action progress, and completion-step count. This memory exists only for the
-duration of the synchronous call; it is separate from the compiled machine and
-the actor data retained between calls.
-
-Before beginning an operation, XFSM checks that enough C stack space remains
-for this work. The following deliberately oversized build verifies that an
-operation is rejected safely when the required headroom is unavailable:
-
-```bash
-make clean
-make USE_XFSM=1 XFC_STACK_RESERVE=2000000
-bin/espruino --test libs/xfsm/tests/test_stack_reserve.js
-```
-
-Normal builds require 1024 bytes of available space on the processor's native C
-call stack for the XFSM coordinator. This is the stack used while Espruino's
-firmware C functions are executing, not the memory used to store JavaScript
-variables or the machine's context. The requirement is in addition to
-Espruino's 512-byte general C-stack safety allowance. If that space is
-unavailable, the operation fails before changing the actor. A target may
-override the private reserve at compile time by passing the optional Make
-variable `XFC_STACK_RESERVE=<bytes>`. The Makefile converts this to the C
-preprocessor definition `-DXFC_STACK_RESERVE=<bytes>` for the firmware build.
-If the variable is omitted, XFSM uses the 1024-byte default. This is a private
-build setting rather than a JavaScript or runtime option, and it should be
-changed only after measuring the target's actual maximum stack use.
-
-### Native-Format Sanitizer Suite
-
-When application JavaScript calls `createMachine()`, XFSM validates and
-compiles the supplied JavaScript machine configuration at runtime. The result
-is a compact internal C memory representation called the **native format**.
-Actors execute this compiled representation without repeatedly reading the
-original configuration object.
-
-The native-format test suite checks this low-level C representation directly,
-independently of the Espruino JavaScript interpreter. It uses the host C
-compiler with AddressSanitizer and UndefinedBehaviorSanitizer enabled so that
-invalid memory access, memory leaks, and undefined C operations cause the test
-to fail. From the repository root, run:
-
-```bash
-make -C libs/xfsm/tests/native clean test
-```
-
-The adjacent static-contract audit checks the production sources for the
-portable and host-boundary invariants that are not usefully exercised by a
-JavaScript scenario, including prohibited native allocation, recursion,
-variable-length workspaces, mutable production globals, hidden ownership
-names, private branding hooks, and generated-wrapper declarations:
-
-```bash
-python3 libs/xfsm/tests/audit_static_contract.py
-```
-
-The `-C libs/xfsm/tests/native` argument tells Make to run in the native-test
-directory. The `clean` target removes the previous test build, and the `test`
-target rebuilds the C test executable and runs it.
+lets an application define a statechart in JavaScript and run it with a compact
+native C engine.
+
+XFSM uses familiar XState-style machine definitions, actors, events, actions,
+guards, context, and snapshots. The supported feature set is **Profile 2**. It
+is designed for embedded control applications that need predictable behaviour
+and controlled memory use.
+
+This README accompanies the deployable XFSM library source. The source is
+maintained under `xfsm/` in the standalone
+[Espruino-XFSM repository](https://github.com/SimonGAndrews/Espruino-XFSM) and
+exported unchanged to `libs/xfsm/` in an Espruino checkout. Specifications,
+build guidance, qualification evidence, and reusable examples remain in the
+standalone repository.
 
 ## Quick Start
 
-![QuickStart statechart](images/quick-start-statechart.png)
+![Quick Start statechart](images/quick-start-statechart.png)
 
-This example models a device with `idle` and `running` states. `START` moves it
-to `running`, `STOP` returns it to `idle`, and each `PULSE` event increments a
-counter without changing state. The `reportPulse` action runs after the counter
-has been updated.
+This machine has `idle` and `running` states. `START` moves to `running`,
+`STOP` returns to `idle`, and each `PULSE` increments a counter without changing
+state. The `reportPulse` action runs after the counter is updated.
 
-With XFSM enabled in the firmware, define the machine, create an actor from it,
-and start the actor before sending events:
+With XFSM included in the firmware, define a machine, create an actor, and
+start it before sending events:
 
 ```javascript
 var XFSM = require("XFSM");
@@ -449,12 +85,194 @@ subscription.unsubscribe();
 ```
 
 The machine definition describes its states and transitions. Its `context`
-holds application data, while `assign()` produces an action that updates that
-data. Named action and guard functions are supplied in the second argument to
+holds application data. `assign()` creates an action that updates that data.
+Named actions and guards are supplied in the second argument to
 `createMachine()`.
 
-`createMachine()` validates and compiles the definition once. Each
-`createActor()` call then creates an independent execution of that machine.
-`start()`, `send()`, and `stop()` run synchronously. `getSnapshot()` reports
-the actor's stable state and context, and subscribed listeners are called only
-after an operation has completed successfully.
+`createMachine()` checks and compiles the definition once. Each
+`createActor()` call creates an independent running instance. `start()`,
+`send()`, and `stop()` are synchronous. `getSnapshot()` returns the actor's
+stable state and context. Subscribers are called only after an operation
+completes successfully.
+
+## Main API
+
+An application loads XFSM as a built-in Espruino module:
+
+```javascript
+var XFSM = require("XFSM");
+```
+
+### Create a machine
+
+`XFSM.createMachine(definition, implementations)` checks the JavaScript machine
+definition and compiles it into a compact native representation. The optional
+second argument supplies named actions and guards used by the definition.
+
+A machine can be shared by several actors. The definition is compiled once and
+is not changed while those actors run.
+
+### Update context
+
+`XFSM.assign(...)` creates an action that updates the actor's context. Actions
+and assignments run in their declared order. A later action in the same
+operation sees context updates made by an earlier assignment.
+
+### Run an actor
+
+`XFSM.createActor(machine)` creates an actor with its own state, context,
+lifecycle, snapshots, and subscriptions. Use:
+
+- `start()` to enter the initial state;
+- `send(event)` to process an event;
+- `getSnapshot()` to read the stable state and context;
+- `subscribe(listener)` to observe completed operations; and
+- `stop()` to stop the actor.
+
+Several actors can share one compiled machine without sharing their current
+state or context. A failed action, guard, context factory, or runtime allocation
+puts the affected actor into a terminal error state.
+
+## Supported Statecharts
+
+Profile 2 handles one active state branch at a time. It supports:
+
+- nested states and initial child states;
+- string and object events;
+- guarded transitions and ordered fallback selection;
+- entry, exit, and transition actions;
+- ordered context assignments;
+- relative and ID-based transition targets;
+- targetless transitions and explicit state re-entry;
+- wildcard event handlers;
+- final states and completion transitions;
+- stable snapshots and subscriptions; and
+- one shallow or deep history node for each compound state.
+
+Selected aliases are accepted to help migrate older XState machine
+definitions. Parallel states, delayed transitions, eventless transitions,
+invoked services, and spawned actors are not included.
+
+The [Profile 2
+specification](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/specification-profile-2.md)
+defines the supported syntax, limits, error behaviour, and compatibility
+differences. Profile 1 remains documented as the smaller baseline without
+history states.
+
+## Add XFSM to an Espruino Build
+
+To include XFSM in a board build, add `XFSM` to the board's
+`info.build.libraries` list. Espruino then sets `USE_XFSM=1` and includes the
+wrapper and engine sources.
+
+Development builds can select the library directly:
+
+```bash
+make clean
+make USE_XFSM=1
+```
+
+XFSM is not enabled by default in any standard Espruino board definition. The
+[build guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/building.md)
+records the verified Linux and microcontroller build commands. Maintainers
+copy committed library source into Espruino using the
+[integration workflow](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/espruino-integration.md).
+
+## How XFSM Works
+
+Profile 2 uses the private, frozen Native Format Version 2.
+
+`createMachine()` indexes the state hierarchy, resolves transition targets,
+and collects the JavaScript functions and values that the machine must keep.
+The compiler first counts the native records and strings, then writes them into
+one exact-sized data block. XFSM returns the machine only after checking the
+completed block. A failed compilation releases its temporary values and does
+not return a partial machine.
+
+Calls to `start()`, `send()`, and `stop()` use a native execution coordinator.
+It selects transitions by state index, follows parent links where needed, and
+runs actions and completion transitions in order. XFSM publishes the new state,
+context, and snapshot only after the operation reaches a stable state.
+
+The main source files have these roles:
+
+- `jswrap_xfsm.c` defines the Espruino module and forwards calls to the engine.
+- `xfsm_compile.c` checks and compiles JavaScript machine definitions.
+- `xfsm_native.h` defines Native Format Version 2, while `xfsm_native.c` checks
+  the compiled offsets, ranges, indexes, byte order, and padding.
+- `xfsm_runtime.c` manages actors, transitions, actions, context, snapshots,
+  and subscriptions.
+- `xfsm_measure.c` and `xfsm_test.c` provide private measurement and
+  fault-injection support for special test builds.
+
+The [memory ownership
+diagram](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-ownership.md)
+and [memory lifetime
+diagram](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/memory-lifetime.md)
+show how the JavaScript and native data are held during compilation and actor
+operation.
+
+## Test XFSM
+
+Run tests from the root of an Espruino source repository after copying XFSM to
+`libs/xfsm/`. A basic Linux check is:
+
+```bash
+make clean
+make USE_XFSM=1
+bin/espruino --test libs/xfsm/tests/test_shell.js
+```
+
+The complete [build and test
+guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/building.md)
+lists the verified commands and target profiles. The test material under
+`libs/xfsm/tests/` includes:
+
+- JavaScript suites for compilation, runtime behaviour, transitions, context,
+  lifecycle, errors, resource limits, and shallow and deep history;
+- streamed conformance traces compared with reviewed baselines, including
+  pinned XState reference traces;
+- deterministic allocation-failure tests enabled with `XFC_TEST=1`;
+- resource measurements enabled with `XFC_MEASURE=1`; and
+- physical-device tests for save and restore, GPIO, timers, memory cleanup,
+  event scheduling, and wireless-service coexistence.
+
+The native-format sanitizer suite checks the compiled C representation without
+using the Espruino interpreter:
+
+```bash
+make -C libs/xfsm/tests/native clean test
+```
+
+The static audit checks source rules that are difficult to exercise with a
+JavaScript scenario:
+
+```bash
+python3 libs/xfsm/tests/audit_static_contract.py
+```
+
+Physical tests use the procedures in the
+[device-testing guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/esp32-device-testing.md).
+Completed coverage and remaining target work are recorded in the
+[test inventory](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/tests/test-inventory.md)
+and [implementation
+status](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/docs/implementation-status.md).
+
+## Native Stack Requirement
+
+Before `start()`, `send()`, or `stop()` begins, XFSM checks that enough native C
+stack remains for the execution coordinator. Normal builds require at least
+1024 bytes in addition to Espruino's general 512-byte C-stack safety allowance.
+If the space is unavailable, the operation fails before changing the actor.
+
+A measured target can override the private build setting with
+`XFC_STACK_RESERVE=<bytes>`. This is not a JavaScript option and should be
+changed only after measuring the target's maximum stack use.
+
+## Licence
+
+XFSM is licensed under the Mozilla Public License 2.0. See the standalone
+project's [licensing
+guide](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/LICENSING.md)
+and [third-party
+notices](https://github.com/SimonGAndrews/Espruino-XFSM/blob/main/THIRD_PARTY_NOTICES.md).
