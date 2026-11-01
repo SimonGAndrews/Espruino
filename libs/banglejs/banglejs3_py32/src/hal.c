@@ -19,6 +19,8 @@ EXTI_HandleTypeDef hexti_pa0;
 EXTI_HandleTypeDef hexti_pa11;
 EXTI_HandleTypeDef hexti_pa15;
 ADC_HandleTypeDef hadc;
+ADC_ChannelConfTypeDef adcConfigBtn;
+ADC_ChannelConfTypeDef adcConfigIR;
 SPI_HandleTypeDef hspi1;
 DMA_HandleTypeDef hdma_spi1_rx;
 DMA_HandleTypeDef hdma_spi1_tx;
@@ -82,6 +84,7 @@ void APP_GPIO_Config(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.Pin = GPIO_PIN_2|  // AUX IOSwap (0=SWD, 1=GPIO)
                         GPIO_PIN_6|  // LCD Backlight
+                        GPIO_PIN_7| // IR transmit
                         GPIO_PIN_8| // torch
                         GPIO_PIN_9| // aux power
                         GPIO_PIN_10| // touch RST
@@ -89,6 +92,7 @@ void APP_GPIO_Config(void) {
                         GPIO_PIN_13| // RGB en
                         GPIO_PIN_14| // speaker en
                         GPIO_PIN_15; // wifi boot mode
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, 1); // ensure IR is off
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, 0); // reset touchscreen
   HAL_Delay(1);
   Update_Outputs(); // set all to default (including touchscreen reset off)
@@ -270,12 +274,16 @@ void APP_GPIO_Config(void) {
     Fatal_Error("ADC Init");
 
   // Map PB0 (Channel 8) to the Conversion Sequence
-  ADC_ChannelConfTypeDef sConfig = {0};
-  sConfig.Channel      = ADC_CHANNEL_8;                       // Channel 8 = PB0
-  sConfig.Rank         = ADC_REGULAR_RANK_1;             // Basic rank tracking for PY32
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES_5;           // Gives the sample cap time to charge
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  memset(&adcConfigBtn, 0, sizeof(adcConfigBtn));
+  adcConfigBtn.Channel      = ADC_CHANNEL_8;                       // Channel 8 = PB0
+  adcConfigBtn.Rank         = ADC_REGULAR_RANK_1;                 // Basic rank tracking for PY32
+  adcConfigBtn.SamplingTime = ADC_SAMPLETIME_3CYCLES_5;           // Gives the sample cap time to charge
+  if (HAL_ADC_ConfigChannel(&hadc, &adcConfigBtn) != HAL_OK)
     Fatal_Error("ADC Ch Init");
+  memset(&adcConfigIR, 0, sizeof(adcConfigIR));
+  adcConfigIR.Channel      = ADC_CHANNEL_9;                       // Channel 9 = PB1
+  adcConfigIR.Rank         = ADC_REGULAR_RANK_1;                 // Basic rank tracking for PY32
+  adcConfigIR.SamplingTime = ADC_SAMPLETIME_3CYCLES_5;           // Gives the sample cap time to charge
 
   // 5. Run Factory Calibration (Crucial step for PY32 accuracy)
   HAL_ADCEx_Calibration_Start(&hadc);
